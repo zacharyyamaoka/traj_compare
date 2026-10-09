@@ -37,6 +37,28 @@ def _colorize(payload: dict[str, Any]) -> None:
             index += 1
 
 
+def _share_robot_meshes(pages: list[dict[str, Any]]) -> list[str]:
+    """Hoist every distinct link mesh into one report-level library.
+
+    WHY: a factorial study poses the same rig on many comparison pages (one
+    per joint x speed), and each page's payload carries its own encoded
+    triangle soups. Identical soups are stored once and each link keeps an
+    index into ``mesh_library``; colors, opacities and names stay per page.
+    """
+
+    library: list[str] = []
+    index_of: dict[str, int] = {}
+    for page in pages:
+        for model in page.get("robots", []):
+            for link in model["links"]:
+                tris = link["tris"]
+                if tris not in index_of:
+                    index_of[tris] = len(library)
+                    library.append(tris)
+                link["tris"] = index_of[tris]
+    return library
+
+
 def write_comparison_report(
     comparisons: Comparison | list[Comparison],
     output: Path | str,
@@ -84,9 +106,11 @@ def write_comparison_report(
     }
     provenance_text = " · ".join(f"{key}: {value}" for key, value in provenance_entries.items())
 
+    mesh_library = _share_robot_meshes(pages)
     payload = {
         "title": report_title,
         "comparisons": pages,
+        "mesh_library": mesh_library,
         "report_pages": [page.to_payload() for page in report_pages],
     }
     # </script> would end the data block early; escape the slash (legal JSON).

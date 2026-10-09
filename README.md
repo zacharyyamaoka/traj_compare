@@ -67,7 +67,8 @@ canvas corner (TOP/FRONT/RIGHT… snap views); z-up.
 Pass a `RobotDisplay(link_names, link_meshes, link_fk)` as
 `Comparison.robot` and the viewer also poses the robot at the transport time
 for every data-bearing situation. Mesh triangle soups are embedded in the
-report. Each situation's dropdown includes a checked-by-default **Robot /
+report once: identical link meshes posed on many pages (a joint x speed
+study) share one entry of the report-level `mesh_library`. Each situation's dropdown includes a checked-by-default **Robot /
 URDF** option so the matching model is visible by default and can be turned
 off independently; the model inherits that situation's color. A shared
 opacity slider controls all displayed models. Standard robot-trajectory
@@ -144,7 +145,7 @@ or invent conclusions.
 
 ```bash
 cd ~/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_compare
-uv run --extra test pytest -q          # 26 tests
+uv run --extra test pytest -q          # 31 tests
 ```
 
 `tests/test_rotations.py` pins the rotation helpers against scipy;

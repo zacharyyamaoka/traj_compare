@@ -136,6 +136,58 @@ def test_error_statistics_are_automatic_on_each_comparison(tmp_path):
     assert table["rows"][1]["tone"] == "muted"
 
 
+def test_identical_robot_meshes_are_embedded_once_across_comparisons(tmp_path):
+    """One rig posed on many pages ships its triangle soups once.
+
+    Each page keeps its own model (name, per-link color/opacity, poses); only
+    the encoded soups move into ``mesh_library`` and links point into it, so
+    a 12-page factorial study does not embed its CAD meshes 12 times.
+    """
+
+    import base64
+
+    from traj_compare import RobotDisplay
+
+    plate = np.array([[[0, 0, 0], [0.1, 0, 0], [0, 0.1, 0]]], dtype=np.float32)
+    frame = np.array([[[0, 0, 0], [0, 0, 0.2], [0.2, 0, 0]]], dtype=np.float32)
+    other = np.array([[[0, 0, 0], [0.3, 0, 0], [0, 0, 0.3]]], dtype=np.float32)
+
+    def still(q_matrix):
+        return np.tile(np.eye(4), (len(q_matrix), 2, 1, 1))
+
+    def paged(title: str, robot: RobotDisplay) -> Comparison:
+        comparison = small_comparison(title)
+        comparison.robot = robot
+        return comparison
+
+    first = RobotDisplay(["frame", "plate"], [frame, plate], still, link_colors=["#888888", None])
+    second = RobotDisplay(["frame", "plate"], [frame, plate], still, link_colors=[None, "#888888"])
+    third = RobotDisplay(["frame", "other"], [frame, other], still)
+    document = write_comparison_report(
+        [paged("one", first), paged("two", second), paged("three", third)], tmp_path
+    ).read_text("utf-8")
+    payload = extract_payload(document)
+
+    library = payload["mesh_library"]
+    assert len(library) == 3, "frame, plate and other: each distinct soup once"
+    decoded = [
+        np.frombuffer(base64.b64decode(item), dtype="<f4").reshape(-1, 3, 3) for item in library
+    ]
+    expected = ([frame, plate], [frame, plate], [frame, other])
+    for page, meshes in zip(payload["comparisons"], expected, strict=True):
+        (model,) = page["robots"]
+        assert [type(link["tris"]) for link in model["links"]] == [int, int]
+        for link, mesh in zip(model["links"], meshes, strict=True):
+            np.testing.assert_array_equal(decoded[link["tris"]], mesh)
+    # per-page styling survives the sharing
+    colors = [
+        [link["color"] for link in page["robots"][0]["links"]] for page in payload["comparisons"]
+    ]
+    assert colors[:2] == [["#888888", None], [None, "#888888"]]
+    # the viewer resolves the indices before any page is built
+    assert "payload.mesh_library" in document
+
+
 def test_grouped_navigation_and_summary_insight_pages_are_embedded(tmp_path):
     first = small_comparison("Scenario one")
     first.group = "trajectory-a"

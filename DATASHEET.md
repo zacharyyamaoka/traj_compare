@@ -55,13 +55,13 @@ Runtime: `numpy` only. Vendored into the wheel: uPlot 1.6.30, three.js r160
 (`src/traj_compare/assets/VENDORED.md`). Test extra: `pytest`, `scipy`
 (rotation oracle).
 
-## Tests — `uv run --extra test pytest -q` → **29 passed**
+## Tests — `uv run --extra test pytest -q` → **31 passed**
 
 | Test | Proves |
 | --- | --- |
 | `test_rotations.py` (7) | mat→quat/rpy match scipy (incl. near-π), geodesic angles, accumulation, unwrap/align |
 | `test_analysis.py` (15) | arc-length/percent/vec identities on a constant-speed line; pure rotation accumulates RPY path; pct normalized by **target** total; exact error magnitudes for a known offset; null padding beyond a short run's span (no fabricated plateau); derived-channel flagging; empty situation + JSON round trip; joint-only comparisons; NaN → null; robot mesh base64 round-trip + per-link pose tracks; bounded display-only model-track sampling with endpoint preservation; RobotDisplay validation; video passthrough |
-| `test_report.py` (7) | report is self-contained, embeds both libs + data, groups comparison/situation navigation, derives error statistics, serializes Summary/Insights primitives, surfaces torque by default when requested, preserves `</script>` safely, and rejects an empty list |
+| `test_report.py` (9) | report is self-contained, embeds both libs + data, groups comparison/situation navigation, derives error statistics, serializes Summary/Insights primitives, surfaces torque by default when requested, embeds each distinct robot link mesh once per report (`mesh_library`) however many pages pose it, preserves `</script>` safely, and rejects an empty list |
 
 ## Examples
 

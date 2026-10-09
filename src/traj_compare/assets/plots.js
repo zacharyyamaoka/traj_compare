@@ -1089,6 +1089,15 @@ var TrajCompare = (function () {
 
   function boot() {
     var payload = JSON.parse(document.getElementById('traj-compare-data').textContent);
+    // Robot link meshes are stored once per report; links carry an index.
+    var meshLibrary = payload.mesh_library || [];
+    payload.comparisons.forEach(function (data) {
+      (data.robots || []).forEach(function (model) {
+        model.links.forEach(function (link) {
+          if (typeof link.tris === 'number') link.tris = meshLibrary[link.tris];
+        });
+      });
+    });
     state.unit = recall('unit', 'deg');
     state.prefs = makePrefs(payload.title || 'report');
 
