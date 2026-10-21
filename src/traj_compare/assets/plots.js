@@ -11,6 +11,10 @@
  * time that drives the cursor line on every plot, the video players (always
  * seeked together), and the 3D truncation + robot pose.
  *
+ * A "Camera" section stacks a real video and a selectable sim render in one
+ * box (opacity slider, mix/difference blend, flicker toggle); those videos
+ * join the page's video list, so the same transport drives them.
+ *
  * Which plots, which situations, which 3D elements and which units are on is
  * *report-level* state, not page-level: pick a layout once and every scenario
  * tab you switch to shows the same one (see makePrefs / applyShared).
@@ -31,6 +35,7 @@ var TrajCompare = (function () {
     m_s: { label: 'm/s' },
     m_s2: { label: 'm/s²' },
     Nm: { label: 'Nm' },
+    A: { label: 'A' },
     pct: { label: '%' },
     pct_s: { label: '%/s' },
     pct_s2: { label: '%/s²' },
@@ -215,18 +220,23 @@ var TrajCompare = (function () {
     page.cursorDriven = false;
   }
 
+  /* One video follows the trajectory clock. ``entry.t0`` (camera overlays
+     only; 0 for a plain situation video) is the trajectory time shown at
+     video time 0, so the video position is t - t0. */
+  function seekEntry(entry, time, playing) {
+    var video = entry.el;
+    if (!video.duration) return;
+    var clamped = Math.min(video.duration - 0.001, Math.max(0, time - (entry.t0 || 0)));
+    if (playing) {
+      // drift-correct only; constant seeking stutters playback
+      if (Math.abs(video.currentTime - clamped) > 0.12) video.currentTime = clamped;
+    } else {
+      video.currentTime = clamped;
+    }
+  }
+
   function seekVideos(page, time, playing) {
-    page.videos.forEach(function (entry) {
-      var video = entry.el;
-      if (!video.duration) return;
-      var clamped = Math.min(video.duration - 0.001, Math.max(0, time));
-      if (playing) {
-        // drift-correct only; constant seeking stutters playback
-        if (Math.abs(video.currentTime - clamped) > 0.12) video.currentTime = clamped;
-      } else {
-        video.currentTime = clamped;
-      }
-    });
+    page.videos.forEach(function (entry) { seekEntry(entry, time, playing); });
   }
 
   /* A drag fires input events far faster than a decoder can honour seeks, and
@@ -606,6 +616,198 @@ var TrajCompare = (function () {
       'clicking a video plays/pauses them all.');
   }
 
+  /* ---------------- camera overlay: real video + sim render ---------------- */
+
+  var FLICKER_PERIOD_MS = 250;  // real <-> sim swap, i.e. a 2 Hz blink
+
+  function overlayLayer(stack, className) {
+    var video = el('video', className, stack);
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'auto';
+    return { el: video, path: '', failed: false };
+  }
+
+  function overlaySetSource(layer, path) {
+    layer.path = path || '';
+    layer.failed = !path;
+    if (path) {
+      layer.el.src = path;
+    } else {
+      layer.el.removeAttribute('src');
+      layer.el.load();
+    }
+  }
+
+  function overlayControl(parent, labelText) {
+    var group = el('label', 'tc-ovl-ctl', parent);
+    el('span', 'ctl-label', group, labelText);
+    return group;
+  }
+
+  function buildOverlayCard(page, parent, overlay) {
+    var key = 'overlay:' + overlay.name + ':';
+    var card = el('div', 'tc-overlaycard', parent);
+    card.dataset.overlay = overlay.name;
+    var heading = el('div', 'vlabel', card, overlay.name);
+    if (overlay.note) el('span', 'vnote', heading, ' — ' + overlay.note);
+
+    // Real sits underneath at full opacity; only the sim layer carries the
+    // slider. WHY: fading both layers lets the black box show through and
+    // darkens the middle of the slider, and a single opacity makes 0 and 1
+    // exactly "only real" / "only sim" — which is the comparison being made.
+    var stack = el('div', 'tc-ovl-stack', card);
+    var real = overlayLayer(stack, 'tc-ovl-real');
+    var sim = overlayLayer(stack, 'tc-ovl-sim');
+    var missing = el('div', 'tc-ovl-missing', stack);
+    var user = { opacity: 0.5, sim: overlay.sims[0].label, blend: 'normal', flicker: false };
+    var flickerPhase = false;
+    var flickerTimer = null;
+
+    var controls = el('div', 'tc-ovl-controls', card);
+    var opacityGroup = overlayControl(controls, 'Real ◀ ▶ Sim');
+    var slider = el('input', 'tc-ovl-opacity', opacityGroup);
+    slider.type = 'range';
+    slider.min = 0; slider.max = 1; slider.step = 0.01;
+    var opacityOut = el('output', '', opacityGroup);
+    var simGroup = overlayControl(controls, 'Sim');
+    var simSelect = el('select', 'tc-ovl-simsel', simGroup);
+    overlay.sims.forEach(function (entry) {
+      var option = el('option', '', simSelect, entry.label);
+      option.value = entry.label;
+    });
+    simSelect.disabled = overlay.sims.length < 2;
+    var blendGroup = overlayControl(controls, 'Blend');
+    var blendSelect = el('select', 'tc-ovl-blendsel', blendGroup);
+    [['normal', 'Mix (normal)'], ['difference', 'Difference']].forEach(function (pair) {
+      var option = el('option', '', blendSelect, pair[1]);
+      option.value = pair[0];
+    });
+    var flickerChip = el('button', 'chip tc-ovl-flicker', controls, 'Flicker');
+    flickerChip.title = 'alternate real and sim at 2 Hz for a blink comparison';
+
+    function simPath(label) {
+      for (var i = 0; i < overlay.sims.length; i++) {
+        if (overlay.sims[i].label === label) return overlay.sims[i].video;
+      }
+      return overlay.sims[0].video;
+    }
+
+    function paint() {
+      var flicker = user.flicker;
+      sim.el.style.opacity = flicker ? (flickerPhase ? 1 : 0) : user.opacity;
+      // the blend only reads sensibly against a steady layer, so a blink is plain
+      sim.el.style.mixBlendMode = (user.blend === 'difference' && !flicker) ? 'difference' : 'normal';
+      slider.value = user.opacity;
+      slider.disabled = flicker;
+      opacityOut.textContent = user.opacity.toFixed(2);
+      simSelect.value = user.sim;
+      blendSelect.value = user.blend;
+      flickerChip.className = 'chip tc-ovl-flicker ' + (flicker ? 'on' : 'off');
+      card.dataset.flickerPhase = flicker ? (flickerPhase ? 'sim' : 'real') : '';
+      var lines = [];
+      if (real.failed) lines.push('no video — real: ' + (real.path || '(no path)'));
+      if (sim.failed) lines.push('no video — sim: ' + (sim.path || '(no path)'));
+      missing.textContent = lines.join('\n');
+      missing.style.display = lines.length ? '' : 'none';
+      card.classList.toggle('missing', real.failed);
+      real.el.style.visibility = real.failed ? 'hidden' : '';
+      sim.el.style.visibility = sim.failed ? 'hidden' : '';
+    }
+
+    function setFlicker(on) {
+      user.flicker = on;
+      if (flickerTimer !== null) { clearInterval(flickerTimer); flickerTimer = null; }
+      flickerPhase = false;
+      if (on) {
+        flickerTimer = setInterval(function () {
+          flickerPhase = !flickerPhase;
+          paint();
+        }, FLICKER_PERIOD_MS);
+      }
+    }
+
+    // The overlay videos join the page's video list, so seek/play/drag
+    // coalescing is the Videos section's own code, not a copy of it.
+    var realEntry = { sit: { name: 'overlay:' + overlay.name + ':real' }, el: real.el, card: card, t0: overlay.t0_s };
+    var simEntry = { sit: { name: 'overlay:' + overlay.name + ':sim' }, el: sim.el, card: card, t0: overlay.t0_s };
+    page.videos.push(realEntry, simEntry);
+
+    function catchUp(layer, entry) {
+      var transport = page.transport;
+      if (!transport) return;
+      seekEntry(entry, transport.t === null ? transport.tMax : transport.t, false);
+      if (transport.playing) layer.el.play().catch(function () {});
+    }
+    [[real, realEntry], [sim, simEntry]].forEach(function (pair) {
+      var layer = pair[0], entry = pair[1];
+      layer.el.addEventListener('error', function () { layer.failed = true; paint(); });
+      layer.el.addEventListener('loadedmetadata', function () {
+        layer.failed = false;
+        // one box, one aspect: the real stream decides it
+        if (layer === real && layer.el.videoWidth) {
+          stack.style.aspectRatio = layer.el.videoWidth + ' / ' + layer.el.videoHeight;
+        }
+        paint();
+        catchUp(layer, entry);
+      });
+    });
+    stack.addEventListener('click', function () {
+      if (page.transport) page.transport.toggle();
+    });
+
+    slider.addEventListener('input', function () {
+      user.opacity = parseFloat(slider.value);
+      state.prefs.set(key + 'opacity', user.opacity);
+      paint();
+    });
+    simSelect.addEventListener('change', function () {
+      user.sim = simSelect.value;
+      state.prefs.set(key + 'sim', user.sim);
+      overlaySetSource(sim, simPath(user.sim));
+      paint();
+    });
+    blendSelect.addEventListener('change', function () {
+      user.blend = blendSelect.value;
+      state.prefs.set(key + 'blend', user.blend);
+      paint();
+    });
+    flickerChip.onclick = function () {
+      setFlicker(!user.flicker);
+      state.prefs.set(key + 'flicker', user.flicker);
+      paint();
+    };
+
+    // Pull report-level choices (made on another scenario tab, or remembered
+    // from last time) into this card; the sim source reloads only on a change.
+    function applyShared() {
+      user.opacity = Number(state.prefs.get(key + 'opacity', 0.5));
+      user.blend = state.prefs.get(key + 'blend', 'normal') === 'difference' ? 'difference' : 'normal';
+      var wantSim = state.prefs.get(key + 'sim', overlay.sims[0].label);
+      var known = overlay.sims.some(function (entry) { return entry.label === wantSim; });
+      if (!known) wantSim = overlay.sims[0].label;
+      var simChanged = wantSim !== user.sim || !sim.path;
+      user.sim = wantSim;
+      var wantFlicker = !!state.prefs.get(key + 'flicker', false);
+      if (wantFlicker !== user.flicker) setFlicker(wantFlicker);
+      if (simChanged) overlaySetSource(sim, simPath(user.sim));
+      paint();
+    }
+
+    overlaySetSource(real, overlay.real_video);
+    page.overlayCards.push({ overlay: overlay, applyShared: applyShared });
+    applyShared();
+  }
+
+  function cameraBuilder(page, body) {
+    var grid = el('div', 'tc-overlaygrid', body);
+    page.data.overlays.forEach(function (overlay) { buildOverlayCard(page, grid, overlay); });
+    if (page.transport) buildTransportBar(page, body);
+    el('div', 'tc-videonote', body,
+      'The real stream is the base layer; the slider fades the sim render over it ' +
+      '(Difference shows where they disagree). The scrubber drives both, offset by t0.');
+  }
+
   function viewer3dBuilder(page, body) {
     var wrap = el('div', '', body);
     page.viewer3d = Viewer3D.create(page, wrap);
@@ -643,6 +845,9 @@ var TrajCompare = (function () {
     if (data.has_tau) {
       defs.push({ id: 'joint-tau', label: 'Motor / joint τ', on: sectionStartsOn(data, 'joint-tau', false), build: jointSectionBuilder('tau', 'Nm', 'τ') });
     }
+    if (data.has_current) {
+      defs.push({ id: 'joint-current', label: 'Motor current i', on: sectionStartsOn(data, 'joint-current', false), build: jointSectionBuilder('current', 'A', 'i') });
+    }
     var anyErr = data.situations.some(function (sit) { return sit.plot && sit.plot.err_q; });
     if (anyErr) {
       defs.push({ id: 'joint-err', label: 'Joint error', on: sectionStartsOn(data, 'joint-err', false), build: jointErrBuilder });
@@ -652,6 +857,9 @@ var TrajCompare = (function () {
       var anyMag = data.situations.some(function (sit) { return sit.plot && sit.plot.xyz_mag; });
       if (anyMag) defs.push({ id: 'tcp-err', label: 'TCP error', on: sectionStartsOn(data, 'tcp-err', true), build: tcpErrBuilder });
       defs.push({ id: 'path', label: 'Path progress', on: sectionStartsOn(data, 'path', true), build: pathBuilder });
+    }
+    if (data.has_overlay) {
+      defs.push({ id: 'camera', label: 'Camera', on: sectionStartsOn(data, 'camera', true), build: cameraBuilder });
     }
     if (data.has_video) {
       defs.push({ id: 'videos', label: 'Videos', on: sectionStartsOn(data, 'videos', true), build: videosBuilder });
@@ -663,7 +871,7 @@ var TrajCompare = (function () {
   }
 
   // Sections whose plots carry the optional Δ-to-target overlay.
-  var DELTA_SECTIONS = ['joint-q', 'joint-qd', 'joint-qdd', 'joint-tau', 'tcp-pose', 'path'];
+  var DELTA_SECTIONS = ['joint-q', 'joint-qd', 'joint-qdd', 'joint-tau', 'joint-current', 'tcp-pose', 'path'];
 
   function sectionHint(id, data) {
     var hint = '';
@@ -673,9 +881,12 @@ var TrajCompare = (function () {
     }
     if (id === 'tcp-err') hint = 'magnitudes vs target at the same time instant';
     if (id === 'videos') hint = 'always played together, seeked by the scrubber';
+    if (id === 'camera') hint = 'real video under the sim render; both follow the scrubber';
     if (id === 'viewer3d') hint = 'hover any plot to preview that instant; scrub below the canvas';
+    // tau and current are optional on the target; no target trace, no Δ to draw
+    var needs = { 'joint-tau': 'tau', 'joint-current': 'current' }[id];
     var hasTarget = data.situations.some(function (sit) {
-      return sit.role === 'target' && sit.plot;
+      return sit.role === 'target' && sit.plot && (!needs || sit.plot[needs]);
     });
     if (hasTarget && DELTA_SECTIONS.indexOf(id) !== -1) {
       hint += (hint ? ' · ' : '') +
@@ -1011,6 +1222,7 @@ var TrajCompare = (function () {
         var want = state.prefs.get('err:' + entry.sit.name, false);
         if (want !== !!page.errorOn[entry.sit.name]) entry.apply(want, false);
       });
+      page.overlayCards.forEach(function (card) { card.applyShared(); });
       if (page.viewer3d && page.viewer3d.applyShared) page.viewer3d.applyShared();
     };
   }
@@ -1128,6 +1340,7 @@ var TrajCompare = (function () {
         errChips: [],
         errorOn: {},   // situation name -> its Δ-to-target curve is drawn
         videos: [],
+        overlayCards: [],
         visible: {},
         syncing: false,
         cursorDriven: false,

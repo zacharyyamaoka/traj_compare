@@ -240,3 +240,34 @@ footer.tc { padding: 10px 22px 26px; color: #8a8983; font-size: 11.5px; }
 .tc-figure h3 { font-size: 13.5px; margin: 0 0 8px; color: #22211f; }
 .tc-figure img { display: block; max-width: 100%; height: auto; border-radius: 4px; }
 .tc-figure figcaption { color: #8a8983; font-size: 11.5px; margin-top: 6px; max-width: 1050px; }
+
+/* camera overlay: real video with a sim render laid over it */
+/* a card never grows past 760px: one wide card would blow the video up page-wide */
+.tc-overlaygrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 760px));
+                  gap: 12px; }
+.tc-overlaycard { border: 1px solid #e6e5e0; border-radius: 6px; padding: 8px;
+                  background: #fcfcfb; min-width: 0; }
+.tc-overlaycard .vlabel { font-size: 12px; color: #0b0b0b; margin-bottom: 6px; }
+.tc-overlaycard .vlabel .vnote { color: #8a8983; }
+.tc-overlaycard.missing { border-style: dashed; filter: grayscale(1); opacity: 0.7; }
+/* isolation keeps the Difference blend inside the box instead of the page */
+.tc-ovl-stack { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000;
+                border-radius: 4px; overflow: hidden; isolation: isolate; cursor: pointer; }
+.tc-ovl-stack video { position: absolute; inset: 0; width: 100%; height: 100%;
+                      object-fit: contain; }
+.tc-ovl-missing { position: absolute; left: 0; right: 0; bottom: 0; padding: 6px 9px;
+                  background: rgba(30, 30, 28, 0.82); color: #e6e5e0; font-size: 11.5px;
+                  white-space: pre-line; word-break: break-all; z-index: 2; }
+.tc-overlaycard.missing .tc-ovl-missing { top: 0; display: flex; align-items: center;
+                                          justify-content: center; text-align: center;
+                                          background: #3a3a37; }
+.tc-ovl-controls { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center;
+                   margin-top: 8px; }
+.tc-ovl-ctl { display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+              color: #52514e; }
+.tc-ovl-ctl .ctl-label { color: #8a8983; font-size: 11px; text-transform: uppercase;
+                         letter-spacing: 0.04em; }
+.tc-ovl-ctl output { min-width: 32px; color: #0b0b0b; font-variant-numeric: tabular-nums; }
+.tc-ovl-ctl input[type="range"] { width: 150px; accent-color: #2a78d6; }
+.tc-ovl-ctl select { border: 1px solid #cfcec8; background: #fcfcfb; border-radius: 5px;
+                     padding: 2px 6px; font-size: 12px; color: #22211f; }

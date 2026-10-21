@@ -38,11 +38,12 @@ players.
 
 | Section | Channels | Default |
 | --- | --- | --- |
-| Joint q / qd / qdd / τ | per joint, target + every situation overlaid | q on, rest off |
+| Joint q / qd / qdd / τ / i | per joint, target + every situation overlaid; i is motor current in A (`Situation.current`, offered only when a run has it) | q on, rest off |
 | Joint error | per joint, `q − target(t)` | off |
 | TCP pose | x, y, z [m], rx, ry, rz [deg] (extrinsic xyz, unwrapped) | off |
 | TCP error | \|Δp\| [mm], rotation error [deg] vs target at the same instant | on |
 | Path progress | rows path/path_d/path_dd × columns **%** (of target path length), **XYZ** arc length, **RPY** accumulated rotation, **Vec[label]** signed progress along each configured direction | on |
+| Camera | one card per `CameraOverlay` in `Comparison.overlays`: the real video with a selected sim render stacked on top — **Real ◀ ▶ Sim** opacity slider (0 = only real, 1 = only sim), sim-source dropdown, Mix / Difference blend, 2 Hz Flicker; video position = t − `t0_s`; opacity/sim/blend/flicker are report-level prefs; a missing file shows a greyed "no video" card with its path | on |
 | Videos | one card per situation with a `video`, always played/seeked together by the transport | on |
 | 3D paths | interactive three.js viewer — see below | on |
 

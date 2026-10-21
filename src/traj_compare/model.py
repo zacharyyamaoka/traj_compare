@@ -7,7 +7,7 @@ today vs yesterday. A declared-but-empty situation (``t=None``) is legal and
 deliberate: it keeps its legend slot and renders as "no data", so a report
 configured for sim-vs-real still builds when the real run was skipped.
 
-Every array is SI: seconds, radians, meters, Nm. Unit conversion (the
+Every array is SI: seconds, radians, meters, Nm, amperes. Unit conversion (the
 degrees-by-default toggle) is a viewer concern, never a storage concern.
 """
 
@@ -23,17 +23,19 @@ import numpy as np
 # (N, DOF) joint configurations in → (N, 4, 4) TCP poses out.
 FkFunction = Callable[[np.ndarray], np.ndarray]
 
-_TIME_SERIES_FIELDS = ("q", "qd", "qdd", "tau")
+_TIME_SERIES_FIELDS = ("q", "qd", "qdd", "tau", "current")
 _SECTION_IDS = {
     "joint-q",
     "joint-qd",
     "joint-qdd",
     "joint-tau",
+    "joint-current",
     "joint-err",
     "tcp-pose",
     "tcp-err",
     "path",
     "videos",
+    "camera",
     "viewer3d",
 }
 _ROW_TONES = {"", "highlight", "positive", "warning", "danger", "muted"}
@@ -293,6 +295,48 @@ class RobotDisplay:
 
 
 @dataclass
+class CameraOverlay:
+    """A real camera stream with simulated renders laid over it.
+
+    ``real_video`` and every sim path are relative to the report's directory,
+    as for ``Situation.video``. ``t0_s`` is the trajectory time shown at video
+    time 0, so a video plays at ``currentTime = t - t0_s`` — recordings rarely
+    start exactly when the trajectory does. A missing file is not an error
+    here: the viewer greys that layer out and prints its path.
+    """
+
+    name: str
+    real_video: str
+    sims: Sequence[tuple[str, str]]  # (label, video path) per selectable sim render
+    t0_s: float = 0.0
+    note: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.name:
+            raise ValueError("camera overlay needs a name")
+        self.sims = [(str(label), str(path)) for label, path in self.sims]
+        if not self.sims:
+            raise ValueError(f"camera overlay '{self.name}' needs at least one sim video")
+        labels = [label for label, _ in self.sims]
+        if len(set(labels)) != len(labels):
+            raise ValueError(
+                f"camera overlay '{self.name}': sim labels must be unique, got {labels}"
+            )
+        self.t0_s = float(self.t0_s)
+        if not np.isfinite(self.t0_s):
+            raise ValueError(f"camera overlay '{self.name}': t0_s must be finite")
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "real_video": self.real_video,
+            "sims": [{"label": label, "video": path} for label, path in self.sims],
+            "t0_s": self.t0_s,
+            "note": self.note,
+        }
+
+
+@dataclass
 class Situation:
     """One recorded (or declared) execution of the trajectory."""
 
@@ -303,6 +347,7 @@ class Situation:
     qd: np.ndarray | None = None
     qdd: np.ndarray | None = None
     tau: np.ndarray | None = None
+    current: np.ndarray | None = None  # (N, DOF) motor current, amperes
     poses: np.ndarray | None = None  # optional precomputed (N, 4, 4) TCP poses
     video: str = ""  # video file path relative to the report's directory
     note: str = ""  # shown in the legend when there is no data
@@ -337,7 +382,7 @@ class Situation:
         self.q = np.asarray(self.q, dtype=float)
         if self.q.ndim == 1:
             self.q = self.q[:, None]
-        for name in ("qd", "qdd", "tau"):
+        for name in ("qd", "qdd", "tau", "current"):
             value = getattr(self, name)
             if value is None:
                 continue
@@ -406,6 +451,9 @@ class Comparison:
     tab_title: str = ""
     # Domain-specific statistics replace the automatic error table.
     statistics: ReportTable | None = None
+    # Real camera streams with sim renders laid over them; shown in the
+    # "Camera" section beside the Videos, driven by the same transport.
+    overlays: Sequence[CameraOverlay] = ()
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -416,6 +464,10 @@ class Comparison:
             self.group_title = self.title
         if not self.tab_title:
             self.tab_title = self.title
+        self.overlays = list(self.overlays)
+        overlay_names = [overlay.name for overlay in self.overlays]
+        if len(set(overlay_names)) != len(overlay_names):
+            raise ValueError(f"camera overlay names must be unique, got {overlay_names}")
         self.joint_names = list(self.joint_names)
         if not self.joint_names:
             raise ValueError("joint_names must not be empty")

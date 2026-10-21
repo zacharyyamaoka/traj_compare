@@ -2,8 +2,9 @@
 
 Per situation, computed on that situation's own time grid:
 
-- joint space: ``q``, ``qd``, ``qdd``, ``tau`` (velocity/acceleration fall
-  back to ``np.gradient`` when not recorded; ``tau`` stays absent if absent);
+- joint space: ``q``, ``qd``, ``qdd``, ``tau``, ``current`` (velocity/
+  acceleration fall back to ``np.gradient`` when not recorded; ``tau`` and
+  ``current`` stay absent if absent — a missing channel is never invented);
 - TCP pose: ``x, y, z`` and unwrapped extrinsic-xyz ``rx, ry, rz``;
 - path progress and its two derivatives for four channel families:
   ``pct`` (percent of the reference path length completed — the end-effector
@@ -23,7 +24,7 @@ of a fabricated plateau. The 3D viewer block (``three``) keeps each
 situation's native grid: positions, quaternions, and the same-time target
 pose for difference arrows.
 
-Everything stays SI (s, rad, m, Nm); unit conversion happens in the viewer.
+Everything stays SI (s, rad, m, Nm, A); unit conversion happens in the viewer.
 """
 
 from __future__ import annotations
@@ -384,6 +385,7 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
     automatic_metrics: dict[str, dict[str, Any]] = {}
     any_cartesian = False
     any_tau = False
+    any_current = False
 
     for situation, role in ordered:
         entry: dict[str, Any] = {
@@ -441,11 +443,19 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
             "qd": [_clean(on_grid(qd[:, col])) for col in range(qd.shape[1])],
             "qdd": [_clean(on_grid(qdd[:, col])) for col in range(qdd.shape[1])],
             "tau": None,
+            "current": None,
         }
         if situation.tau is not None:
             any_tau = True
             plot["tau"] = [
                 _clean(on_grid(situation.tau[:, col])) for col in range(situation.tau.shape[1])
+            ]
+
+        if situation.current is not None:
+            any_current = True
+            plot["current"] = [
+                _clean(on_grid(situation.current[:, col]))
+                for col in range(situation.current.shape[1])
             ]
 
         poses = target_poses if role == "target" else _situation_poses(situation, comparison)
@@ -533,7 +543,10 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
         "pct_reference": "target" if pct_total else "self",
         "has_cartesian": any_cartesian,
         "has_tau": any_tau,
+        "has_current": any_current,
         "has_video": any(entry["video"] for entry in payload_situations),
+        "overlays": [overlay.to_payload() for overlay in comparison.overlays],
+        "has_overlay": bool(comparison.overlays),
         "default_sections": (
             list(comparison.default_sections)
             if comparison.default_sections is not None

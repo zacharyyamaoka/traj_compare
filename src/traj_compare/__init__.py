@@ -9,6 +9,7 @@ from .analysis import analyze_comparison
 from .model import (
     BarChart,
     BarSeries,
+    CameraOverlay,
     Comparison,
     Insight,
     MetricCard,
@@ -24,6 +25,7 @@ from .report import write_comparison_report
 __all__ = [
     "BarChart",
     "BarSeries",
+    "CameraOverlay",
     "Comparison",
     "Insight",
     "MetricCard",
