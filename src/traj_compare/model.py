@@ -198,6 +198,25 @@ class Insight:
 
 
 @dataclass
+class ReportImage:
+    """A still figure on a report page, embedded as a data URI so the report stays one file."""
+
+    title: str
+    src: str  # "data:image/png;base64,..." or "data:image/jpeg;base64,..."
+    caption: str = ""
+    width_px: int | None = None  # display width; None = the image's own, capped to the page
+
+    def __post_init__(self) -> None:
+        if not self.src.startswith(("data:image/png;base64,", "data:image/jpeg;base64,", "data:image/webp;base64,")):
+            raise ValueError("report images must be embedded base64 data URIs (the report is self-contained)")
+        if self.width_px is not None and self.width_px <= 0:
+            raise ValueError("image width must be positive")
+
+    def to_payload(self) -> dict[str, Any]:
+        return {"title": self.title, "src": self.src, "caption": self.caption, "width_px": self.width_px}
+
+
+@dataclass
 class ReportPage:
     """A non-trajectory page such as Summary or Insights."""
 
@@ -208,6 +227,7 @@ class ReportPage:
     charts: Sequence[BarChart] = field(default_factory=list)
     tables: Sequence[ReportTable] = field(default_factory=list)
     insights: Sequence[Insight] = field(default_factory=list)
+    images: Sequence[ReportImage] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -216,6 +236,7 @@ class ReportPage:
         self.charts = list(self.charts)
         self.tables = list(self.tables)
         self.insights = list(self.insights)
+        self.images = list(self.images)
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -226,6 +247,7 @@ class ReportPage:
             "charts": [chart.to_payload() for chart in self.charts],
             "tables": [table.to_payload() for table in self.tables],
             "insights": [insight.to_payload() for insight in self.insights],
+            "images": [image.to_payload() for image in self.images],
         }
 
 

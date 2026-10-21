@@ -290,3 +290,17 @@ def test_script_terminator_inside_data_is_escaped(tmp_path):
 def test_empty_comparison_list_rejected(tmp_path):
     with pytest.raises(ValueError):
         write_comparison_report([], tmp_path)
+
+
+def test_a_report_page_embeds_a_still_image_as_a_data_uri(tmp_path):
+    from traj_compare import ReportImage
+
+    pixel = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    page = ReportPage(name="summary", title="Summary", images=[ReportImage("Still", pixel, caption="one pixel", width_px=320)])
+    path = write_comparison_report([small_comparison("A")], tmp_path, summary=page)
+    payload = extract_payload(path.read_text("utf-8"))
+    (image,) = payload["report_pages"][0]["images"]
+    assert image == {"title": "Still", "src": pixel, "caption": "one pixel", "width_px": 320}
+    assert "function buildFigure" in path.read_text("utf-8")
+    with pytest.raises(ValueError, match="data URI"):
+        ReportImage("Linked", "frames/still.png")

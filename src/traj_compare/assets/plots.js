@@ -768,7 +768,18 @@ var TrajCompare = (function () {
     buildMetricCards(page.el, data.metrics);
     data.charts.forEach(function (chart) { buildBarChart(page.el, chart); });
     data.tables.forEach(function (table) { buildTable(page.el, table, false); });
+    (data.images || []).forEach(function (image) { buildFigure(page.el, image); });
     buildInsightCards(page.el, data.insights);
+  }
+
+  function buildFigure(parent, image) {
+    var figure = el('figure', 'tc-figure', parent);
+    el('h3', '', figure, image.title);
+    var img = el('img', '', figure);
+    img.src = image.src;
+    img.alt = image.title;
+    if (image.width_px) img.style.width = image.width_px + 'px';
+    if (image.caption) el('figcaption', '', figure, image.caption);
   }
 
   function buildPage(page) {
