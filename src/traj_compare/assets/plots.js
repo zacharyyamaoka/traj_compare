@@ -141,7 +141,7 @@ var TrajCompare = (function () {
     transport.setScrub = function (time, fromCursor) {
       transport.t = Math.min(transport.tMax, Math.max(transport.tMin, time));
       if (!fromCursor) paintCursors(page, transport.t);
-      queueVideoSeek(page, transport.t, false);
+      queueVideoSeek(page, transport.t);
       emit('scrub');
     };
 
@@ -158,7 +158,7 @@ var TrajCompare = (function () {
       if (!transport.playing) return;
       var dt = Math.min(0.1, (now - lastTick) / 1000);
       lastTick = now;
-      var next = (transport.t === null ? transport.tMin : transport.t) + dt;
+      var next = followVideos(page, transport.t === null ? transport.tMin : transport.t, dt, now);
       if (next >= transport.tMax) {
         transport.setScrub(transport.tMax);
         transport.pause();
@@ -166,11 +166,11 @@ var TrajCompare = (function () {
       }
       transport.t = next;
       paintCursors(page, next);
-      seekVideos(page, next, true);
       emit('scrub');
       requestAnimationFrame(tick);
     }
 
+    // The videos start from the tick, once each one sits on the clock.
     transport.play = function () {
       if (transport.playing) return;
       if (transport.t === null || transport.t >= transport.tMax - 1e-9) {
@@ -178,7 +178,6 @@ var TrajCompare = (function () {
       }
       transport.playing = true;
       lastTick = performance.now();
-      playVideos(page, true);
       emit('play');
       requestAnimationFrame(tick);
     };
@@ -186,10 +185,13 @@ var TrajCompare = (function () {
     // Nothing changed when we were already paused, and emitting anyway
     // repainted the bars — which wrote the *stale* time straight back into
     // the slider the user was dragging. Pausing is a no-op when paused.
+    // A paused page shows exactly the cursor's frame: the videos ran on for
+    // up to a display frame after the last tick, so they are put back on it.
     transport.pause = function () {
       if (!transport.playing) return;
       transport.playing = false;
-      playVideos(page, false);
+      pauseVideos(page);
+      if (transport.t !== null) queueVideoSeek(page, transport.t);
       emit('pause');
     };
 
@@ -223,45 +225,138 @@ var TrajCompare = (function () {
   /* One video follows the trajectory clock. ``entry.t0`` (camera overlays
      only; 0 for a plain situation video) is the trajectory time shown at
      video time 0, so the video position is t - t0. */
-  function seekEntry(entry, time, playing) {
+  function seekEntry(entry, time) {
     var video = entry.el;
     if (!video.duration) return;
-    var clamped = Math.min(video.duration - 0.001, Math.max(0, time - (entry.t0 || 0)));
-    if (playing) {
-      // drift-correct only; constant seeking stutters playback
-      if (Math.abs(video.currentTime - clamped) > 0.12) video.currentTime = clamped;
-    } else {
-      video.currentTime = clamped;
-    }
+    video.currentTime = Math.min(video.duration - 0.001, Math.max(0, time - (entry.t0 || 0)));
   }
 
-  function seekVideos(page, time, playing) {
-    page.videos.forEach(function (entry) { seekEntry(entry, time, playing); });
+  function seekVideos(page, time) {
+    page.videos.forEach(function (entry) { seekEntry(entry, time); });
   }
 
   /* A drag fires input events far faster than a decoder can honour seeks, and
      ten <video> elements re-seeking per event stalls the whole page. Coalesce
      to one seek per frame — the last position asked for is the only one that
      matters. */
-  function queueVideoSeek(page, time, playing) {
-    page.pendingSeek = { time: time, playing: playing };
+  function queueVideoSeek(page, time) {
+    page.pendingSeek = { time: time };
     if (page.seekQueued) return;
     page.seekQueued = true;
     requestAnimationFrame(function () {
       page.seekQueued = false;
       var pending = page.pendingSeek;
-      if (pending) seekVideos(page, pending.time, pending.playing);
+      if (pending) seekVideos(page, pending.time);
     });
   }
 
-  function playVideos(page, play) {
+  function pauseVideos(page) {
     page.videos.forEach(function (entry) {
-      if (play && page.visible[entry.sit.name] !== false) {
-        entry.el.play().catch(function () {});
-      } else {
-        entry.el.pause();
-      }
+      entry.el.pause();
+      entry.el.playbackRate = 1;
     });
+  }
+
+  /* Playback: the clock follows the videos, never the other way round.
+
+     WHY: a seek lands on the keyframe before its target and decodes forward
+     from it, 150-500 ms in the rack's mp4s (a keyframe every 8.3 s). The old
+     loop advanced a wall clock and re-seeked any video 0.12 s off it, so a
+     seek still in flight was restarted every tick: the picture froze on its
+     last frame until the clock crossed a keyframe while the plot cursor ran
+     on (measured 2026-10-21 on the rack sensors report: no frame presented
+     for the first 3.2 s of play), and a video that did keep up was left up
+     to 0.12 s off the cursor. Now the clock holds while any video is seeking
+     or starved, every video is put exactly on it before it plays, and then
+     the first playing video IS the clock: the cursor is the time of the
+     frame it has on screen. The others follow it by playbackRate, seeking
+     only when they are far off. "On screen" is the frame the compositor
+     PRESENTED (requestVideoFrameCallback, which runs just before this
+     frame's animation callbacks), not currentTime: currentTime wandered 1-2
+     frames off the picture, and with four 720p decoders a follower's
+     currentTime sat on the clock while its picture ran two frames late
+     (67 ms, headless Chrome, 2026-10-21). A
+     video whose recording does not cover the time is parked on its
+     first/last frame instead of playing ahead of it. */
+  var PLAY_ALIGN_S = 0.015;   // a video this close to the clock may start playing
+  var PLAY_RESEEK_S = 0.25;   // a follower further off than this is re-seeked
+  var PLAY_NUDGE_GAIN = 2.0;  // rate = 1 - gain * drift: ~0.5 s to converge
+  var PLAY_NUDGE_LIMIT = 0.25;
+
+  function videoPlayable(page, entry) {
+    return entry.el.duration > 0 && !entry.el.error && page.visible[entry.sit.name] !== false;
+  }
+
+  function videoCovers(entry, time) {
+    var position = time - (entry.t0 || 0);
+    return position >= 0 && position < entry.el.duration - 0.05;
+  }
+
+  function watchPresented(entry) {
+    if (entry.watching || !entry.el.requestVideoFrameCallback) return;
+    entry.watching = true;
+    var onFrame = function (now, meta) {
+      entry.presented = { media: meta.mediaTime, now: now };
+      entry.el.requestVideoFrameCallback(onFrame);
+    };
+    entry.el.requestVideoFrameCallback(onFrame);
+  }
+
+  // Video time of the picture on screen at ``now``: the last presented frame,
+  // run on at the playback rate since (capped), else currentTime.
+  function shownTime(entry, now) {
+    var shown = entry.presented;
+    if (!shown || entry.el.paused) return entry.el.currentTime;
+    return shown.media + Math.min(0.1, Math.max(0, (now - shown.now) / 1000)) * entry.el.playbackRate;
+  }
+
+  function followVideos(page, time, dt, now) {
+    var active = [];
+    page.videos.forEach(function (entry) {
+      if (!videoPlayable(page, entry)) return;
+      if (videoCovers(entry, time)) { active.push(entry); return; }
+      entry.el.pause();
+      var parked = Math.min(entry.el.duration - 0.001, Math.max(0, time - (entry.t0 || 0)));
+      if (!entry.el.seeking && Math.abs(entry.el.currentTime - parked) > 0.001) entry.el.currentTime = parked;
+    });
+    if (!active.length) return time + dt;
+    function target(entry) { return time - (entry.t0 || 0); }
+    var waiting = active.some(function (entry) {
+      return entry.el.seeking || (!entry.el.paused && entry.el.readyState < 3);
+    });
+    if (waiting) {
+      active.forEach(function (entry) { entry.el.pause(); });
+      return time;
+    }
+    var stopped = active.some(function (entry) { return entry.el.paused; });
+    if (stopped) {
+      var off = active.filter(function (entry) {
+        return Math.abs(entry.el.currentTime - target(entry)) > PLAY_ALIGN_S;
+      });
+      active.forEach(function (entry) { entry.el.pause(); });
+      if (off.length) {
+        off.forEach(function (entry) { entry.el.currentTime = target(entry); });
+        return time;
+      }
+      active.forEach(function (entry) {
+        watchPresented(entry);
+        entry.presented = null;  // the paused frame's presentation says nothing about playback
+        entry.el.playbackRate = 1;
+        entry.el.play().catch(function () {});
+      });
+      return time;
+    }
+    var clock = active[0];
+    var next = shownTime(clock, now) + (clock.t0 || 0);
+    active.slice(1).forEach(function (entry) {
+      var drift = shownTime(entry, now) + (entry.t0 || 0) - next;
+      if (Math.abs(drift) > PLAY_RESEEK_S) {
+        entry.el.currentTime = next - (entry.t0 || 0);
+        return;
+      }
+      entry.el.playbackRate = 1 - Math.max(-PLAY_NUDGE_LIMIT, Math.min(PLAY_NUDGE_LIMIT, PLAY_NUDGE_GAIN * drift));
+    });
+    return next;
   }
 
   /* Scrubber bar: one under the 3D canvas, one under the videos. Every bar of
@@ -736,8 +831,8 @@ var TrajCompare = (function () {
     function catchUp(layer, entry) {
       var transport = page.transport;
       if (!transport) return;
-      seekEntry(entry, transport.t === null ? transport.tMax : transport.t, false);
-      if (transport.playing) layer.el.play().catch(function () {});
+      // while playing, the transport's tick starts it once it sits on the clock
+      seekEntry(entry, transport.t === null ? transport.tMax : transport.t);
     }
     [[real, realEntry], [sim, simEntry]].forEach(function (pair) {
       var layer = pair[0], entry = pair[1];
