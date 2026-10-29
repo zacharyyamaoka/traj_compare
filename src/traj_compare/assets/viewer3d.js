@@ -432,10 +432,12 @@ var Viewer3D = (function () {
         var arcPositions = [];
         var ownPositions = [];
         var ghostPositions = [];
+        var arcTimes = [];
         indices.forEach(function (i) {
           var p = three.p[i];
           var own = zAxisOf(three.quat[i]);
-          if (three.tquat[i][0] === null) return;  // past the target's span
+          if (three.tquat[i][0] === null) return;  // outside the target's span
+          arcTimes.push(three.t[i]);
           var goal = zAxisOf(three.tquat[i]);
           // Both fan edges are part of the arc object, so the rotation gap
           // reads on its own without also enabling the Z column.
@@ -455,6 +457,8 @@ var Viewer3D = (function () {
             previous = point;
           }
         });
+        // WHY: truncation counts the arcs drawn by time, so the list holds only the rows that got an arc
+        state.timeLists.zarc = arcTimes;
         var arcGroup = new THREE.Group();
         state.arcSegments = segmentsObject(arcPositions, null, new THREE.LineBasicMaterial({ color: color }));
         state.arcOwn = segmentsObject(ownPositions, null, new THREE.LineBasicMaterial({ color: color }));
@@ -589,9 +593,10 @@ var Viewer3D = (function () {
           if (state.arrowCones) state.arrowCones.count = arrows;
         }
         if (state.arcSegments) {
-          state.arcSegments.geometry.setDrawRange(0, markers * ARC_STEPS * 2);
-          state.arcOwn.geometry.setDrawRange(0, markers * 2);
-          state.arcGhost.geometry.setDrawRange(0, markers * 2);
+          var arcs = countLeq(state.timeLists.zarc, time);
+          state.arcSegments.geometry.setDrawRange(0, arcs * ARC_STEPS * 2);
+          state.arcOwn.geometry.setDrawRange(0, arcs * 2);
+          state.arcGhost.geometry.setDrawRange(0, arcs * 2);
         }
       });
       poseRobots(time);
