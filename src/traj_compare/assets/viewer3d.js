@@ -386,6 +386,7 @@ var Viewer3D = (function () {
         var arrowTimes = [];
         indices.forEach(function (i) {
           var from = three.p[i], to = three.tp[i];
+          if (to[0] === null) return;  // past the target's span: no target pose, no arrow
           var dx = to[0] - from[0], dy = to[1] - from[1], dz = to[2] - from[2];
           var distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
           if (distance < 1e-6) return;
@@ -434,6 +435,7 @@ var Viewer3D = (function () {
         indices.forEach(function (i) {
           var p = three.p[i];
           var own = zAxisOf(three.quat[i]);
+          if (three.tquat[i][0] === null) return;  // past the target's span
           var goal = zAxisOf(three.tquat[i]);
           // Both fan edges are part of the arc object, so the rotation gap
           // reads on its own without also enabling the Z column.

@@ -98,10 +98,21 @@ def _situation_poses(situation: Situation, comparison: Comparison) -> np.ndarray
     return None
 
 
+def _inside_span(t_from: np.ndarray, t_to: np.ndarray) -> np.ndarray:
+    """Which of ``t_to`` lie in ``[t_from[0], t_from[-1]]``, both ends included."""
+
+    return (t_to >= t_from[0]) & (t_to <= t_from[-1])
+
+
 def _resample_columns(t_from: np.ndarray, values: np.ndarray, t_to: np.ndarray) -> np.ndarray:
-    return np.stack(
+    # WHY NaN outside the span, not np.interp's held end values: difference(a, b) never extrapolates
+    # (data-ui gallery/robotics CONTRACT section 5; tests/fixtures/data_ui_difference), so a row past
+    # the target's end is a null (no row), not an error measured against a frozen last sample.
+    resampled = np.stack(
         [np.interp(t_to, t_from, values[:, col]) for col in range(values.shape[1])], axis=1
     )
+    resampled[~_inside_span(t_from, t_to)] = np.nan
+    return resampled
 
 
 def _slerp_resample(t_from: np.ndarray, quats: np.ndarray, t_to: np.ndarray) -> np.ndarray:
@@ -126,7 +137,9 @@ def _slerp_resample(t_from: np.ndarray, quats: np.ndarray, t_to: np.ndarray) -> 
     w1 = np.where(near[:, None], fraction[:, None], np.sin(fraction[:, None] * theta))
     scale = np.where(near[:, None], 1.0, sin_theta)
     blended = (w0 * q0 + w1 * q1) / scale
-    return blended / np.linalg.norm(blended, axis=1, keepdims=True)
+    slerped = blended / np.linalg.norm(blended, axis=1, keepdims=True)
+    slerped[~_inside_span(t_from, t_to)] = np.nan  # never extrapolates, as _resample_columns
+    return slerped
 
 
 def _quat_to_mat(quats: np.ndarray) -> np.ndarray:
@@ -154,7 +167,12 @@ def _target_on_grid(
 
     q_resampled = _resample_columns(target.t, target.q, t_to)
     if comparison.fk is not None:
-        return q_resampled, np.asarray(comparison.fk(q_resampled), dtype=float)
+        # fk only sees rows inside the target's span; the rest stay NaN (no pose to measure against)
+        inside = _inside_span(target.t, t_to)
+        poses = np.full((len(t_to), 4, 4), np.nan)
+        if inside.any():
+            poses[inside] = np.asarray(comparison.fk(q_resampled[inside]), dtype=float)
+        return q_resampled, poses
     if target_poses is not None:
         positions = _resample_columns(target.t, target_poses[:, :3, 3], t_to)
         quats = _slerp_resample(target.t, mat_to_quat(target_poses[:, :3, :3]), t_to)

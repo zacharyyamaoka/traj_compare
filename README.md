@@ -124,6 +124,9 @@ write_comparison_report([comparison], out_dir, insights=insights)
   resampled onto the target's grid (nulls outside a run's own span, so a
   short run ends in a visible gap, not a fabricated plateau). Error channels
   are computed exactly on each situation's native grid first.
+  Error channels never extrapolate the target either: a sample past the
+  target's first or last time has a null error and no arrow, and stays out of
+  the RMS (data-ui `difference(a, b)`, fixture in `tests/fixtures/data_ui_difference`).
 - No `fk` and no `poses` → the cartesian sections are simply omitted;
   joint-space comparison still works.
 - `poses` may be passed directly per situation (e.g. mocap) instead of `fk`.
