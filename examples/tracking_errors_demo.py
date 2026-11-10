@@ -3,7 +3,7 @@
 One target and two runs. "Sim (lagging)" follows the same joint path 40 ms
 late. "Real (offset)" is on time, but J2 reads 1.5° high. Together they show
 every standard field: joint q/qd/qdd and error, the L2-tip pose per axis,
-|Δp| / rotation, cross- vs along-track error, per-axis x/y/z/rx/ry/rz error,
+|Δp| / rotation, cross-track vs lag, per-axis x/y/z/rx/ry/rz error,
 and the RMS · max · final table.
 
     uv run --directory ~/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_compare python examples/tracking_errors_demo.py --out /tmp/tracking_errors_demo

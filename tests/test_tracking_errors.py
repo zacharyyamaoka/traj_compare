@@ -1,4 +1,6 @@
-"""Standard tracking-error fields: per-axis TCP error, along/cross-track, max/final stats, frame name.
+"""Standard tracking-error fields: per-axis TCP error, lag/cross-track, max/final stats, frame name.
+
+Every error is target - run (robot_msgs.compare's convention); lag is + when the run is behind.
 
 Expected values are built by hand from the geometry of each fixture, and the
 rotation-vector math is checked against scipy, so neither comes from the
@@ -104,54 +106,62 @@ def test_per_axis_tcp_error_channels():
     cruise = (t > 0.6) & (t < 2.45)
     plot_t = np.array(analyze_comparison(lagging_comparison())["plot_t"], dtype=float)
     cruise_plot = (plot_t > 0.6) & (plot_t < 2.45)
-    np.testing.assert_allclose(column(plot, "err_x")[cruise_plot], -SPEED * LAG_S, atol=1e-6)
-    np.testing.assert_allclose(column(plot, "err_y"), OFFSET_Y, atol=1e-9)
+    # target - run: the run is behind in x, +y of it, +yaw: so x is +, y and yaw are -.
+    np.testing.assert_allclose(column(plot, "err_x")[cruise_plot], SPEED * LAG_S, atol=1e-6)
+    np.testing.assert_allclose(column(plot, "err_y"), -OFFSET_Y, atol=1e-9)
     np.testing.assert_allclose(column(plot, "err_z"), 0.0, atol=1e-9)
-    np.testing.assert_allclose(column(plot, "err_rz"), YAW_ERROR, atol=1e-9)
+    np.testing.assert_allclose(column(plot, "err_rz"), -YAW_ERROR, atol=1e-9)
     np.testing.assert_allclose(column(plot, "err_rx"), 0.0, atol=1e-9)
     np.testing.assert_allclose(column(plot, "err_ry"), 0.0, atol=1e-9)
     assert cruise.any()
 
 
-def test_along_and_cross_track_split_lag_from_offset():
+def test_lag_and_cross_track_split_lag_from_offset():
     payload = analyze_comparison(lagging_comparison())
     plot = run_entry(payload)["plot"]
     plot_t = np.array(payload["plot_t"], dtype=float)
     cruise = (plot_t > 0.6) & (plot_t < 2.45)
 
-    along = column(plot, "along_track")
+    lag = column(plot, "lag")
     cross = column(plot, "cross_track")
-    # Behind the target by SPEED * LAG_S along +x -> negative along-track.
-    np.testing.assert_allclose(along[cruise], -SPEED * LAG_S, atol=1e-6)
+    assert "along_track" not in plot
+    # Behind the target by SPEED * LAG_S along +x -> positive lag.
+    np.testing.assert_allclose(lag[cruise], SPEED * LAG_S, atol=1e-6)
     np.testing.assert_allclose(cross[cruise], OFFSET_Y, atol=1e-6)
-    # While the target rests there is no direction of travel: no along/cross value.
+    # While the target rests there is no direction of travel: no lag/cross value.
     resting = (plot_t < 0.45) | (plot_t > 2.55)
-    assert np.isnan(along[resting]).all()
+    assert np.isnan(lag[resting]).all()
     assert np.isnan(cross[resting]).all()
 
 
-def test_error_metrics_carry_rms_max_final_p95_std():
+def test_error_metrics_carry_every_error_stat_per_metric():
     metrics = run_entry(analyze_comparison(lagging_comparison()))["error_metrics"]
 
-    assert set(metrics) >= {"joint", "position", "rotation", "cross_track", "along_track", "axes"}
-    for summary in (metrics["position"], metrics["rotation"], metrics["axes"]["x"]):
-        assert set(summary) == {"rms", "max", "p95", "std", "final"}
+    assert set(metrics) >= {
+        "positions/j", "position", "rotation", "cross_track", "lag",
+        "x", "y", "z", "rx", "ry", "rz",
+        "coverage", "dropped", "time_offset_s",
+    }  # fmt: skip
+    stat_fields = {"n", "rms", "mean", "median", "std", "min", "max", "max_abs", "p95_abs", "final"}
+    for summary in (metrics["position"], metrics["rotation"], metrics["x"], metrics["positions/j"]):
+        assert set(summary) == stat_fields
+    assert (metrics["coverage"], metrics["dropped"], metrics["time_offset_s"]) == (1.0, 0, 0.0)
 
     rotation = metrics["rotation"]
     assert rotation["rms"] == pytest.approx(YAW_ERROR, abs=1e-9)
-    assert rotation["max"] == pytest.approx(YAW_ERROR, abs=1e-9)
+    assert rotation["max_abs"] == pytest.approx(YAW_ERROR, abs=1e-9)
     assert rotation["final"] == pytest.approx(YAW_ERROR, abs=1e-9)
     assert rotation["std"] == pytest.approx(0.0, abs=1e-9)
 
     # Both end at rest, the run reaches the end of the route: only the side offset is left.
     assert metrics["position"]["final"] == pytest.approx(OFFSET_Y, abs=1e-9)
     worst = float(np.hypot(SPEED * LAG_S, OFFSET_Y))
-    assert metrics["position"]["max"] == pytest.approx(worst, abs=1e-6)
-    assert OFFSET_Y <= metrics["position"]["p95"] <= worst + 1e-9
-    assert metrics["along_track"]["max"] == pytest.approx(SPEED * LAG_S, abs=1e-6)
-    assert metrics["along_track"]["final"] < 0.0  # signed: still lagging at the last moving sample
-    assert metrics["axes"]["rz"]["final"] == pytest.approx(YAW_ERROR, abs=1e-9)
-    assert metrics["joint"]["j"]["rms"] == pytest.approx(0.0, abs=1e-12)
+    assert metrics["position"]["max_abs"] == pytest.approx(worst, abs=1e-6)
+    assert OFFSET_Y <= metrics["position"]["p95_abs"] <= worst + 1e-9
+    assert metrics["lag"]["max_abs"] == pytest.approx(SPEED * LAG_S, abs=1e-6)
+    assert metrics["lag"]["final"] > 0.0  # signed: still behind at the last moving sample
+    assert metrics["rz"]["final"] == pytest.approx(-YAW_ERROR, abs=1e-9)  # target - run
+    assert metrics["positions/j"]["rms"] == pytest.approx(0.0, abs=1e-12)
 
 
 def test_tcp_frame_is_named_in_payload_and_table(tmp_path):
@@ -169,7 +179,7 @@ def test_tcp_frame_is_named_in_payload_and_table(tmp_path):
         "TCP rot RMS",
         "TCP pos max · final",
         "TCP rot max · final",
-        "Cross · along-track RMS",
+        "Cross-track · lag RMS",
         "Samples / status",
     ]
     cells = table["rows"][0]["cells"]

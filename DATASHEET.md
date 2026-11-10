@@ -53,11 +53,16 @@ and renderer.
 
 ## Dependencies
 
-Runtime: `numpy` only. Vendored into the wheel: uPlot 1.6.30, three.js r160
+Runtime: `numpy` and `robot-msgs` (numpy-only; every error signal and statistic comes from
+`robot_msgs.compare`, error = target − run, since 2026-11-10). Vendored into the wheel: uPlot 1.6.30, three.js r160
 (`src/traj_compare/assets/VENDORED.md`). Test extra: `pytest`, `scipy`
 (rotation oracle).
 
-## Tests — `uv run --extra test pytest -q tests` → **40 passed**
+## Tests — `uv run --extra test python -m pytest -q tests` → **56 passed**
+
+(`python -m`: the venv's `pytest` script can carry a stale shebang from before the package moved
+under `mdp/agent/`. `test_playback.py` checks video frame gaps < 0.6 s and can trip when the machine
+is saturated; base and current builds measured the same 0.24–0.42 s spread on 2026-11-10.)
 
 | Test | Proves |
 | --- | --- |

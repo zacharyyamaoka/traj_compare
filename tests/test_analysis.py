@@ -4,6 +4,8 @@ import json
 
 import numpy as np
 import pytest
+from robot_msgs.compare import compare
+from robot_msgs.trajectory import JointTrajectory
 
 from traj_compare.analysis import analyze_comparison
 from traj_compare.model import Comparison, Situation
@@ -113,7 +115,8 @@ def test_known_offset_error_magnitudes():
     )
     plot = analyze_comparison(comparison)["situations"][1]["plot"]
     np.testing.assert_allclose(np.array(plot["xyz_mag"], dtype=float), 0.03, atol=1e-9)
-    np.testing.assert_allclose(np.array(plot["err_q"], dtype=float)[1], 0.03, atol=1e-9)
+    # error = target - run, so a run 0.03 to the +y side reads -0.03
+    np.testing.assert_allclose(np.array(plot["err_q"], dtype=float)[1], -0.03, atol=1e-9)
     # Difference arrows: same-time target pose recorded next to the situation.
     three = analyze_comparison(comparison)["situations"][1]["three"]
     assert np.allclose(np.array(three["tp"], dtype=float)[:, 1], 0.0, atol=1e-9)
@@ -385,3 +388,52 @@ def test_numpy_metadata_is_json_safe():
         "series": [1.0, None],
         "count": 2,
     }
+
+
+def test_joint_error_is_target_minus_run_and_is_robot_msgs_compare_error():
+    rng = np.random.default_rng(7)
+    t = np.linspace(0.0, 1.0, 101)
+    target = Situation(
+        name="target", t=t, q=rng.normal(size=(101, 2)), qd=rng.normal(size=(101, 2))
+    )
+    run = Situation(name="run", t=t, q=rng.normal(size=(101, 2)), qd=rng.normal(size=(101, 2)))
+    comparison = Comparison(
+        title="one source", joint_names=["jx", "jy"], target=target, situations=[run]
+    )
+
+    entry = analyze_comparison(comparison)["situations"][1]
+    payload_error = np.array(entry["plot"]["err_q"], dtype=float).T  # (N, J) on the target grid
+    library = compare(
+        JointTrajectory(t=t, joint_names=["jx", "jy"], positions=target.q, velocities=target.qd),
+        JointTrajectory(t=t, joint_names=["jx", "jy"], positions=run.q, velocities=run.qd),
+    )
+
+    # the payload rounds to 6 decimals
+    np.testing.assert_allclose(payload_error, -(run.q - target.q), atol=1e-6)
+    np.testing.assert_allclose(payload_error, library.error.positions, atol=1e-6)
+    # the table statistics are the library's numbers too, not a second computation
+    metrics = entry["error_metrics"]
+    for index, name in enumerate(["jx", "jy"]):
+        assert metrics[f"positions/{name}"] == library.metrics[f"positions/{name}"].as_dict()
+        assert metrics[f"positions/{name}"]["rms"] == pytest.approx(
+            float(np.sqrt(np.mean((target.q[:, index] - run.q[:, index]) ** 2)))
+        )
+    assert "velocities/jx" in metrics
+
+
+def test_run_on_its_own_grid_is_compared_on_its_own_samples_inside_the_target_span():
+    t_target = np.linspace(0.0, 1.0, 11)
+    t_run = np.linspace(-0.5, 1.5, 201)  # denser than the target and longer on both ends
+    target = Situation(name="target", t=t_target, q=np.column_stack([2.0 * t_target]))
+    run = Situation(name="run", t=t_run, q=np.column_stack([2.0 * t_run + 0.1]))
+    comparison = Comparison(title="grids", joint_names=["j"], target=target, situations=[run])
+
+    entry = analyze_comparison(comparison)["situations"][1]
+    inside = (t_run >= 0.0) & (t_run <= 1.0)
+    metrics = entry["error_metrics"]
+
+    assert metrics["positions/j"]["n"] == int(inside.sum())  # 101 of 201, none extrapolated
+    assert metrics["dropped"] == int((~inside).sum())
+    assert metrics["coverage"] == pytest.approx(1.0)
+    # target - run = -0.1 everywhere the target exists
+    np.testing.assert_allclose(np.array(entry["plot"]["err_q"][0], dtype=float), -0.1, atol=1e-9)

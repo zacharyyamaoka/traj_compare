@@ -12,9 +12,13 @@ Per situation, computed on that situation's own time grid:
   ``rpy`` (cumulative rotation, accumulated axis-angle), and one signed
   ``vec`` channel per configured direction (displacement projected onto the
   direction — point it along the conveyor to read belt-matching speed);
-- error channels against the target resampled onto this grid: per-joint
-  ``q`` error, ``xyz_mag`` (translation error norm) and ``rot_mag``
-  (geodesic rotation error).
+- error channels against the target, all from ``robot_msgs.compare`` (one
+  source of truth for every error signal and statistic): per-joint ``q``
+  error, ``xyz_mag`` (translation error norm), ``rot_mag`` (geodesic rotation
+  error), per-axis ``err_x .. err_rz``, ``cross_track`` and ``lag``. Every
+  error is **target - run** (the ROS 2 controller-state convention), taken on
+  the run's own samples inside the target's span; the target is interpolated,
+  never extrapolated.
 
 Because the plot library draws all overlaid series against one shared x
 array, every display channel is then resampled onto a common ``plot_t``
@@ -33,14 +37,14 @@ import base64
 from typing import Any
 
 import numpy as np
+from robot_msgs.compare import align, compare
+from robot_msgs.trajectory import JointTrajectory, PoseTrajectory
 
 from .model import Comparison, ReportTable, RobotDisplay, Situation, TableRow
 from .rotations import (
     align_unwrapped,
     mat_to_quat,
     mat_to_rpy,
-    rotation_angles_between,
-    rotation_vectors_between,
     successive_rotation_angles,
     unwrap_rpy,
 )
@@ -105,6 +109,9 @@ def _inside_span(t_from: np.ndarray, t_to: np.ndarray) -> np.ndarray:
     return (t_to >= t_from[0]) & (t_to <= t_from[-1])
 
 
+# WHY these resamplers stay although analyze_comparison no longer calls them (2026-11-10): the error
+# signals now come from robot_msgs.compare, whose own interpolation is the documented rule; these are
+# the adapters tests/test_difference_fixture.py drives against data-ui's difference(a, b) oracle.
 def _resample_columns(t_from: np.ndarray, values: np.ndarray, t_to: np.ndarray) -> np.ndarray:
     # WHY NaN outside the span, not np.interp's held end values: difference(a, b) never extrapolates
     # (data-ui gallery/robotics CONTRACT section 5; tests/fixtures/data_ui_difference), so a row past
@@ -156,32 +163,6 @@ def _quat_to_mat(quats: np.ndarray) -> np.ndarray:
     matrices[:, 2, 1] = 2 * (y * z + w * x)
     matrices[:, 2, 2] = 1 - 2 * (x * x + y * y)
     return matrices
-
-
-def _target_on_grid(
-    comparison: Comparison,
-    target: Situation,
-    target_poses: np.ndarray | None,
-    t_to: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray | None]:
-    """Target joint track and poses resampled onto another situation's grid."""
-
-    q_resampled = _resample_columns(target.t, target.q, t_to)
-    if comparison.fk is not None:
-        # fk only sees rows inside the target's span; the rest stay NaN (no pose to measure against)
-        inside = _inside_span(target.t, t_to)
-        poses = np.full((len(t_to), 4, 4), np.nan)
-        if inside.any():
-            poses[inside] = np.asarray(comparison.fk(q_resampled[inside]), dtype=float)
-        return q_resampled, poses
-    if target_poses is not None:
-        positions = _resample_columns(target.t, target_poses[:, :3, 3], t_to)
-        quats = _slerp_resample(target.t, mat_to_quat(target_poses[:, :3, :3]), t_to)
-        poses = np.tile(np.eye(4), (len(t_to), 1, 1))
-        poses[:, :3, :3] = _quat_to_mat(quats)
-        poses[:, :3, 3] = positions
-        return q_resampled, poses
-    return q_resampled, None
 
 
 def _path_channels(
@@ -308,68 +289,36 @@ def _onto_plot_grid(t_native: np.ndarray, series: np.ndarray, plot_t: np.ndarray
     return np.interp(plot_t, t_native, series, left=np.nan, right=np.nan)
 
 
-def _finite_rms(values: np.ndarray) -> float:
-    finite = np.asarray(values, dtype=float)
-    finite = finite[np.isfinite(finite)]
-    if not finite.size:
-        return float("nan")
-    return float(np.sqrt(np.mean(finite**2)))
+def _joint_trajectory(situation: Situation, joint_names: list[str]) -> JointTrajectory:
+    """The situation as a robot_msgs trajectory; only the channels it recorded are passed."""
+
+    return JointTrajectory(
+        t=situation.t,
+        joint_names=joint_names,
+        positions=situation.q,
+        velocities=situation.qd,
+        accelerations=situation.qdd,
+        effort=situation.tau,
+    )
 
 
-def _error_summary(values: np.ndarray) -> dict[str, float]:
-    """RMS / max / p95 / std / final of one error channel, finite samples only.
+def _pose_trajectory(situation: Situation, poses: np.ndarray, frame: str) -> PoseTrajectory:
+    return PoseTrajectory.from_matrices(situation.t, poses, child_frame_id=frame)
 
-    WHY these five: RMS grades the whole run, max and p95 the worst moments
-    (p95 ignores a single glitch sample), std separates scatter from a steady
-    bias, and final is the error left when the motion ends (settling) - the
-    set Zach kept re-asking for (traj_integration_tests Logs, 2026-07-28).
-    max / p95 are of |error|; final keeps its sign so a signed channel still
-    reads ahead vs behind.
+
+def _compare_or_none(reference: Any, measured: Any) -> Any:
+    """``compare(reference, measured)``, or None when the run never meets the target's span.
+
+    WHY None, not a raise: a run entirely outside the target's span is a legitimate report
+    page (its error is simply absent), not a failure of the whole report.
     """
 
-    series = np.asarray(values, dtype=float).reshape(-1)
-    finite = series[np.isfinite(series)]
-    if not finite.size:
-        return {key: float("nan") for key in ("rms", "max", "p95", "std", "final")}
-    magnitude = np.abs(finite)
-    return {
-        "rms": float(np.sqrt(np.mean(finite**2))),
-        "max": float(np.max(magnitude)),
-        "p95": float(np.percentile(magnitude, 95.0)),
-        "std": float(np.std(finite)),
-        "final": float(finite[-1]),
-    }
-
-
-def _track_errors(
-    position_error: np.ndarray, target_velocity: np.ndarray
-) -> tuple[np.ndarray, np.ndarray]:
-    """Split a position error into along-track and cross-track parts.
-
-    ``position_error`` is run minus target at the same instant, ``(N, 3)``;
-    ``target_velocity`` is the target's cartesian velocity there. Along-track
-    is the component on the target's direction of travel (+ = ahead of the
-    target, - = lagging); cross-track is what remains (how far off the path).
-    WHY a tangent split, not nearest-point-on-path: it is the lag / contouring
-    error linearization from model predictive contouring control, needs no
-    search, and cannot snap to the wrong pass of a home-to-home tape that
-    retraces itself. Where the target is at rest there is no direction of
-    travel, so both parts are NaN there (and stay out of the statistics).
-    """
-
-    speed = np.linalg.norm(target_velocity, axis=1)
-    finite_speed = speed[np.isfinite(speed)]
-    peak = float(np.max(finite_speed)) if finite_speed.size else 0.0
-    moving = np.isfinite(speed) & (speed > max(1e-9, 1e-3 * peak))
-    along = np.full(len(position_error), np.nan)
-    cross = np.full(len(position_error), np.nan)
-    if moving.any():
-        unit = target_velocity[moving] / speed[moving, None]
-        along[moving] = np.einsum("ij,ij->i", position_error[moving], unit)
-        cross[moving] = np.linalg.norm(
-            position_error[moving] - along[moving, None] * unit, axis=1
-        )
-    return along, cross
+    try:
+        return compare(reference, measured)
+    except ValueError as error:
+        if "no overlap" not in str(error):
+            raise
+        return None
 
 
 def _format_degrees(value_rad: float) -> str:
@@ -400,17 +349,19 @@ def _automatic_statistics(
             reason = situation.meta.get("abort_reason")
             status = "aborted" + (f" — {reason}" if reason else "")
 
-        def pair(kind: str, formatter: Any) -> str:
-            summary = metric.get(kind)
+        stats = metric.get("stats", {})
+
+        def pair(kind: str, formatter: Any, stats: dict = stats) -> str:
+            summary = stats.get(kind)
             if not summary:
                 return "—"
-            return f"{formatter(summary['max'])} · {formatter(summary['final'])}"
+            return f"{formatter(summary['max_abs'])} · {formatter(summary['final'])}"
 
         track = "—"
-        if metric.get("cross_track") and metric.get("along_track"):
+        if stats.get("cross_track") and stats.get("lag"):
             track = (
-                f"{_format_millimetres(metric['cross_track']['rms'])} · "
-                f"{_format_millimetres(metric['along_track']['rms'])}"
+                f"{_format_millimetres(stats['cross_track']['rms'])} · "
+                f"{_format_millimetres(stats['lag']['rms'])}"
             )
 
         worst = "—"
@@ -441,10 +392,10 @@ def _automatic_statistics(
         description=(
             f"Cartesian errors are of the {comparison.tcp_frame} frame. "
             "RMS values use each run's native samples. Final is the error at the "
-            "run's last sample inside the target's span. Cross-track is distance "
-            "off the target's direction of travel; along-track is signed, + ahead / "
-            "- lagging. Angles are shown in degrees and positions in millimetres; "
-            "raw report data remains SI."
+            "run's last sample inside the target's span. Errors are target - run. "
+            "Cross-track is distance off the target's direction of travel; lag is "
+            "signed along it, + when the run is behind the target. Angles are shown "
+            "in degrees and positions in millimetres; raw report data remains SI."
         ),
         columns=[
             "Situation",
@@ -454,7 +405,7 @@ def _automatic_statistics(
             "TCP rot RMS",
             "TCP pos max · final",
             "TCP rot max · final",
-            "Cross · along-track RMS",
+            "Cross-track · lag RMS",
             "Samples / status",
         ],
         rows=rows,
@@ -471,6 +422,15 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
     if target_poses is not None:
         target_steps = np.diff(target_poses[:, :3, 3], axis=0)
         pct_total = float(np.sum(np.linalg.norm(target_steps, axis=1)))
+
+    target_joints = (
+        _joint_trajectory(target, comparison.joint_names) if target and target.has_data else None
+    )
+    target_pose_track = (
+        _pose_trajectory(target, target_poses, comparison.tcp_frame)
+        if target_poses is not None
+        else None
+    )
 
     ordered: list[tuple[Situation, str]] = []
     if target is not None:
@@ -585,19 +545,32 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
                 "tquat": None,
             }
 
-        if role != "target" and target is not None and target.has_data:
-            q_target, poses_target = _target_on_grid(comparison, target, target_poses, t)
-            joint_error = situation.q - q_target
+        if role != "target" and target_joints is not None:
+            run_joints = _joint_trajectory(situation, comparison.joint_names)
+            joint_result = _compare_or_none(target_joints, run_joints)
+            stats: dict[str, dict[str, Any]] = {}
+            if joint_result is None:
+                joint_error = np.full(situation.q.shape, np.nan)
+                joint_error_t = t
+                alignment = {"coverage": 0.0, "dropped": len(t), "time_offset_s": 0.0}
+            else:
+                joint_error = joint_result.error.positions  # target - run
+                joint_error_t = joint_result.error.t
+                alignment = {
+                    "coverage": joint_result.coverage,
+                    "dropped": joint_result.dropped,
+                    "time_offset_s": joint_result.time_offset_s,
+                }
+                stats = {name: value.as_dict() for name, value in joint_result.metrics.items()}
             joint_rms = np.asarray(
-                [_finite_rms(joint_error[:, col]) for col in range(joint_error.shape[1])]
+                [
+                    stats.get(f"positions/{name}", {}).get("rms", float("nan"))
+                    for name in comparison.joint_names
+                ]
             )
             finite_joint_rms = np.isfinite(joint_rms)
             automatic_metrics[situation.name].update(
                 {
-                    "joint": {
-                        name: _error_summary(joint_error[:, col])
-                        for col, name in enumerate(comparison.joint_names)
-                    },
                     "joint_rms": joint_rms,
                     "worst_joint": (
                         int(np.nanargmax(joint_rms)) if finite_joint_rms.any() else None
@@ -610,63 +583,51 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
                 }
             )
             plot["err_q"] = [
-                _clean(on_grid(joint_error[:, col])) for col in range(joint_error.shape[1])
+                _clean(on_grid(joint_error[:, col], joint_error_t))
+                for col in range(joint_error.shape[1])
             ]
-            if poses is not None and poses_target is not None:
-                position_error = np.linalg.norm(
-                    poses[:, :3, 3] - poses_target[:, :3, 3], axis=1
-                )
-                rotation_error = rotation_angles_between(
-                    poses[:, :3, :3], poses_target[:, :3, :3]
-                )
-                position_delta = poses[:, :3, 3] - poses_target[:, :3, 3]
-                rotation_delta = rotation_vectors_between(
-                    poses[:, :3, :3], poses_target[:, :3, :3]
-                )
-                target_velocity = _resample_columns(
-                    target.t, _gradient(target_poses[:, :3, 3], target.t), t
-                )
-                along_track, cross_track = _track_errors(position_delta, target_velocity)
+            if poses is not None and target_pose_track is not None:
+                run_pose_track = _pose_trajectory(situation, poses, comparison.tcp_frame)
+                pose_result = _compare_or_none(target_pose_track, run_pose_track)
+            else:
+                pose_result = None
+            if pose_result is not None:
+                pose_error = pose_result.error  # target - run, a PoseTrajectory
+                pose_t = pose_error.t
+                position_delta = pose_error.positions
+                rotation_delta = pose_error.channels["rotation_vector"]  # world axes
+                stats.update({name: value.as_dict() for name, value in pose_result.metrics.items()})
                 automatic_metrics[situation.name].update(
                     {
-                        "position_rms": _finite_rms(position_error),
-                        "rotation_rms": _finite_rms(rotation_error),
-                        "position": _error_summary(position_error),
-                        "rotation": _error_summary(rotation_error),
-                        "cross_track": _error_summary(cross_track),
-                        "along_track": _error_summary(along_track),
-                        "axes": {
-                            axis: _error_summary(series)
-                            for axis, series in zip(
-                                ("x", "y", "z", "rx", "ry", "rz"),
-                                np.concatenate([position_delta, rotation_delta], axis=1).T,
-                            )
-                        },
+                        "position_rms": stats["position"]["rms"],
+                        "rotation_rms": stats["rotation"]["rms"],
                     }
                 )
-                plot["xyz_mag"] = _clean(on_grid(position_error))
-                plot["rot_mag"] = _clean(on_grid(rotation_error))
+                plot["xyz_mag"] = _clean(on_grid(np.linalg.norm(position_delta, axis=1), pose_t))
+                plot["rot_mag"] = _clean(on_grid(pose_error.channels["rotation_angle"], pose_t))
                 for axis, col in (("x", 0), ("y", 1), ("z", 2)):
-                    plot[f"err_{axis}"] = _clean(on_grid(position_delta[:, col]))
-                    plot[f"err_r{axis}"] = _clean(on_grid(rotation_delta[:, col]))
-                plot["cross_track"] = _clean(on_grid(cross_track))
-                plot["along_track"] = _clean(on_grid(along_track))
-                entry["three"]["tp"] = _clean(poses_target[:, :3, 3], decimals=5)
-                entry["three"]["tquat"] = _clean(mat_to_quat(poses_target[:, :3, :3]), decimals=5)
+                    plot[f"err_{axis}"] = _clean(on_grid(position_delta[:, col], pose_t))
+                    plot[f"err_r{axis}"] = _clean(on_grid(rotation_delta[:, col], pose_t))
+                plot["cross_track"] = _clean(on_grid(pose_error.channels["cross_track"], pose_t))
+                plot["lag"] = _clean(on_grid(pose_error.channels["lag"], pose_t))
+                # The target at the run's own instants, exactly as compare() lined it up, so the
+                # 3D difference arrows point at the pose the plotted error was measured against.
+                target_at, _, _, _ = align(target_pose_track, run_pose_track)
+                inside = np.searchsorted(t, pose_t)
+                target_p = np.full((len(t), 3), np.nan)
+                target_quat = np.full((len(t), 4), np.nan)
+                target_p[inside] = target_at.positions
+                xyzw = target_at.orientations
+                wxyz = xyzw[:, [3, 0, 1, 2]]
+                target_quat[inside] = np.where(wxyz[:, :1] < 0.0, -wxyz, wxyz)  # w >= 0
+                entry["three"]["tp"] = _clean(target_p, decimals=5)
+                entry["three"]["tquat"] = _clean(target_quat, decimals=5)
+            automatic_metrics[situation.name]["stats"] = stats
+            entry["error_metrics"] = _json_clean({**stats, **alignment})
 
         entry["plot"] = plot
-        if role != "target":
-            metric = automatic_metrics[situation.name]
-            entry["error_metrics"] = _json_clean(
-                {
-                    key: metric[key]
-                    for key in (
-                        "joint", "position", "rotation", "cross_track", "along_track", "axes"
-                    )
-                    if key in metric
-                }
-            )
-
+        if role != "target" and entry["error_metrics"] is None:
+            entry["error_metrics"] = {}  # measured, but nothing to measure against
     statistics = comparison.statistics or _automatic_statistics(comparison, automatic_metrics)
     return {
         "name": comparison.name,

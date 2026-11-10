@@ -562,14 +562,15 @@ var TrajCompare = (function () {
     });
   }
 
-  /* Difference on the display grid: both columns are already resampled onto
-     plot_t, and a null on either side (outside a run's own recorded span)
-     stays a null so the gap survives instead of becoming a fake zero. */
+  /* Difference on the display grid, reference - value (target - run, the ROS 2
+     convention robot_msgs.compare uses): both columns are already resampled
+     onto plot_t, and a null on either side (outside a run's own recorded
+     span) stays a null so the gap survives instead of becoming a fake zero. */
   function difference(values, reference) {
     var out = new Array(values.length);
     for (var index = 0; index < values.length; index++) {
       var value = values[index], base = reference[index];
-      out[index] = (value === null || base === null) ? null : value - base;
+      out[index] = (value === null || base === null) ? null : base - value;
     }
     return out;
   }
@@ -637,16 +638,19 @@ var TrajCompare = (function () {
   function tcpErrBuilder(page, body) {
     var grid = el('div', 'tc-grid', body);
     var frame = frameName(page);
-    // Combined magnitudes, then the path split (off the path vs late along it),
+    // Combined magnitudes, then the path split (off the path vs behind along it),
     // then each world axis on its own (rotation as a rotation vector, not RPY).
+    // Every error is target - run, as robot_msgs.compare computes it.
     [['xyz_mag', frame + ' position error |Δp|', 'mm'],
      ['rot_mag', frame + ' rotation error', 'angle'],
      ['cross_track', frame + ' cross-track error (off path)', 'mm'],
-     ['along_track', frame + ' along-track error (+ ahead, − lag)', 'mm'],
-     ['err_x', frame + ' x error', 'mm'], ['err_y', frame + ' y error', 'mm'],
-     ['err_z', frame + ' z error', 'mm'],
-     ['err_rx', frame + ' rx error', 'angle'], ['err_ry', frame + ' ry error', 'angle'],
-     ['err_rz', frame + ' rz error', 'angle']].forEach(function (row) {
+     ['lag', frame + ' lag (+ behind target)', 'mm'],
+     ['err_x', frame + ' x error (target − run)', 'mm'],
+     ['err_y', frame + ' y error (target − run)', 'mm'],
+     ['err_z', frame + ' z error (target − run)', 'mm'],
+     ['err_rx', frame + ' rx error (target − run)', 'angle'],
+     ['err_ry', frame + ' ry error (target − run)', 'angle'],
+     ['err_rz', frame + ' rz error (target − run)', 'angle']].forEach(function (row) {
       var series = sitsWith(page, row[0]).map(function (sit) {
         return { sit: sit, values: sit.plot[row[0]] };
       });
@@ -665,7 +669,7 @@ var TrajCompare = (function () {
       });
       if (!series.length) return;
       makeChart(page, el('div', 'tc-plotcard', grid),
-        { title: jointName + ' — q error vs target', kind: 'angle', series: series });
+        { title: jointName + ' — q error (target − run)', kind: 'angle', series: series });
     });
     observeGrid(page, grid);
   }
@@ -990,8 +994,9 @@ var TrajCompare = (function () {
       hint = '% is of ' + reference + '; Vec is signed progress along the labeled direction';
     }
     if (id === 'tcp-err') {
-      hint = (data.tcp_frame || 'TCP') + ' frame vs target at the same time instant; ' +
-        'axis errors are world-frame, rotation as a rotation vector';
+      hint = (data.tcp_frame || 'TCP') + ' frame, error = target − run at the run\'s own sample times; ' +
+        'axis errors are world-frame, rotation as a world-axis rotation vector; ' +
+        'lag is + when the run is behind the target';
     }
     if (id === 'tcp-pose') hint = (data.tcp_frame || 'TCP') + ' frame';
     if (id === 'videos') hint = 'always played together, seeked by the scrubber';
@@ -1004,7 +1009,7 @@ var TrajCompare = (function () {
     });
     if (hasTarget && DELTA_SECTIONS.indexOf(id) !== -1) {
       hint += (hint ? ' · ' : '') +
-        'Error vs target draws a dotted Δ here; hide target + measured to read it on its own axis';
+        'Error (target − run) draws a dotted Δ here; hide target + measured to read it on its own axis';
     }
     return hint;
   }
