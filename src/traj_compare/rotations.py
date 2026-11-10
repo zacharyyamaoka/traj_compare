@@ -79,6 +79,50 @@ def rotation_angles_between(rotations_a: np.ndarray, rotations_b: np.ndarray) ->
     return np.arccos(np.clip((relative_trace - 1.0) / 2.0, -1.0, 1.0))
 
 
+def rotation_vectors_between(rotations: np.ndarray, references: np.ndarray) -> np.ndarray:
+    """World-frame rotation vector taking ``references_i`` to ``rotations_i``, ``(N, 3)`` rad.
+
+    It is the log map of ``R_err = rotations_i @ references_i^T``, so its norm
+    equals :func:`rotation_angles_between` and its components are the rx / ry /
+    rz error about the fixed world axes. WHY not a difference of RPY angles:
+    Euler differences couple through pitch and jump at gimbal lock, while this
+    is the actual rotation you would have to apply. Tested against scipy's
+    ``as_rotvec``.
+    """
+
+    a = np.asarray(rotations, dtype=float)
+    b = np.asarray(references, dtype=float)
+    err = a @ np.swapaxes(b, -1, -2)
+    skew = np.stack(
+        [err[:, 2, 1] - err[:, 1, 2], err[:, 0, 2] - err[:, 2, 0], err[:, 1, 0] - err[:, 0, 1]],
+        axis=1,
+    )
+    sin_angle = np.linalg.norm(skew, axis=1) / 2.0
+    cos_angle = (np.einsum("nii->n", err) - 1.0) / 2.0
+    # atan2, not arccos of the trace: arccos loses half its digits near 0 and pi.
+    angle = np.arctan2(sin_angle, cos_angle)
+    out = np.full_like(skew, np.nan)  # a row with no reference pose has no error, not a fake one
+    finite = np.isfinite(angle)
+    small = finite & (angle < 1e-6)
+    # Near zero, vee(R - R^T) / 2 is already the rotation vector to first order.
+    out[small] = skew[small] / 2.0
+    near_pi = finite & ~small & (cos_angle < 0.0) & (sin_angle < 1e-3)
+    regular = finite & ~small & ~near_pi
+    out[regular] = skew[regular] / (2.0 * sin_angle[regular, None]) * angle[regular, None]
+    for index in np.flatnonzero(near_pi):
+        # Near pi the skew part vanishes; recover the axis from the symmetric part,
+        # sym(R) = cos(angle) I + (1 - cos(angle)) a a^T.
+        outer = ((err[index] + err[index].T) / 2.0 - cos_angle[index] * np.eye(3)) / (
+            1.0 - cos_angle[index]
+        )
+        pivot = int(np.argmax(np.diag(outer)))
+        axis = outer[:, pivot] / np.sqrt(max(outer[pivot, pivot], 1e-300))
+        if np.dot(axis, skew[index]) < 0.0:
+            axis = -axis
+        out[index] = axis / np.linalg.norm(axis) * angle[index]
+    return out
+
+
 def successive_rotation_angles(rotations: np.ndarray) -> np.ndarray:
     """Angles between consecutive rotations of a pose sequence, ``(N-1,)``."""
 

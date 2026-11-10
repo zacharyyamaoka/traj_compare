@@ -454,6 +454,11 @@ class Comparison:
     # Real camera streams with sim renders laid over them; shown in the
     # "Camera" section beside the Videos, driven by the same transport.
     overlays: Sequence[CameraOverlay] = ()
+    # Name of the frame ``fk`` / ``poses`` describe ("TCP", "L2 tip",
+    # "coupler point"). WHY: the right frame differs per robot (6-DOF TCP vs a
+    # five-bar's L2 tip or coupler), so the report has to say which one every
+    # cartesian number is about. Shown in the TCP section hints and the table.
+    tcp_frame: str = "TCP"
 
     def __post_init__(self) -> None:
         if not self.name:

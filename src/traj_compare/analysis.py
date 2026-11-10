@@ -40,6 +40,7 @@ from .rotations import (
     mat_to_quat,
     mat_to_rpy,
     rotation_angles_between,
+    rotation_vectors_between,
     successive_rotation_angles,
     unwrap_rpy,
 )
@@ -315,6 +316,62 @@ def _finite_rms(values: np.ndarray) -> float:
     return float(np.sqrt(np.mean(finite**2)))
 
 
+def _error_summary(values: np.ndarray) -> dict[str, float]:
+    """RMS / max / p95 / std / final of one error channel, finite samples only.
+
+    WHY these five: RMS grades the whole run, max and p95 the worst moments
+    (p95 ignores a single glitch sample), std separates scatter from a steady
+    bias, and final is the error left when the motion ends (settling) - the
+    set Zach kept re-asking for (traj_integration_tests Logs, 2026-07-28).
+    max / p95 are of |error|; final keeps its sign so a signed channel still
+    reads ahead vs behind.
+    """
+
+    series = np.asarray(values, dtype=float).reshape(-1)
+    finite = series[np.isfinite(series)]
+    if not finite.size:
+        return {key: float("nan") for key in ("rms", "max", "p95", "std", "final")}
+    magnitude = np.abs(finite)
+    return {
+        "rms": float(np.sqrt(np.mean(finite**2))),
+        "max": float(np.max(magnitude)),
+        "p95": float(np.percentile(magnitude, 95.0)),
+        "std": float(np.std(finite)),
+        "final": float(finite[-1]),
+    }
+
+
+def _track_errors(
+    position_error: np.ndarray, target_velocity: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Split a position error into along-track and cross-track parts.
+
+    ``position_error`` is run minus target at the same instant, ``(N, 3)``;
+    ``target_velocity`` is the target's cartesian velocity there. Along-track
+    is the component on the target's direction of travel (+ = ahead of the
+    target, - = lagging); cross-track is what remains (how far off the path).
+    WHY a tangent split, not nearest-point-on-path: it is the lag / contouring
+    error linearization from model predictive contouring control, needs no
+    search, and cannot snap to the wrong pass of a home-to-home tape that
+    retraces itself. Where the target is at rest there is no direction of
+    travel, so both parts are NaN there (and stay out of the statistics).
+    """
+
+    speed = np.linalg.norm(target_velocity, axis=1)
+    finite_speed = speed[np.isfinite(speed)]
+    peak = float(np.max(finite_speed)) if finite_speed.size else 0.0
+    moving = np.isfinite(speed) & (speed > max(1e-9, 1e-3 * peak))
+    along = np.full(len(position_error), np.nan)
+    cross = np.full(len(position_error), np.nan)
+    if moving.any():
+        unit = target_velocity[moving] / speed[moving, None]
+        along[moving] = np.einsum("ij,ij->i", position_error[moving], unit)
+        cross[moving] = np.linalg.norm(
+            position_error[moving] - along[moving, None] * unit, axis=1
+        )
+    return along, cross
+
+
 def _format_degrees(value_rad: float) -> str:
     if not np.isfinite(value_rad):
         return "—"
@@ -343,6 +400,19 @@ def _automatic_statistics(
             reason = situation.meta.get("abort_reason")
             status = "aborted" + (f" — {reason}" if reason else "")
 
+        def pair(kind: str, formatter: Any) -> str:
+            summary = metric.get(kind)
+            if not summary:
+                return "—"
+            return f"{formatter(summary['max'])} · {formatter(summary['final'])}"
+
+        track = "—"
+        if metric.get("cross_track") and metric.get("along_track"):
+            track = (
+                f"{_format_millimetres(metric['cross_track']['rms'])} · "
+                f"{_format_millimetres(metric['along_track']['rms'])}"
+            )
+
         worst = "—"
         worst_index = metric.get("worst_joint")
         if worst_index is not None:
@@ -358,6 +428,9 @@ def _automatic_statistics(
                     worst,
                     _format_millimetres(metric.get("position_rms", float("nan"))),
                     _format_degrees(metric.get("rotation_rms", float("nan"))),
+                    pair("position", _format_millimetres),
+                    pair("rotation", _format_degrees),
+                    track,
                     status,
                 ],
                 tone=tone,
@@ -366,8 +439,12 @@ def _automatic_statistics(
     return ReportTable(
         title="Error statistics vs target",
         description=(
-            "RMS values use each run's native samples. Angles are shown in degrees "
-            "and positions in millimetres; raw report data remains SI."
+            f"Cartesian errors are of the {comparison.tcp_frame} frame. "
+            "RMS values use each run's native samples. Final is the error at the "
+            "run's last sample inside the target's span. Cross-track is distance "
+            "off the target's direction of travel; along-track is signed, + ahead / "
+            "- lagging. Angles are shown in degrees and positions in millimetres; "
+            "raw report data remains SI."
         ),
         columns=[
             "Situation",
@@ -375,6 +452,9 @@ def _automatic_statistics(
             "Worst joint",
             "TCP pos RMS",
             "TCP rot RMS",
+            "TCP pos max · final",
+            "TCP rot max · final",
+            "Cross · along-track RMS",
             "Samples / status",
         ],
         rows=rows,
@@ -420,6 +500,7 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
             "plot": None,
             "three": None,
             "robot_track": None,
+            "error_metrics": None,
         }
         payload_situations.append(entry)
         if role != "target":
@@ -513,6 +594,10 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
             finite_joint_rms = np.isfinite(joint_rms)
             automatic_metrics[situation.name].update(
                 {
+                    "joint": {
+                        name: _error_summary(joint_error[:, col])
+                        for col, name in enumerate(comparison.joint_names)
+                    },
                     "joint_rms": joint_rms,
                     "worst_joint": (
                         int(np.nanargmax(joint_rms)) if finite_joint_rms.any() else None
@@ -534,18 +619,53 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
                 rotation_error = rotation_angles_between(
                     poses[:, :3, :3], poses_target[:, :3, :3]
                 )
+                position_delta = poses[:, :3, 3] - poses_target[:, :3, 3]
+                rotation_delta = rotation_vectors_between(
+                    poses[:, :3, :3], poses_target[:, :3, :3]
+                )
+                target_velocity = _resample_columns(
+                    target.t, _gradient(target_poses[:, :3, 3], target.t), t
+                )
+                along_track, cross_track = _track_errors(position_delta, target_velocity)
                 automatic_metrics[situation.name].update(
                     {
                         "position_rms": _finite_rms(position_error),
                         "rotation_rms": _finite_rms(rotation_error),
+                        "position": _error_summary(position_error),
+                        "rotation": _error_summary(rotation_error),
+                        "cross_track": _error_summary(cross_track),
+                        "along_track": _error_summary(along_track),
+                        "axes": {
+                            axis: _error_summary(series)
+                            for axis, series in zip(
+                                ("x", "y", "z", "rx", "ry", "rz"),
+                                np.concatenate([position_delta, rotation_delta], axis=1).T,
+                            )
+                        },
                     }
                 )
                 plot["xyz_mag"] = _clean(on_grid(position_error))
                 plot["rot_mag"] = _clean(on_grid(rotation_error))
+                for axis, col in (("x", 0), ("y", 1), ("z", 2)):
+                    plot[f"err_{axis}"] = _clean(on_grid(position_delta[:, col]))
+                    plot[f"err_r{axis}"] = _clean(on_grid(rotation_delta[:, col]))
+                plot["cross_track"] = _clean(on_grid(cross_track))
+                plot["along_track"] = _clean(on_grid(along_track))
                 entry["three"]["tp"] = _clean(poses_target[:, :3, 3], decimals=5)
                 entry["three"]["tquat"] = _clean(mat_to_quat(poses_target[:, :3, :3]), decimals=5)
 
         entry["plot"] = plot
+        if role != "target":
+            metric = automatic_metrics[situation.name]
+            entry["error_metrics"] = _json_clean(
+                {
+                    key: metric[key]
+                    for key in (
+                        "joint", "position", "rotation", "cross_track", "along_track", "axes"
+                    )
+                    if key in metric
+                }
+            )
 
     statistics = comparison.statistics or _automatic_statistics(comparison, automatic_metrics)
     return {
@@ -557,6 +677,7 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
         "description": comparison.description,
         "meta": _json_clean(comparison.meta),
         "joint_names": list(comparison.joint_names),
+        "tcp_frame": comparison.tcp_frame,
         "vec_labels": [label for label, _ in comparison.vec_dirs],
         "pct_reference": "target" if pct_total else "self",
         "has_cartesian": any_cartesian,

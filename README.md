@@ -40,8 +40,8 @@ players.
 | --- | --- | --- |
 | Joint q / qd / qdd / τ / i | per joint, target + every situation overlaid; i is motor current in A (`Situation.current`, offered only when a run has it) | q on, rest off |
 | Joint error | per joint, `q − target(t)` | off |
-| TCP pose | x, y, z [m], rx, ry, rz [deg] (extrinsic xyz, unwrapped) | off |
-| TCP error | \|Δp\| [mm], rotation error [deg] vs target at the same instant | on |
+| TCP pose | x, y, z [m], rx, ry, rz [deg] (extrinsic xyz, unwrapped) of the `tcp_frame` | off |
+| TCP error | vs target at the same instant: \|Δp\| [mm] and rotation angle [deg]; **cross-track** (off the path) and signed **along-track** (+ ahead / − lag) [mm]; per-axis x/y/z [mm] and rx/ry/rz [deg] as a world-frame rotation vector | on |
 | Path progress | rows path/path_d/path_dd × columns **%** (of target path length), **XYZ** arc length, **RPY** accumulated rotation, **Vec[label]** signed progress along each configured direction | on |
 | Camera | one card per `CameraOverlay` in `Comparison.overlays`: the real video with a selected sim render stacked on top — **Real ◀ ▶ Sim** opacity slider (0 = only real, 1 = only sim), sim-source dropdown, Mix / Difference blend, 2 Hz Flicker; video position = t − `t0_s`; opacity/sim/blend/flicker are report-level prefs; a missing file shows a greyed "no video" card with its path | on |
 | Videos | one card per situation with a `video`, always played/seeked together by the transport | on |
@@ -100,6 +100,7 @@ comparison = Comparison(
     target=target,
     situations=[sim_a, real],
     fk=my_fk,                                  # (N, DOF) -> (N, 4, 4) TCP poses
+    tcp_frame="TCP",                           # which frame fk describes: "L2 tip", "coupler point", ...
     vec_dirs=[("Conveyor", np.array([0, 1, 0]))],
 )
 insights = ReportPage(
@@ -131,7 +132,17 @@ write_comparison_report([comparison], out_dir, insights=insights)
   joint-space comparison still works.
 - `poses` may be passed directly per situation (e.g. mocap) instead of `fk`.
 - `Comparison.statistics` accepts a display-ready `ReportTable`; otherwise a
-  standard error table is generated automatically.
+  standard error table is generated automatically: mean/worst joint RMS,
+  TCP position and rotation RMS, max · final, and cross · along-track RMS.
+- Every measured situation's payload entry carries `error_metrics` (SI):
+  `rms`, `max`, `p95`, `std` and `final` for each joint, position, rotation,
+  cross-track, along-track and each of x/y/z/rx/ry/rz, so adapters and
+  agents read the numbers instead of re-deriving them.
+- Along/cross-track split the position error on the target's direction of
+  travel (the lag / contouring split of model predictive contouring
+  control); where the target rests there is no direction, so both are null.
+- `examples/tracking_errors_demo.py` shows every standard field on a planar
+  2R arm with a lagging and an offset run.
 - `summary=` and `insights=` accept `ReportPage` objects. A page may contain
   `MetricCard`, `BarChart`, `ReportTable`, and `Insight` blocks.
 
@@ -149,7 +160,7 @@ or invent conclusions.
 
 ```bash
 cd ~/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_compare
-uv run --extra test pytest -q          # 31 tests
+uv run --extra test pytest -q          # 54 tests
 ```
 
 `tests/test_rotations.py` pins the rotation helpers against scipy;

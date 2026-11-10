@@ -613,10 +613,16 @@ var TrajCompare = (function () {
     };
   }
 
+  // The frame fk / poses describe (Comparison.tcp_frame): "TCP", "L2 tip", ...
+  function frameName(page) {
+    return page.data.tcp_frame || 'TCP';
+  }
+
   function tcpPoseBuilder(page, body) {
     var grid = el('div', 'tc-grid', body);
-    [['x', 'TCP x', 'm'], ['y', 'TCP y', 'm'], ['z', 'TCP z', 'm'],
-     ['rx', 'TCP rx', 'angle'], ['ry', 'TCP ry', 'angle'], ['rz', 'TCP rz', 'angle']]
+    var frame = frameName(page);
+    [['x', frame + ' x', 'm'], ['y', frame + ' y', 'm'], ['z', frame + ' z', 'm'],
+     ['rx', frame + ' rx', 'angle'], ['ry', frame + ' ry', 'angle'], ['rz', frame + ' rz', 'angle']]
       .forEach(function (row) {
         var series = sitsWith(page, row[0]).map(function (sit) {
           return { sit: sit, values: sit.plot[row[0]] };
@@ -630,8 +636,17 @@ var TrajCompare = (function () {
 
   function tcpErrBuilder(page, body) {
     var grid = el('div', 'tc-grid', body);
-    [['xyz_mag', 'TCP position error |Δp|', 'mm'],
-     ['rot_mag', 'TCP rotation error', 'angle']].forEach(function (row) {
+    var frame = frameName(page);
+    // Combined magnitudes, then the path split (off the path vs late along it),
+    // then each world axis on its own (rotation as a rotation vector, not RPY).
+    [['xyz_mag', frame + ' position error |Δp|', 'mm'],
+     ['rot_mag', frame + ' rotation error', 'angle'],
+     ['cross_track', frame + ' cross-track error (off path)', 'mm'],
+     ['along_track', frame + ' along-track error (+ ahead, − lag)', 'mm'],
+     ['err_x', frame + ' x error', 'mm'], ['err_y', frame + ' y error', 'mm'],
+     ['err_z', frame + ' z error', 'mm'],
+     ['err_rx', frame + ' rx error', 'angle'], ['err_ry', frame + ' ry error', 'angle'],
+     ['err_rz', frame + ' rz error', 'angle']].forEach(function (row) {
       var series = sitsWith(page, row[0]).map(function (sit) {
         return { sit: sit, values: sit.plot[row[0]] };
       });
@@ -974,7 +989,11 @@ var TrajCompare = (function () {
       var reference = data.pct_reference === 'target' ? 'target path length' : 'own path length';
       hint = '% is of ' + reference + '; Vec is signed progress along the labeled direction';
     }
-    if (id === 'tcp-err') hint = 'magnitudes vs target at the same time instant';
+    if (id === 'tcp-err') {
+      hint = (data.tcp_frame || 'TCP') + ' frame vs target at the same time instant; ' +
+        'axis errors are world-frame, rotation as a rotation vector';
+    }
+    if (id === 'tcp-pose') hint = (data.tcp_frame || 'TCP') + ' frame';
     if (id === 'videos') hint = 'always played together, seeked by the scrubber';
     if (id === 'camera') hint = 'real video under the sim render; both follow the scrubber';
     if (id === 'viewer3d') hint = 'hover any plot to preview that instant; scrub below the canvas';
