@@ -86,7 +86,7 @@ EXAMPLES = {
             "estimate reads the 40 ms back."
         ),
         "tags": ["2-DOF", "lag vs offset", "L2 tip frame", "verdicts", "latency", "Rerun"],
-        "command": [str(TRAJ_COMPARE / "examples" / "tracking_errors_demo.py"), "--rerun", "--out"],
+        "command": [str(TRAJ_COMPARE / "examples" / "tracking_errors_demo.py"), "--rerun", "--exports", "--out"],
         "python": VENV_PYTHON,
         "source": TRAJ_COMPARE / "examples" / "tracking_errors_demo.py",
         "cwd": TRAJ_COMPARE,
