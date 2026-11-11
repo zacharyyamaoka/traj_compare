@@ -333,6 +333,16 @@ def _format_millimetres(value_m: float) -> str:
     return f"{value_m * 1000.0:,.3f} mm"
 
 
+def reference_title(comparison: Comparison) -> str:
+    """What the viewer calls the minuend of every error.
+
+    WHY the target's own title: sim vs real has no target; whichever run sits in ``target`` is the
+    reference, and the report names it instead of saying "target".
+    """
+
+    return comparison.target.title if comparison.target is not None else "Target"
+
+
 def _automatic_statistics(
     comparison: Comparison,
     metrics: dict[str, dict[str, Any]],
@@ -392,7 +402,7 @@ def _automatic_statistics(
         description=(
             f"Cartesian errors are of the {comparison.tcp_frame} frame. "
             "RMS values use each run's native samples. Final is the error at the "
-            "run's last sample inside the target's span. Errors are target - run. "
+            f"run's last sample inside the target's span. Errors are {reference_title(comparison)} − run. "
             "Cross-track is distance off the target's direction of travel; lag is "
             "signed along it, + when the run is behind the target. Angles are shown "
             "in degrees and positions in millimetres; raw report data remains SI."
@@ -639,6 +649,7 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
         "meta": _json_clean(comparison.meta),
         "joint_names": list(comparison.joint_names),
         "tcp_frame": comparison.tcp_frame,
+        "reference_title": reference_title(comparison),
         "vec_labels": [label for label, _ in comparison.vec_dirs],
         "pct_reference": "target" if pct_total else "self",
         "has_cartesian": any_cartesian,

@@ -7,6 +7,7 @@ every standard field: joint q/qd/qdd and error, the L2-tip pose per axis,
 and the RMS · max · final table.
 
     uv run --directory ~/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_compare python examples/tracking_errors_demo.py --out /tmp/tracking_errors_demo
+    uv run --extra rerun --directory ~/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_compare python examples/tracking_errors_demo.py --out /tmp/tracking_errors_demo --rerun
 """
 
 from __future__ import annotations
@@ -47,7 +48,7 @@ def joint_path(t: np.ndarray) -> np.ndarray:
     return np.column_stack([0.2 + 0.9 * swing, 0.6 + 0.7 * swing])
 
 
-def build(out_dir: Path) -> Path:
+def build(out_dir: Path, rerun: bool = False) -> Path:
     t = np.linspace(0.0, 3.6, 1801)
     target = Situation(name="target", title="Target", t=t, q=joint_path(t))
     sim = Situation(name="sim", title="Sim (lagging)", t=t, q=joint_path(t - LAG_S))
@@ -64,11 +65,15 @@ def build(out_dir: Path) -> Path:
         default_sections=["joint-q", "joint-err", "tcp-err"],
     )
     return write_comparison_report(
-        [comparison], out_dir, title="Standard tracking-error fields"
+        [comparison], out_dir, title="Standard tracking-error fields", rerun=rerun
     )
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, default=Path("/tmp/tracking_errors_demo"))
-    print(build(parser.parse_args().out))
+    parser.add_argument(
+        "--rerun", action="store_true", help="also write rerun/<name>.rrd and the Open in Rerun button"
+    )
+    args = parser.parse_args()
+    print(build(args.out, rerun=args.rerun))

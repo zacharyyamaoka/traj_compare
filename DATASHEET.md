@@ -51,14 +51,33 @@ color, and can be disabled independently; a clickable view cube snaps axis
 views. Optional Summary and Insights tabs use the same self-contained payload
 and renderer.
 
+## Open in Rerun (optional)
+
+`write_comparison_report(..., rerun=True)` also writes `rerun/<comparison.name>.rrd` beside the report (one
+recording per comparison, application id `traj_compare`, timeline `t` in seconds from the target's start, blueprint
+embedded) and adds `comparisons[i].rerun = {rrd, sdk, command}` to the payload, which the viewer turns into the header
+control. `write_rrd(comparison, path)` is the same writer on its own. Entities: `/world/<situation>/{robot/<link>,tcp}`,
+`/position|velocity|torque/<joint>/<situation>`, `/error/joint/<joint>/<situation>` (target − run, SI rad, from the
+analyze payload), `/error/tool/{position_mm,rotation_mrad,x_mm,y_mm,z_mm,lag_mm,cross_track_mm}/<situation>`,
+`/vec/<label>/<situation>`, `/video/<situation>` (MP4), `/notes`.
+
+**Pin:** `RERUN_SDK_VERSION = "0.40.0"`; the `rerun` extra is `rerun-sdk==0.40.0`. An `.rrd` needs a viewer at least as new
+as its SDK, so every command is `uvx --from rerun-sdk==0.40.0 rerun <abs path>`.
+
+**Button:** `python -m traj_compare.serve <dir> [--port 8767] [--host 127.0.0.1]` serves the directory (CORS +
+`Access-Control-Allow-Private-Network` for app.rerun.io) and answers `POST /__rerun/open?rrd=<relative path>` by starting
+that command on a `.rrd` inside the root (anything outside is refused, nothing spawned; cross-origin POSTs are refused).
+From `file://` or a plain static server the same button copies the command. The payload also carries `reference_title`
+(the `target` situation's title), which the viewer writes wherever it says "<reference> − run".
+
 ## Dependencies
 
 Runtime: `numpy` and `robot-msgs` (numpy-only; every error signal and statistic comes from
 `robot_msgs.compare`, error = target − run, since 2026-11-10). Vendored into the wheel: uPlot 1.6.30, three.js r160
 (`src/traj_compare/assets/VENDORED.md`). Test extra: `pytest`, `scipy`
-(rotation oracle).
+(rotation oracle). Optional `rerun` extra: `rerun-sdk==0.40.0` (only `rerun_export.py` imports it).
 
-## Tests — `uv run --extra test python -m pytest -q tests` → **56 passed**
+## Tests — `uv run --extra test python -m pytest -q tests` → **64 passed** (with `--extra rerun`; `test_rerun_export.py` skips without the SDK)
 
 (`python -m`: the venv's `pytest` script can carry a stale shebang from before the package moved
 under `mdp/agent/`. `test_playback.py` checks video frame gaps < 0.6 s and can trip when the machine
@@ -69,6 +88,7 @@ is saturated; base and current builds measured the same 0.24–0.42 s spread on 
 | `test_rotations.py` (7) | mat→quat/rpy match scipy (incl. near-π), geodesic angles, accumulation, unwrap/align |
 | `test_analysis.py` (15) | arc-length/percent/vec identities on a constant-speed line; pure rotation accumulates RPY path; pct normalized by **target** total; exact error magnitudes for a known offset; null padding beyond a short run's span (no fabricated plateau); derived-channel flagging; empty situation + JSON round trip; joint-only comparisons; NaN → null; robot mesh base64 round-trip + per-link pose tracks; bounded display-only model-track sampling with endpoint preservation; RobotDisplay validation; video passthrough |
 | `test_overlay.py` (8) | camera overlay carried into the payload; no overlays/current leaves the payload as before; overlay validation; current resampled onto the target grid with null padding; missing current is fine and never invented for the target; current shape validation; the report ships the Camera section / current channel / pref keys; `camera` accepted as a default section |
+| `test_rerun_export.py` (8) | the .rrd verifies and prints through Rerun's own CLI with the standard entity layout and an embedded blueprint; its error values equal the HTML payload; `rerun=True` writes one .rrd per comparison with `{rrd, sdk, command}` and `rerun=False` writes none; `reference_title` names the minuend; `serve` sends CORS + private-network headers and launches the pinned viewer only on a file inside its root |
 | `test_report.py` (9) | report is self-contained, embeds both libs + data, groups comparison/situation navigation, derives error statistics, serializes Summary/Insights primitives, surfaces torque by default when requested, embeds each distinct robot link mesh once per report (`mesh_library`) however many pages pose it, preserves `</script>` safely, and rejects an empty list |
 
 ## Examples

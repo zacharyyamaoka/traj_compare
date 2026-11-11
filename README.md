@@ -155,6 +155,34 @@ write_comparison_report([comparison], out_dir, insights=insights)
 - `summary=` and `insights=` accept `ReportPage` objects. A page may contain
   `MetricCard`, `BarChart`, `ReportTable`, and `Insight` blocks.
 
+## Open in Rerun
+
+Every comparison can also be written as a [Rerun](https://rerun.io) recording: the same data, a second
+projection (decision note "Tracking-Run Data — data-ui vs Rerun", 2026-10-26). Install the extra and ask for it:
+
+```python
+write_comparison_report(comparisons, out_dir, rerun=True)   # needs: uv run --extra rerun ...
+```
+
+`rerun=True` writes `rerun/<comparison.name>.rrd` beside `report.html` (one recording per comparison, blueprint
+embedded) and gives each page an **Open in Rerun** control. Without the SDK it raises an `ImportError` naming the
+`rerun` extra; the default `rerun=False` never imports it. `write_rrd(comparison, path)` writes one file directly.
+The numbers come from the same payload as the HTML (so from `robot_msgs.compare`): `/error/joint/<joint>/<situation>`
+is target − run in rad, `/error/tool/...` in mm / mrad, `/vec/<label>/<situation>` the signed speed along each `vec_dirs`
+direction, plus `/position`, `/velocity`, `/torque`, `/world/<situation>/{robot,tcp}`, `/video/<situation>` (MP4) and
+a `/notes` statistics table.
+
+**Version pin.** `RERUN_SDK_VERSION = "0.40.0"` (`traj_compare.rerun_export`, and the `rerun` extra): an `.rrd` must be
+opened by a viewer at least as new as the SDK that wrote it, so the button and the printed command always use
+`uvx --from rerun-sdk==0.40.0 rerun <file>`.
+
+**What the button does**, by how the report is opened:
+
+| Opened from | "Open in Rerun" | Also |
+| --- | --- | --- |
+| `python -m traj_compare.serve <dir>` (default `http://127.0.0.1:8767/report.html`) | `POST /__rerun/open?rrd=...`; the server starts the pinned viewer on the file (only files inside `<dir>`) | "Rerun in browser" opens app.rerun.io on the served `.rrd` |
+| `file://` or any plain static server | copies the `uvx` command (no launcher to call) | "Copy command", "Download .rrd" |
+
 ## Formatting contract
 
 Adapters define the semantic bounds: group names and order, table values and
@@ -169,7 +197,7 @@ or invent conclusions.
 
 ```bash
 cd ~/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_compare
-uv run --extra test pytest -q          # 54 tests
+uv run --extra test --extra rerun python -m pytest -q          # 64 tests
 ```
 
 `tests/test_rotations.py` pins the rotation helpers against scipy;

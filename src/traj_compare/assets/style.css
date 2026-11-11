@@ -23,6 +23,17 @@ main.tc { padding: 12px 22px 40px; }
 .tc-page.active { display: block; }
 .tc-page-title { font-size: 16px; margin: 4px 0 3px; color: #22211f; }
 .tc-desc { margin: 4px 0 10px; color: #52514e; max-width: 900px; }
+.tc-rerun { margin: 2px 0 10px; }
+.tc-rerun-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.tc-rerun-open, .tc-rerun-btn { border: 1px solid #cfcec8; background: #fcfcfb; border-radius: 6px;
+        padding: 3px 10px; font-size: 12.5px; color: #52514e; cursor: pointer;
+        text-decoration: none; font-family: inherit; }
+.tc-rerun-open { background: #eef3fa; border-color: #9dbde4; color: #0b0b0b; }
+.tc-rerun-open:hover, .tc-rerun-btn:hover { border-color: #8a8983; }
+.tc-rerun-status { font-size: 11.5px; color: #8a8983; }
+.tc-rerun-status.bad { color: #a4372a; }
+.tc-rerun-cmd { display: block; margin-top: 5px; font-size: 11.5px; color: #8a8983;
+        overflow-x: auto; white-space: nowrap; user-select: all; }
 .tc-report-desc { margin: 4px 0 16px; color: #52514e; max-width: 1050px;
                   font-size: 14px; }
 .tc-summary { background: #fcfcfb; border: 1px solid #dddcd6; border-radius: 8px;

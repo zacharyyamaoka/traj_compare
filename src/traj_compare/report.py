@@ -68,11 +68,14 @@ def write_comparison_report(
     provenance: dict[str, Any] | None = None,
     summary: ReportPage | None = None,
     insights: ReportPage | None = None,
+    rerun: bool = False,
 ) -> Path:
     """Analyze the comparison(s) and write one self-contained ``report.html``.
 
     ``output`` may be a directory (writes ``report.html`` inside it) or a
-    path ending in ``.html``.
+    path ending in ``.html``. ``rerun=True`` also writes ``rerun/<name>.rrd`` beside
+    the report for every comparison and gives each page an "Open in Rerun" control;
+    it needs the ``rerun`` extra and raises ImportError naming it when the SDK is absent.
     """
 
     if isinstance(comparisons, Comparison):
@@ -87,10 +90,27 @@ def write_comparison_report(
         report_path = output / "report.html"
     report_path.parent.mkdir(parents=True, exist_ok=True)
 
+    if rerun:
+        # Lazy, so the core report never imports the SDK; the module raises its own clear error.
+        from .rerun_export import RERUN_SDK_VERSION, viewer_command, write_rrd
+
     pages = []
     for comparison in comparisons:
         payload = analyze_comparison(comparison)
         _colorize(payload)
+        if rerun:
+            relative = f"rerun/{comparison.name}.rrd"
+            rrd_path = write_rrd(
+                comparison,
+                report_path.parent / relative,
+                payload=payload,
+                video_root=report_path.parent,
+            )
+            payload["rerun"] = {
+                "rrd": relative,
+                "sdk": RERUN_SDK_VERSION,
+                "command": viewer_command(rrd_path),
+            }
         pages.append(payload)
 
     report_pages = [page for page in (summary, insights) if page is not None]

@@ -562,6 +562,12 @@ var TrajCompare = (function () {
     });
   }
 
+  /* What an error is measured against: the run sitting in ``target`` (sim vs real has no
+     target, so the report names whichever run is the reference). */
+  function referenceTitle(data) {
+    return data.reference_title || 'Target';
+  }
+
   /* Difference on the display grid, reference - value (target - run, the ROS 2
      convention robot_msgs.compare uses): both columns are already resampled
      onto plot_t, and a null on either side (outside a run's own recorded
@@ -638,6 +644,7 @@ var TrajCompare = (function () {
   function tcpErrBuilder(page, body) {
     var grid = el('div', 'tc-grid', body);
     var frame = frameName(page);
+    var minus = referenceTitle(page.data) + ' − run';
     // Combined magnitudes, then the path split (off the path vs behind along it),
     // then each world axis on its own (rotation as a rotation vector, not RPY).
     // Every error is target - run, as robot_msgs.compare computes it.
@@ -645,12 +652,12 @@ var TrajCompare = (function () {
      ['rot_mag', frame + ' rotation error', 'angle'],
      ['cross_track', frame + ' cross-track error (off path)', 'mm'],
      ['lag', frame + ' lag (+ behind target)', 'mm'],
-     ['err_x', frame + ' x error (target − run)', 'mm'],
-     ['err_y', frame + ' y error (target − run)', 'mm'],
-     ['err_z', frame + ' z error (target − run)', 'mm'],
-     ['err_rx', frame + ' rx error (target − run)', 'angle'],
-     ['err_ry', frame + ' ry error (target − run)', 'angle'],
-     ['err_rz', frame + ' rz error (target − run)', 'angle']].forEach(function (row) {
+     ['err_x', frame + ' x error (' + minus + ')', 'mm'],
+     ['err_y', frame + ' y error (' + minus + ')', 'mm'],
+     ['err_z', frame + ' z error (' + minus + ')', 'mm'],
+     ['err_rx', frame + ' rx error (' + minus + ')', 'angle'],
+     ['err_ry', frame + ' ry error (' + minus + ')', 'angle'],
+     ['err_rz', frame + ' rz error (' + minus + ')', 'angle']].forEach(function (row) {
       var series = sitsWith(page, row[0]).map(function (sit) {
         return { sit: sit, values: sit.plot[row[0]] };
       });
@@ -669,7 +676,7 @@ var TrajCompare = (function () {
       });
       if (!series.length) return;
       makeChart(page, el('div', 'tc-plotcard', grid),
-        { title: jointName + ' — q error (target − run)', kind: 'angle', series: series });
+        { title: jointName + ' — q error (' + referenceTitle(page.data) + ' − run)', kind: 'angle', series: series });
     });
     observeGrid(page, grid);
   }
@@ -994,7 +1001,7 @@ var TrajCompare = (function () {
       hint = '% is of ' + reference + '; Vec is signed progress along the labeled direction';
     }
     if (id === 'tcp-err') {
-      hint = (data.tcp_frame || 'TCP') + ' frame, error = target − run at the run\'s own sample times; ' +
+      hint = (data.tcp_frame || 'TCP') + ' frame, error = ' + referenceTitle(data) + ' − run at the run\'s own sample times; ' +
         'axis errors are world-frame, rotation as a world-axis rotation vector; ' +
         'lag is + when the run is behind the target';
     }
@@ -1009,7 +1016,7 @@ var TrajCompare = (function () {
     });
     if (hasTarget && DELTA_SECTIONS.indexOf(id) !== -1) {
       hint += (hint ? ' · ' : '') +
-        'Error (target − run) draws a dotted Δ here; hide target + measured to read it on its own axis';
+        'Error (' + referenceTitle(data) + ' − run) draws a dotted Δ here; hide target + measured to read it on its own axis';
     }
     return hint;
   }
@@ -1112,6 +1119,81 @@ var TrajCompare = (function () {
     if (image.caption) el('figcaption', '', figure, image.caption);
   }
 
+  /* ---- Open in Rerun ------------------------------------------------------------------------
+     The .rrd beside this report is the same data in Rerun (WHY: Tracking-Run Data — data-ui vs
+     Rerun, 2026-10-26: the viewer is one projection, Rerun the other). Served by
+     ``python -m traj_compare.serve`` the primary button starts the pinned viewer through the
+     server; from file:// or a plain static server there is nothing to start it, so it copies the
+     command instead. Either way the command stays on screen. */
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text).then(function () { return true; },
+        function () { return copyTextFallback(text); });
+    }
+    return Promise.resolve(copyTextFallback(text));
+  }
+
+  function copyTextFallback(text) {
+    var area = el('textarea', '', document.body, text);
+    area.style.cssText = 'position:fixed;left:-9999px;top:0';
+    area.select();
+    var done = false;
+    try { done = document.execCommand('copy'); } catch (error) { done = false; }
+    document.body.removeChild(area);
+    return done;
+  }
+
+  function buildRerunBar(root, info) {
+    var served = location.protocol === 'http:' || location.protocol === 'https:';
+    var rrdUrl = new URL(info.rrd, location.href);
+    var bar = el('div', 'tc-rerun', root);
+    var row = el('div', 'tc-rerun-row', bar);
+    var open = el('button', 'tc-rerun-open', row, 'Open in Rerun');
+    var copy = el('button', 'tc-rerun-btn', row, 'Copy command');
+    var download = el('a', 'tc-rerun-btn', row, 'Download .rrd');
+    download.href = info.rrd;
+    download.setAttribute('download', '');
+    if (served) {
+      var web = el('a', 'tc-rerun-btn', row, 'Rerun in browser');
+      web.href = 'https://app.rerun.io/version/' + info.sdk + '/index.html?url=' +
+        encodeURIComponent(rrdUrl.href);
+      web.target = '_blank';
+      web.rel = 'noopener';
+      web.title = 'the web viewer fetches the .rrd from this server; it needs the serve command';
+    }
+    var status = el('span', 'tc-rerun-status', row);
+    var command = el('code', 'tc-rerun-cmd', bar, info.command);
+    command.title = 'Rerun ' + info.sdk + ' (an .rrd needs a viewer at least as new as its SDK)';
+
+    function say(text, bad) {
+      status.textContent = text;
+      status.classList.toggle('bad', !!bad);
+    }
+    function copyCommand(prefix) {
+      return Promise.resolve(copyText(info.command)).then(function (ok) {
+        say(ok ? prefix + 'command copied — paste it in a terminal' : prefix + 'copy failed — select the command below');
+      });
+    }
+    copy.onclick = function () { copyCommand(''); };
+    open.onclick = function () {
+      if (!served) { copyCommand('No launcher on file:// — '); return; }
+      say('Opening Rerun…');
+      // The endpoint wants a path relative to the served root, not to this page.
+      var relative = decodeURIComponent(rrdUrl.pathname.replace(/^\//, ''));
+      fetch(location.origin + '/__rerun/open?rrd=' + encodeURIComponent(relative), { method: 'POST' })
+        .then(function (response) {
+          return response.text().then(function (text) {
+            var body = null;
+            try { body = JSON.parse(text); } catch (error) { body = null; }
+            if (body && body.ok) { say('Opening Rerun… (the window can take a few seconds)'); return; }
+            if (body && body.error) { say(body.error, true); return; }
+            // Not our server: a plain static server answers 404/405/501 for the POST.
+            return copyCommand('No launcher on this server — ');
+          });
+        }, function () { return copyCommand('No launcher reachable — '); });
+    };
+  }
+
   function buildPage(page) {
     var data = page.data;
     var root = page.el;
@@ -1120,6 +1202,7 @@ var TrajCompare = (function () {
 
     el('h2', 'tc-page-title', root, data.title);
     if (data.description) el('p', 'tc-desc', root, data.description);
+    if (data.rerun) buildRerunBar(root, data.rerun);
     if (data.statistics) buildTable(root, data.statistics, true);
 
     var summary = data.meta && data.meta.summary;

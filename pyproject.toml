@@ -17,6 +17,9 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=8", "scipy>=1.10"]
+# WHY pinned exactly: an .rrd must be opened by a viewer at least as new as the SDK that wrote it, so the
+# report writes this one version beside every file (Tracking-Run Data — data-ui vs Rerun, 2026-10-26).
+rerun = ["rerun-sdk==0.40.0"]
 
 [tool.uv.sources]
 # WHY through src/external: robot_msgs is its own repo (/home/bam/robot_msgs); src/external/robot_msgs is a committed symlink to it,
