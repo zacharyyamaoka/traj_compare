@@ -1159,7 +1159,26 @@ var TrajCompare = (function () {
     return done;
   }
 
-  function buildRerunBar(root, info) {
+  /* Parquet / MCAP beside the page (WHY: prior-art item 10, 2026-11-10: PlotJuggler, Foxglove, LeRobot
+     and pandas read them; the same payload as the plots). Plain download links, no launcher. */
+  function addExportLinks(row, exports) {
+    [['parquet', 'Download Parquet', 'tidy rows: comparison, situation, reference, channel, column, t, value'],
+     ['mcap', 'Download MCAP', 'one JSON topic per situation and channel, for PlotJuggler / Foxglove']
+    ].forEach(function (item) {
+      if (!exports[item[0]]) return;
+      var link = el('a', 'tc-rerun-btn', row, item[1]);
+      link.href = exports[item[0]];
+      link.setAttribute('download', '');
+      link.title = item[2];
+    });
+  }
+
+  function buildExportsBar(root, exports) {
+    var bar = el('div', 'tc-rerun', root);
+    addExportLinks(el('div', 'tc-rerun-row', bar), exports);
+  }
+
+  function buildRerunBar(root, info, exports) {
     var served = location.protocol === 'http:' || location.protocol === 'https:';
     var rrdUrl = new URL(info.rrd, location.href);
     var bar = el('div', 'tc-rerun', root);
@@ -1169,6 +1188,7 @@ var TrajCompare = (function () {
     var download = el('a', 'tc-rerun-btn', row, 'Download .rrd');
     download.href = info.rrd;
     download.setAttribute('download', '');
+    if (exports) addExportLinks(row, exports);
     if (served) {
       var web = el('a', 'tc-rerun-btn', row, 'Rerun in browser');
       web.href = 'https://app.rerun.io/version/' + info.sdk + '/index.html?url=' +
@@ -1360,7 +1380,8 @@ var TrajCompare = (function () {
 
     el('h2', 'tc-page-title', root, data.title);
     if (data.description) el('p', 'tc-desc', root, data.description);
-    if (data.rerun) buildRerunBar(root, data.rerun);
+    if (data.rerun) buildRerunBar(root, data.rerun, data.exports);
+    else if (data.exports) buildExportsBar(root, data.exports);
     if (data.statistics) buildTable(root, data.statistics, true);
     page.unitRepaints = [];
     buildVerdictDetails(root, data);

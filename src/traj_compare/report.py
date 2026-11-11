@@ -73,6 +73,7 @@ def write_comparison_report(
     summary: ReportPage | None = None,
     insights: ReportPage | None = None,
     rerun: bool = False,
+    exports: bool = False,
 ) -> Path:
     """Analyze the comparison(s) and write one self-contained ``report.html``.
 
@@ -80,6 +81,8 @@ def write_comparison_report(
     path ending in ``.html``. ``rerun=True`` also writes ``rerun/<name>.rrd`` beside
     the report for every comparison and gives each page an "Open in Rerun" control;
     it needs the ``rerun`` extra and raises ImportError naming it when the SDK is absent.
+    ``exports=True`` writes ``exports/<name>.parquet`` and ``.mcap`` the same way (the ``export`` extra)
+    and links them next to the page's other downloads.
     """
 
     if isinstance(comparisons, Comparison):
@@ -98,6 +101,9 @@ def write_comparison_report(
         # Lazy, so the core report never imports the SDK; the module raises its own clear error.
         from .rerun_export import RERUN_SDK_VERSION, viewer_command, write_rrd
 
+    if exports:
+        from .export import write_mcap, write_parquet
+
     pages = []
     for comparison in comparisons:
         payload = analyze_comparison(comparison)
@@ -115,6 +121,11 @@ def write_comparison_report(
                 "sdk": RERUN_SDK_VERSION,
                 "command": viewer_command(rrd_path),
             }
+        if exports:
+            files = {"parquet": f"exports/{comparison.name}.parquet", "mcap": f"exports/{comparison.name}.mcap"}
+            write_parquet(comparison, report_path.parent / files["parquet"], payload=payload)
+            write_mcap(comparison, report_path.parent / files["mcap"], payload=payload)
+            payload["exports"] = files
         pages.append(payload)
 
     report_pages = [page for page in (summary, insights) if page is not None]

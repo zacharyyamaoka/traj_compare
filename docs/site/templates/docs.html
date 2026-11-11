@@ -319,6 +319,9 @@
   {{docs_rerun}}
   <p>The launcher is narrow on purpose: it opens only <code>.rrd</code> files inside the folder it serves, refuses absolute paths and cross-origin POSTs, and sends the CORS and private-network headers app.rerun.io needs to read a localhost file.[[n:code_viewer]] Video goes in as MP4 (H.264 or AV1, decoded by the browser's WebCodecs).[[n:rerun_video]]</p>
 
+  <h3>Exports</h3>
+  <p>With <code>exports=True</code> every page is also written as <code>exports/&lt;page name&gt;.parquet</code> and <code>.mcap</code>, linked beside “Download .rrd”. They read the same payload as the plots, so no number is recomputed. The Parquet file is tidy rows (<code>comparison, situation, reference, channel, column, t, value</code>) for pandas or LeRobot. The MCAP file has one JSON topic per situation and channel, <code>/traj_compare/&lt;situation&gt;/&lt;channel&gt;</code>, plus <code>/traj_compare/metrics</code> with the error statistics, for PlotJuggler or Foxglove. Both need the <code>export</code> extra (<code>pyarrow</code>, <code>mcap</code>).</p>
+
   <!-- ─────────────────────────────────────────────────────────────── -->
   <h2 id="install">Install and run<a class="anchor" href="#install">#</a></h2>
   <p>Runtime dependencies: numpy and robot_msgs (itself numpy-only). The Rerun SDK is an extra, imported only when you ask for <code>rerun=True</code>; scipy appears only in the test extra, as the rotation oracle.[[n:code_viewer]]</p>

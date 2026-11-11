@@ -201,6 +201,25 @@ opened by a viewer at least as new as the SDK that wrote it, so the button and t
 | `python -m traj_compare.serve <dir>` (default `http://127.0.0.1:8767/report.html`) | `POST /__rerun/open?rrd=...`; the server starts the pinned viewer on the file (only files inside `<dir>`) | "Rerun in browser" opens app.rerun.io on the served `.rrd` |
 | `file://` or any plain static server | copies the `uvx` command (no launcher to call) | "Copy command", "Download .rrd" |
 
+## Parquet and MCAP exports
+
+`write_comparison_report(comparisons, out_dir, exports=True)` also writes `exports/<comparison.name>.parquet` and
+`.mcap` beside `report.html`, adds `comparisons[i].exports = {parquet, mcap}` to the payload and shows **Download
+Parquet** / **Download MCAP** links next to "Download .rrd" (or alone when `rerun` is off). Both are projections of the
+same payload as the HTML and the .rrd, so no metric is recomputed; install the extra (`uv run --extra export ...`:
+`pyarrow>=15`, `mcap>=1.2`), otherwise `ImportError` names it. `write_parquet(comparison, path)` and
+`write_mcap(comparison, path)` (`traj_compare.export`) write one file directly.
+
+- **Parquet** — tidy long rows `comparison, situation, reference, channel, column, t, value`. `channel` is the payload's
+  plot key (`q`, `qd`, `qdd`, `tau`, `err_q`, `err_x`.., `lag`, `cross_track`, `contour`, `lag_time`, `vec0_d`,
+  `err_axes`, ...), `column` the joint name / `error_axes` label or `""` for a scalar channel, `t` seconds from the
+  reference's first sample on the plot grid, `value` NaN where the payload has null. The target's rows carry its own name
+  as `reference`.
+- **MCAP** — JSON messages with a jsonschema schema per topic `/traj_compare/<situation>/<channel>`; one message per
+  plot-grid sample `{"t": seconds, "<column>": value, ...}` (a scalar channel's field is `value`; null samples are
+  left out), log time = publish time = `t` in integer ns. `/traj_compare/metrics` holds one message with every
+  situation's error statistics.
+
 ## Formatting contract
 
 Adapters define the semantic bounds: group names and order, table values and
@@ -215,7 +234,7 @@ or invent conclusions.
 
 ```bash
 cd ~/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_compare
-uv run --extra test --extra rerun python -m pytest -q          # 64 tests
+uv run --extra test --extra rerun --extra export python -m pytest -q
 ```
 
 `tests/test_rotations.py` pins the rotation helpers against scipy;

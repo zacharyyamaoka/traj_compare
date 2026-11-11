@@ -51,7 +51,7 @@ def joint_path(t: np.ndarray) -> np.ndarray:
     return np.column_stack([0.2 + 0.9 * swing, 0.6 + 0.7 * swing])
 
 
-def build(out_dir: Path, rerun: bool = False) -> Path:
+def build(out_dir: Path, rerun: bool = False, exports: bool = False) -> Path:
     t = np.linspace(0.0, 3.6, 1801)
     target = Situation(name="target", title="Target", t=t, q=joint_path(t))
     sim = Situation(name="sim", title="Sim (lagging)", t=t, q=joint_path(t - LAG_S))
@@ -81,7 +81,8 @@ def build(out_dir: Path, rerun: bool = False) -> Path:
         error_axes=[("world x", np.array([1.0, 0.0, 0.0])), ("world y", np.array([0.0, 1.0, 0.0]))],
     )
     return write_comparison_report(
-        [comparison], out_dir, title="Standard tracking-error fields", rerun=rerun
+        [comparison], out_dir, title="Standard tracking-error fields", rerun=rerun,
+        exports=exports,
     )
 
 
@@ -91,5 +92,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--rerun", action="store_true", help="also write rerun/<name>.rrd and the Open in Rerun button"
     )
+    parser.add_argument(
+        "--exports", action="store_true", help="also write exports/<name>.parquet and .mcap and their links"
+    )
     args = parser.parse_args()
-    print(build(args.out, rerun=args.rerun))
+    print(build(args.out, rerun=args.rerun, exports=args.exports))

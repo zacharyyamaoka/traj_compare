@@ -75,14 +75,33 @@ that command on a `.rrd` inside the root (anything outside is refused, nothing s
 From `file://` or a plain static server the same button copies the command. The payload also carries `reference_title`
 (the `target` situation's title), which the viewer writes wherever it says "<reference> − run".
 
+## Parquet and MCAP exports (optional)
+
+`write_comparison_report(..., exports=True)` also writes `exports/<comparison.name>.parquet` and `.mcap` beside the report
+and adds `comparisons[i].exports = {parquet, mcap}` (paths relative to the report) to the payload; the viewer shows them as
+"Download Parquet" / "Download MCAP" links next to "Download .rrd". `traj_compare.export.write_parquet` / `write_mcap`
+are the same writers on their own; both read the `analyze_comparison` payload and recompute nothing. `t` is seconds from
+the reference's first sample on the payload's plot grid (the .rrd's clock).
+
+- **Parquet** (`pyarrow`, zstd): columns `comparison, situation, reference, channel, column, t, value`. `channel` = payload
+  plot key; `column` = joint name (`q qd qdd tau current err_q`), `error_axes` label (`err_axes`) or `""` (scalar
+  channels); `value` NaN where the payload has null; `reference` = the target's name (the target's own rows too).
+- **MCAP** (`mcap`): `message_encoding` json, schema encoding jsonschema, one schema per topic
+  `/traj_compare/<situation>/<channel>`; one message per plot-grid sample `{"t", "<column>": value}` (scalar channel:
+  `value`; null fields omitted, all-null samples skipped); log_time = publish_time = `t` in integer ns, written in time
+  order. `/traj_compare/metrics`: one message at 0 ns with `{comparison, title, reference, joint_names, tcp_frame,
+  situations: {name: error_metrics}}`.
+
+Optional `export` extra: `pyarrow>=15`, `mcap>=1.2` (only `export.py` imports them).
+
 ## Dependencies
 
 Runtime: `numpy` and `robot-msgs` (numpy-only; every error signal and statistic comes from
 `robot_msgs.compare`, error = target − run, since 2026-11-10). Vendored into the wheel: uPlot 1.6.30, three.js r160
 (`src/traj_compare/assets/VENDORED.md`). Test extra: `pytest`, `scipy`
-(rotation oracle). Optional `rerun` extra: `rerun-sdk==0.40.0` (only `rerun_export.py` imports it).
+(rotation oracle). Optional `rerun` extra: `rerun-sdk==0.40.0` (only `rerun_export.py` imports it); optional `export` extra: `pyarrow`, `mcap`.
 
-## Tests — `uv run --extra test python -m pytest -q tests` → **77 passed** (with `--extra rerun`; `test_rerun_export.py` skips without the SDK)
+## Tests — `uv run --extra test python -m pytest -q tests` → **81 passed** (with `--extra rerun --extra export`; `test_rerun_export.py` and `test_exports.py` skip without their extras)
 
 (`python -m`: the venv's `pytest` script can carry a stale shebang from before the package moved
 under `mdp/agent/`. `test_playback.py` checks video frame gaps < 0.6 s and can trip when the machine
@@ -97,6 +116,7 @@ is saturated; base and current builds measured the same 0.24–0.42 s spread on 
 | `test_wave2_viewer.py` (8) | verdicts, latency, goal / settling, contour + lag time, errors along named axes and ISO 9283 aggregates equal what `robot_msgs.compare` returns for the same inputs; all off by default; the report shows the Verdict / Est. latency / Settling columns and the ISO 9283 card |
 | `test_time_offset.py` (4) | `Situation.time_offset_s` reaches compare / check / goal / aggregate for that run: errors equal `robot_msgs.compare` at that offset, a 20 ms late run passes once told, the status cell says "shifted", NaN is refused |
 | `test_wave2_rerun.py` (1) | the .rrd verifies and holds `/error/tool/contour_mm`, `lag_time_ms`, `/error/axes/<label>_mm`; the notes carry verdicts, latency, goal and aggregates |
+| `test_exports.py` (4) | the Parquet is tidy rows whose joint-error values equal the payload (target − run); the MCAP has one JSON topic per situation and channel with a time-ordered `t`; `exports=True` writes both and links them; the payload has no `exports` by default |
 | `test_report.py` (9) | report is self-contained, embeds both libs + data, groups comparison/situation navigation, derives error statistics, serializes Summary/Insights primitives, surfaces torque by default when requested, embeds each distinct robot link mesh once per report (`mesh_library`) however many pages pose it, preserves `</script>` safely, and rejects an empty list |
 
 ## Examples
