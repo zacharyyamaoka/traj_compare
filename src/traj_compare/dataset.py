@@ -1,0 +1,813 @@
+"""The dataset view: many runs at a glance, then drill down into one (2026-11-11).
+
+Zach: "across a bunch of runs, where was the error the highest… then drill down into particular
+runs and view that recording in Rerun or our own viewer". The seams: ``robot_msgs.compare`` is the
+math, ``traj_compare`` is the run view (``write_comparison_report``) plus this dataset view, and the
+domain package (sim2real) supplies the runs, their tags, tolerances and a ``summary`` page.
+
+    runs = [Run(name="can13 rep 0", reference=target, measured={"sim": sim, "real": real},
+                tags={"tape": "A", "speed": 0.5})]
+    write_dataset_report(runs, "out/", title="Wrist coverage", group_by=("tape",))
+    # python -m traj_compare.serve out/      -> http://127.0.0.1:8767/
+
+Files (file-first, so a dataset can be re-read, re-sorted or opened in pandas without this package)::
+
+    out/index.html                  the at-a-glance page (self-contained)
+    out/rows.json, rows.parquet     one row per run x pair x metric x stat, SI, every tag its own column
+    out/runs/<slug>/manifest.json   what the drill-down needs to rebuild itself
+    out/runs/<slug>/reference.npz   robot_msgs ``save_npz`` per series (``load_npz`` reads them back)
+    out/runs/<slug>/<series>.npz
+    out/runs/<slug>/media/<key>.<ext>
+    out/runs/<slug>/report.html     the run view, built lazily (or eagerly) from the files above
+
+Every number is ``robot_msgs.compare``'s (compare, check, aggregate, estimate_time_offset); nothing
+here re-implements a metric. Angles are SI in the data and degrees in the human view.
+"""
+
+from __future__ import annotations
+
+import argparse
+import html
+import importlib
+import importlib.resources
+import importlib.util
+import json
+import math
+import re
+import shlex
+import shutil
+import sys
+import warnings
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+from robot_msgs._core import from_dict, load_npz, save_npz, to_dict
+from robot_msgs.compare import (
+    PoseTolerance,
+    Tolerances,
+    aggregate,
+    check,
+    compare,
+    estimate_time_offset,
+)
+from robot_msgs.trajectory import JointTrajectory, PoseTrajectory
+
+from . import rerun_export
+from .model import Comparison, ReportPage, RobotDisplay, Situation
+from .report import write_comparison_report
+
+REFERENCE = "reference"
+Tag = str | int | float | bool
+# Columns every row has; a tag may not reuse one of these names.
+_FIXED_COLUMNS = ("run", "pair", "metric", "stat", "value", "unit")
+_DRILL_DOWNS = ("lazy", "eager")
+
+_JOINT_UNITS = {"positions": "rad", "velocities": "rad/s", "accelerations": "rad/s²", "effort": "Nm"}
+_POSE_UNITS = {
+    "position": "m", "x": "m", "y": "m", "z": "m", "lag": "m", "cross_track": "m", "contour": "m",
+    "rotation": "rad", "rx": "rad", "ry": "rad", "rz": "rad",
+    "lag_time": "s", "linear_velocity": "m/s", "angular_velocity": "rad/s",
+}  # fmt: skip
+
+
+@dataclass
+class Run:
+    """One recorded run: the reference it was meant to follow and the series measured against it.
+
+    - ``measured`` holds every series of this run by name (``"sim"``, ``"real"``, ``"sim_it5"``).
+      ``"reference"`` is reserved for the target itself.
+    - ``pairs`` is which (a, b) comparisons to make, each element ``"reference"`` or a series name;
+      ``None`` = ``default_pairs`` (the target to each series, then every series to every other).
+    - ``time_offset_s`` is how late a series' clock runs (``robot_msgs.compare``'s ``time_offset_s``);
+      a pair (a, b) is taken with ``offset[b] - offset[a]``.
+    - ``media`` maps a key to a video file. A key that equals a series name is that series' synced
+      video in the drill-down; any other key is an extra clip listed on the run page.
+      ``media_start_s`` is the trajectory time at video time 0 for that key.
+    """
+
+    name: str
+    reference: JointTrajectory
+    measured: Mapping[str, JointTrajectory]
+    tags: Mapping[str, Tag] = field(default_factory=dict)
+    pairs: Sequence[tuple[str, str]] | None = None
+    time_offset_s: Mapping[str, float] = field(default_factory=dict)
+    title: str = ""
+    media: Mapping[str, Path] = field(default_factory=dict)
+    media_start_s: Mapping[str, float] = field(default_factory=dict)
+
+    def resolved_pairs(self) -> list[tuple[str, str]]:
+        if self.pairs is None:
+            return default_pairs(list(self.measured))
+        return [(str(a), str(b)) for a, b in self.pairs]
+
+    def series(self) -> dict[str, JointTrajectory]:
+        """Every trajectory of the run by name, the reference first."""
+        return {REFERENCE: self.reference, **self.measured}
+
+    def relative_offset_s(self, first: str, second: str) -> float:
+        return float(self.time_offset_s.get(second, 0.0)) - float(self.time_offset_s.get(first, 0.0))
+
+
+def default_pairs(series_names: Sequence[str]) -> list[tuple[str, str]]:
+    """The target against each series, then every series against each later one."""
+    names = list(series_names)
+    pairs = [(REFERENCE, name) for name in names]
+    pairs += [(names[i], names[j]) for i in range(len(names)) for j in range(i + 1, len(names))]
+    return pairs
+
+
+# ── small helpers ────────────────────────────────────────────────────────────
+
+
+def _finite(value: Any) -> Any:
+    """JSON-safe number: NaN / inf are missing data (null), never 0."""
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, (int, np.integer)):
+        return int(value)
+    number = float(value)
+    return number if math.isfinite(number) else None
+
+
+def _clean(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _clean(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_clean(item) for item in value]
+    if isinstance(value, (float, int, bool, np.generic)):
+        return _finite(value)
+    return value
+
+
+def _stats(stats: Any) -> dict[str, Any]:
+    return {key: _finite(value) for key, value in stats.as_dict().items()}
+
+
+def _slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "run"
+
+
+def _safe_name(text: str) -> str:
+    """A filename part that keeps the author's spelling where it can (``sim_it5`` stays)."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", text).strip("._") or "series"
+
+
+def _tag_value(value: Any) -> Tag:
+    if isinstance(value, np.generic):
+        value = value.item()
+    if not isinstance(value, (str, int, float, bool)):
+        raise TypeError(f"a tag is a str, int, float or bool, got {type(value).__name__}: {value!r}")
+    return value
+
+
+def _pair_name(first: str, second: str) -> str:
+    """The comparison's name, hence its .rrd's: stable, so the dataset page can link it before it exists."""
+    return f"{_slug(first)}--{_slug(second)}"
+
+
+def _metric_unit(metric: str) -> str:
+    head, _, rest = metric.partition("/")
+    if rest and head in _JOINT_UNITS:
+        return _JOINT_UNITS[head]
+    return _POSE_UNITS.get(metric, "")
+
+
+def _stat_unit(unit: str, stat: str) -> str:
+    """ErrorStats' integral criteria carry the signal's unit times time (rad·s, rad²·s, rad·s²)."""
+    if not unit:
+        return ""
+    return {"iae": f"{unit}·s", "ise": f"{unit}²·s", "itae": f"{unit}·s²", "n": ""}.get(stat, unit)
+
+
+def _group_key(tags: Mapping[str, Tag], group_by: Sequence[str]) -> str:
+    if not group_by:
+        return "all runs"
+    return ", ".join(f"{key}={tags[key]}" if key in tags else f"{key}=—" for key in group_by)
+
+
+def _same_reference(first: JointTrajectory, second: JointTrajectory) -> bool:
+    return bool(
+        first.joint_names == second.joint_names
+        and first.header.stamp == second.header.stamp
+        and first.t.shape == second.t.shape
+        and np.allclose(first.t, second.t, rtol=0.0, atol=1e-12)
+        and np.allclose(first.positions, second.positions, rtol=0.0, atol=1e-12, equal_nan=True)
+    )
+
+
+# ── import specs ("module:function") ─────────────────────────────────────────
+
+
+def _split_spec(spec: str) -> tuple[str, str]:
+    module, separator, function = spec.partition(":")
+    if not (module and separator and function):
+        raise ValueError(f"import spec must be 'module:function', got {spec!r}")
+    return module, function
+
+
+def _spec_import_root(spec: str) -> str | None:
+    """The directory that has to be on sys.path for ``spec``'s module (stored in the manifest).
+
+    WHY: a lazy drill-down is built later, in another process (``traj_compare.serve``), which has not
+    imported the author's module; without this hint the poses / robot functions of an example run
+    from a plain directory could not be found there.
+    """
+    top = _split_spec(spec)[0].partition(".")[0]
+    found = importlib.util.find_spec(top)
+    if found is None or not found.origin:
+        return None
+    origin = Path(found.origin)
+    return str(origin.parent.parent if found.submodule_search_locations else origin.parent)
+
+
+def _import_spec(spec: str, import_roots: Sequence[str] = ()) -> Callable[..., Any]:
+    module_name, function = _split_spec(spec)
+    try:
+        module = importlib.import_module(module_name)
+    except ModuleNotFoundError:
+        for root in import_roots:
+            if root not in sys.path and Path(root).is_dir():
+                sys.path.insert(0, root)
+        module = importlib.import_module(module_name)
+    return getattr(module, function)
+
+
+# ── analysis of one run ──────────────────────────────────────────────────────
+
+
+class _Analysis:
+    """Everything the dataset view knows about the options of one write (tolerances, poses)."""
+
+    def __init__(self, tolerances: Tolerances | None, poses: Callable[..., Any] | None) -> None:
+        self.tolerances = tolerances
+        self.poses = poses
+        self.pose_tolerances = tolerances is not None and (
+            isinstance(tolerances.path, PoseTolerance) or isinstance(tolerances.goal, PoseTolerance)
+        )
+        if self.pose_tolerances and poses is None:
+            raise ValueError("pose tolerances judge a TCP pose trajectory; pass poses='module:function'")
+
+    def pose_trajectories(self, run: Run) -> dict[str, PoseTrajectory]:
+        if self.poses is None:
+            return {}
+        return {name: self.poses(trajectory) for name, trajectory in run.series().items()}
+
+
+def _violation(violation: Any) -> dict[str, Any]:
+    return {
+        "phase": violation.phase,
+        "metric": violation.metric,
+        "t": _finite(violation.t),
+        "error": _finite(violation.error),
+        "limit": _finite(violation.limit),
+    }
+
+
+def _verdict(outcome: Any) -> dict[str, Any]:
+    return {
+        "code": outcome.error_code,
+        "code_name": outcome.code_name,
+        "ok": outcome.ok,
+        "error_string": outcome.error_string,
+        "violations": [_violation(violation) for violation in outcome.violations],
+        "goal_time": _finite(outcome.goal_time),
+        "unchecked": list(outcome.unchecked),
+    }
+
+
+def _peak_times(error: Any) -> dict[str, float | None]:
+    """Seconds (on the error's own clock) of the largest |error| of each joint."""
+    peaks: dict[str, float | None] = {}
+    for column, name in enumerate(error.joint_names):
+        magnitude = np.abs(error.positions[:, column])
+        peaks[name] = None if np.isnan(magnitude).all() else float(error.t[np.nanargmax(magnitude)])
+    return peaks
+
+
+_SUMMARY_STATS = ("rms", "max_abs", "p95_abs", "final")
+
+
+def _analyze_pair(
+    run: Run, first: str, second: str, options: _Analysis, poses: Mapping[str, PoseTrajectory]
+) -> tuple[dict[str, Any], list[tuple[str, Any]]]:
+    """The payload entry of one run x pair, and its (metric name, ErrorStats) list for rows.json."""
+    series = run.series()
+    offset = run.relative_offset_s(first, second)
+    joint = compare(series[first], series[second], time_offset_s=offset)
+    metrics: list[tuple[str, Any]] = list(joint.metrics.items())
+    entry: dict[str, Any] = {
+        "joints": {
+            name: {stat: _finite(getattr(joint.metrics[f"positions/{name}"], stat)) for stat in _SUMMARY_STATS}
+            for name in joint.error.joint_names
+        },
+        "peak_t": _peak_times(joint.error),
+        "tcp": None,
+        "tcp_peak_t": None,
+        "coverage": _finite(joint.coverage),
+        "dropped": joint.dropped,
+        "time_offset_s": _finite(offset),
+        "latency_s": None,
+    }
+    if poses:
+        tcp = compare(poses[first], poses[second], time_offset_s=offset)
+        metrics += list(tcp.metrics.items())
+        position = tcp.metrics["position"]
+        entry["tcp"] = {stat: _finite(getattr(position, stat)) for stat in _SUMMARY_STATS}
+        distance = np.linalg.norm(tcp.error.positions, axis=1)
+        entry["tcp_peak_t"] = None if np.isnan(distance).all() else float(tcp.error.t[np.nanargmax(distance)])
+    try:
+        entry["latency_s"] = _finite(estimate_time_offset(series[first], series[second]).offset_s)
+    except ValueError:  # too short to correlate: no estimate, not zero
+        pass
+    if options.tolerances is not None:
+        judged = (poses[first], poses[second]) if options.pose_tolerances else (series[first], series[second])
+        entry["verdict"] = _verdict(check(*judged, options.tolerances, time_offset_s=offset))
+    return entry, metrics
+
+
+# ── ISO 9283 per group and series ────────────────────────────────────────────
+
+
+def _group_aggregates(
+    runs: Sequence[Run], group_by: Sequence[str], options: _Analysis, poses: Mapping[str, Mapping[str, PoseTrajectory]]
+) -> dict[str, Any]:
+    groups: dict[str, list[Run]] = {}
+    for run in runs:
+        groups.setdefault(_group_key(run.tags, group_by), []).append(run)
+    result: dict[str, Any] = {}
+    for key, members in groups.items():
+        if len(members) < 2:
+            result[key] = {"status": "needs at least 2 runs"}
+            continue
+        if not all(_same_reference(members[0].reference, run.reference) for run in members[1:]):
+            # WHY named, not aggregated: ISO 9283 spread is "N runs of one reference"; against
+            # different references the barycentre means nothing, so say so instead of a number.
+            result[key] = {"status": "references differ"}
+            continue
+        names = list(dict.fromkeys(name for run in members for name in run.measured))
+        cards: dict[str, Any] = {}
+        for name in names:
+            having = [run for run in members if name in run.measured]
+            if len(having) < 2:
+                cards[name] = {"status": "needs at least 2 runs"}
+                continue
+            offsets = [float(run.time_offset_s.get(name, 0.0)) for run in having]
+            try:
+                joint = aggregate(having[0].reference, [run.measured[name] for run in having], time_offset_s=offsets)
+                accuracy = {metric: _stats(stats) for metric, stats in joint.accuracy.metrics.items()}
+                repeatability = {metric: _stats(stats) for metric, stats in joint.metrics.items()}
+                coverage = joint.coverage
+                if options.poses is not None:
+                    tcp = aggregate(
+                        poses[having[0].name][REFERENCE],
+                        [poses[run.name][name] for run in having],
+                        time_offset_s=offsets,
+                    )
+                    accuracy.update({metric: _stats(stats) for metric, stats in tcp.accuracy.metrics.items()})
+                    repeatability.update({metric: _stats(stats) for metric, stats in tcp.metrics.items()})
+            except ValueError as error:
+                cards[name] = {"status": str(error)}
+                continue
+            cards[name] = {
+                "runs": [run.name for run in having],
+                "coverage": _finite(coverage),
+                "accuracy": accuracy,
+                "repeatability": repeatability,
+            }
+        result[key] = cards
+    return result
+
+
+# ── which series the default view shows ──────────────────────────────────────
+
+
+def _visible(name: str, primary: Mapping[str, str]) -> bool:
+    """WHY this rule (Sim to Real agent, 2026-11-11): a twin has many iterations (sim_record, sim_it5,
+    ...) but one is *the* sim. ``primary={"sim": "sim_it5"}`` names it; the view then shows the
+    reference, the primary series, and every series that is not an iteration of an alias
+    (neither named like one nor starting ``<alias>_``). rows.json always holds every pair."""
+    if name == REFERENCE or name in primary.values():
+        return True
+    return name not in primary and not any(name.startswith(f"{alias}_") for alias in primary)
+
+
+# ── writing ──────────────────────────────────────────────────────────────────
+
+
+def _unique_slugs(runs: Sequence[Run]) -> dict[str, str]:
+    names = [run.name for run in runs]
+    if len(set(names)) != len(names):
+        duplicated = sorted({name for name in names if names.count(name) > 1})
+        raise ValueError(f"run names identify rows and must be unique, got duplicates {duplicated}")
+    slugs: dict[str, str] = {}
+    taken: set[str] = set()
+    for name in names:
+        slug = _slug(name)
+        candidate, count = slug, 1
+        while candidate in taken:
+            count += 1
+            candidate = f"{slug}-{count}"
+        taken.add(candidate)
+        slugs[name] = candidate
+    return slugs
+
+
+def _validate(runs: Sequence[Run], group_by: Sequence[str], primary: Mapping[str, str]) -> None:
+    if not runs:
+        raise ValueError("need at least one run")
+    series_seen: set[str] = set()
+    for run in runs:
+        for name in run.measured:
+            if name == REFERENCE:
+                raise ValueError(f"run {run.name!r}: {REFERENCE!r} is the target's name, not a series name")
+        known = set(run.series())
+        for first, second in run.resolved_pairs():
+            if first not in known or second not in known or first == second:
+                raise ValueError(f"run {run.name!r}: pair {(first, second)} needs two different names from {sorted(known)}")
+        for tag in run.tags:
+            if tag in _FIXED_COLUMNS:
+                raise ValueError(f"run {run.name!r}: tag {tag!r} collides with a rows.json column {_FIXED_COLUMNS}")
+        files = [_safe_name(name) for name in run.measured]
+        if len(set(files)) != len(files):
+            raise ValueError(f"run {run.name!r}: series names collide as filenames: {list(run.measured)}")
+        media_files = [_safe_name(key) for key in run.media]
+        if len(set(media_files)) != len(media_files):
+            raise ValueError(f"run {run.name!r}: media keys collide as filenames: {list(run.media)}")
+        series_seen.update(run.measured)
+    for key in group_by:
+        if key in _FIXED_COLUMNS:
+            raise ValueError(f"group_by {key!r} collides with a rows.json column")
+    missing = [series for series in primary.values() if series not in series_seen]
+    if missing:
+        raise ValueError(f"primary names series no run has: {missing}; series are {sorted(series_seen)}")
+    if len(set(primary.values())) != len(primary):
+        raise ValueError(f"primary maps two aliases to one series: {dict(primary)}")
+
+
+def _write_run_files(
+    run: Run, folder: Path, slug: str, options: _Analysis, specs: Mapping[str, str | None], import_roots: list[str],
+    primary: Mapping[str, str], visible_pairs: Sequence[tuple[str, str]],
+) -> None:
+    folder.mkdir(parents=True, exist_ok=True)
+    # WHY: a drill-down cached by an earlier write describes the old data; lazy mode would serve it.
+    (folder / "report.html").unlink(missing_ok=True)
+    shutil.rmtree(folder / "rerun", ignore_errors=True)
+    files = {REFERENCE: "reference.npz"}
+    save_npz(run.reference, folder / "reference.npz")
+    for name, trajectory in run.measured.items():
+        files[name] = f"{_safe_name(name)}.npz"
+        save_npz(trajectory, folder / files[name])
+    media: dict[str, str] = {}
+    for key, source in run.media.items():
+        source = Path(source)
+        if not source.is_file():
+            raise FileNotFoundError(f"run {run.name!r}: media {key!r} is not a file: {source}")
+        relative = f"media/{_safe_name(key)}{source.suffix.lower()}"
+        (folder / "media").mkdir(exist_ok=True)
+        shutil.copy2(source, folder / relative)
+        media[key] = relative
+    manifest = {
+        "name": run.name,
+        "title": run.title or run.name,
+        "slug": slug,
+        "tags": {key: _tag_value(value) for key, value in run.tags.items()},
+        "series": list(run.measured),
+        "files": files,
+        "pairs": [list(pair) for pair in run.resolved_pairs()],
+        "default_pairs": [list(pair) for pair in run.resolved_pairs() if pair in set(visible_pairs)],
+        "time_offset_s": {key: float(value) for key, value in run.time_offset_s.items()},
+        "labels": {series: alias for alias, series in primary.items()},
+        "media": media,
+        "media_start_s": {key: float(value) for key, value in run.media_start_s.items()},
+        "poses": specs["poses"],
+        "robot": specs["robot"],
+        "import_roots": import_roots,
+        "tolerances": None if options.tolerances is None else to_dict(options.tolerances),
+    }
+    (folder / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+
+def _write_rows(output_dir: Path, rows: list[dict[str, Any]]) -> None:
+    (output_dir / "rows.json").write_text(json.dumps(rows, separators=(",", ":")), encoding="utf-8")
+    try:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+    except ModuleNotFoundError:  # the optional `export` extra
+        return
+    columns = list(dict.fromkeys(key for row in rows for key in row))
+    arrays = {}
+    for column in columns:
+        values = [row.get(column) for row in rows]
+        try:
+            arrays[column] = pa.array(values)
+        except (pa.ArrowInvalid, pa.ArrowTypeError):  # a tag whose type differs between runs: keep it as text
+            arrays[column] = pa.array([None if value is None else str(value) for value in values])
+    pq.write_table(pa.table(arrays), output_dir / "rows.parquet")
+
+
+def _asset(name: str) -> str:
+    return importlib.resources.files("traj_compare").joinpath("assets", name).read_text("utf-8")
+
+
+def write_dataset_report(
+    runs: Sequence[Run],
+    output_dir: Path | str,
+    *,
+    title: str,
+    group_by: Sequence[str] = (),
+    tolerances: Tolerances | None = None,
+    poses: str | None = None,
+    robot: str | None = None,
+    summary: ReportPage | None = None,
+    primary: Mapping[str, str] | None = None,
+    drill_down: str = "lazy",
+) -> Path:
+    """Write ``output_dir/index.html`` (many runs at a glance), ``rows.json``/``rows.parquet`` and ``runs/<slug>/``.
+
+    - ``group_by``: tag names; runs sharing their values are one group for the ISO 9283 cards.
+    - ``tolerances``: a ``robot_msgs.compare.Tolerances``; every run x pair gets ``check``'s verdict.
+    - ``poses`` / ``robot``: ``"module:function"`` import specs, stored in each manifest so the drill-down
+      can be rebuilt later in another process. ``poses(JointTrajectory) -> PoseTrajectory`` adds the TCP
+      metrics and the run view's cartesian sections; ``robot() -> RobotDisplay`` gives its 3D view a robot.
+    - ``summary``: a ``ReportPage`` drawn at the top (the domain's at-a-glance answer).
+    - ``primary``: alias -> series (see ``_visible``): the default view shows 3 pairs, not 6.
+    - ``drill_down``: ``"lazy"`` builds ``runs/<slug>/report.html`` on first request through
+      ``traj_compare.serve`` (or ``python -m traj_compare.dataset drill``); ``"eager"`` builds them all now.
+      WHY lazy is the default: a run's drill-down writes one .rrd per pair, so 387 runs x 3 pairs is
+      about 2 GB up front for pages almost nobody opens.
+    """
+
+    runs = list(runs)
+    primary = dict(primary or {})
+    group_by = tuple(group_by)
+    if drill_down not in _DRILL_DOWNS:
+        raise ValueError(f"drill_down is one of {_DRILL_DOWNS}, got {drill_down!r}")
+    _validate(runs, group_by, primary)
+    slugs = _unique_slugs(runs)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    specs = {"poses": poses, "robot": robot}
+    import_roots: list[str] = []
+    for spec in (poses, robot):
+        if spec is None:
+            continue
+        _split_spec(spec)
+        root = _spec_import_root(spec)
+        if root is not None and root not in import_roots:
+            import_roots.append(root)
+    options = _Analysis(tolerances, _import_spec(poses, import_roots) if poses else None)
+    if robot:
+        _import_spec(robot, import_roots)  # fail now, not on the first drill-down
+
+    series_order = list(dict.fromkeys(name for run in runs for name in run.measured))
+    pair_order = list(dict.fromkeys(pair for run in runs for pair in run.resolved_pairs()))
+    default_view = [pair for pair in pair_order if all(_visible(name, primary) for name in pair)]
+
+    rows: list[dict[str, Any]] = []
+    entries: list[dict[str, Any]] = []
+    pose_cache: dict[str, dict[str, PoseTrajectory]] = {}
+    for run in runs:
+        slug = slugs[run.name]
+        _write_run_files(run, output_dir / "runs" / slug, slug, options, specs, import_roots, primary, default_view)
+        tags = {key: _tag_value(value) for key, value in run.tags.items()}
+        pose_cache[run.name] = options.pose_trajectories(run)
+        for first, second in run.resolved_pairs():
+            pair_name = _pair_name(first, second)
+            rrd = f"runs/{slug}/rerun/{pair_name}.rrd"
+            entry: dict[str, Any] = {
+                "run": run.name,
+                "slug": slug,
+                "pair": [first, second],
+                "tags": tags,
+                "report": f"runs/{slug}/report.html",
+                "rrd": rrd,
+                "rerun_command": (
+                    f"python -m traj_compare.dataset drill {shlex.quote(str(output_dir.resolve()))} "
+                    f"{shlex.quote(run.name)} && "
+                    + rerun_export.viewer_command(output_dir.resolve() / rrd)
+                ),
+            }
+            try:
+                analysis, metrics = _analyze_pair(run, first, second, options, pose_cache[run.name])
+            except ValueError as error:  # e.g. the two series never overlap in time
+                # WHY recorded, not raised: one broken run must not hide the other 386; the row says why.
+                warnings.warn(f"{run.name}: {first} -> {second}: {error}", stacklevel=2)
+                entries.append({**entry, "error": str(error)})
+                continue
+            entries.append({**entry, **analysis})
+            base = {"run": run.name, "pair": [first, second]}
+            for metric, stats in metrics:
+                unit = _metric_unit(metric)
+                for stat, value in stats.as_dict().items():
+                    rows.append(
+                        {**base, "metric": metric, "stat": stat, "value": _finite(value), "unit": _stat_unit(unit, stat), **tags}
+                    )  # fmt: skip
+            for metric, stat, value, unit in (
+                ("coverage", "value", analysis["coverage"], ""),
+                ("latency", "value", analysis["latency_s"], "s"),
+            ):
+                rows.append({**base, "metric": metric, "stat": stat, "value": value, "unit": unit, **tags})
+    _write_rows(output_dir, rows)
+
+    aggregates = _group_aggregates(runs, group_by, options, pose_cache)
+    joint_names = list(dict.fromkeys(name for entry in entries for name in entry.get("joints", {})))
+    payload = {
+        "title": title,
+        "generated": datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z"),
+        "angle_unit": "deg",
+        "group_by": list(group_by),
+        "drill_down": drill_down,
+        "serve_command": f"python -m traj_compare.serve {shlex.quote(str(output_dir.resolve()))}",
+        "labels": {series: alias for alias, series in primary.items()},
+        "series": series_order,
+        "default_pairs": [list(pair) for pair in default_view],
+        "joint_names": joint_names,
+        "tag_keys": list(dict.fromkeys(key for run in runs for key in run.tags)),
+        "has_tcp": poses is not None,
+        "has_tolerances": tolerances is not None,
+        "runs": [
+            {
+                "name": run.name,
+                "slug": slugs[run.name],
+                "tags": {key: _tag_value(value) for key, value in run.tags.items()},
+                "t_span": [_finite(run.reference.t[0]), _finite(run.reference.t[-1])],
+            }
+            for run in runs
+        ],
+        "rows": _clean(entries),
+        "aggregates": _clean(aggregates),
+        "summary": summary.to_payload() if summary is not None else None,
+    }
+    data_json = json.dumps(payload, separators=(",", ":")).replace("</", "<\\/")
+    # The ReportPage renderer lives in plots.js; it is only worth its 75 KB when a summary is given.
+    renderer = f"<script>{_asset('plots.js')}</script>" if summary is not None else ""
+    document = f"""<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8'/>
+<meta name='viewport' content='width=device-width, initial-scale=1'/>
+<title>{html.escape(title)}</title>
+<style>{_asset("style.css")}</style>
+<style>{_asset("dataset.css")}</style>
+</head>
+<body>
+<main class='ds' id='ds-main'></main>
+<script type="application/json" id="traj-compare-dataset">{data_json}</script>
+{renderer}
+<script>{_asset("dataset.js")}</script>
+</body>
+</html>
+"""
+    index = output_dir / "index.html"
+    index.write_text(document, encoding="utf-8")
+
+    if drill_down == "eager":
+        for run in runs:
+            build_drill_down(output_dir, run.name)
+    return index
+
+
+# ── drill-down ───────────────────────────────────────────────────────────────
+
+
+def _find_run_folder(output_dir: Path, run_name: str) -> Path:
+    for manifest_path in sorted((output_dir / "runs").glob("*/manifest.json")):
+        if json.loads(manifest_path.read_text("utf-8"))["name"] == run_name:
+            return manifest_path.parent
+    raise KeyError(f"no run named {run_name!r} under {output_dir / 'runs'}")
+
+
+def _rerun_available() -> bool:
+    if rerun_export.rr is None:
+        warnings.warn(
+            "the Rerun SDK is not installed, so the drill-down has no .rrd; install the 'rerun' extra",
+            stacklevel=3,
+        )
+        return False
+    return True
+
+
+def _clip_situations(manifest: Mapping[str, Any], series_names: Sequence[str]) -> list[Situation]:
+    """Extra clips (a media key that is no series) as data-less situations that carry only a video.
+
+    WHY situations: the viewer's transport already seeks every situation video together, so a clip
+    plays on the run's clock for free; its legend chip reads "extra clip" instead of a data swatch.
+    """
+    clips = []
+    for key, relative in manifest["media"].items():
+        if key in series_names or key == REFERENCE:
+            continue
+        clips.append(
+            Situation(
+                name=key,
+                title=Path(relative).name,
+                video=relative,
+                video_start_s=manifest["media_start_s"].get(key, 0.0),
+                note="extra clip",
+            )
+        )
+    return clips
+
+
+def _build_run_report(folder: Path) -> Path:
+    manifest = json.loads((folder / "manifest.json").read_text("utf-8"))
+    poses = _import_spec(manifest["poses"], manifest["import_roots"]) if manifest["poses"] else None
+    robot: RobotDisplay | None = _import_spec(manifest["robot"], manifest["import_roots"])() if manifest["robot"] else None
+    tolerances = from_dict(manifest["tolerances"], Tolerances) if manifest["tolerances"] else None
+    pose_tolerances = tolerances is not None and (
+        isinstance(tolerances.path, PoseTolerance) or isinstance(tolerances.goal, PoseTolerance)
+    )
+    labels: Mapping[str, str] = manifest["labels"]
+
+    def label(name: str) -> str:
+        return "Reference" if name == REFERENCE else labels.get(name, name)
+
+    trajectories = {name: load_npz(folder / file) for name, file in manifest["files"].items()}
+    offsets: Mapping[str, float] = manifest["time_offset_s"]
+    series_names = list(manifest["series"])
+    shown = {tuple(pair) for pair in manifest["default_pairs"]}
+    # Tabs open on the default pairs; the hidden ones (earlier twin iterations) follow, marked.
+    pairs = sorted((tuple(pair) for pair in manifest["pairs"]), key=lambda pair: pair not in shown)
+
+    def situation(name: str, reference: JointTrajectory, role_origin: float, offset_s: float) -> Situation:
+        trajectory = trajectories[name]
+        if set(trajectory.joint_names) != set(reference.joint_names):
+            raise ValueError(f"{name!r} has joints {trajectory.joint_names}, the reference {reference.joint_names}")
+        trajectory = trajectory.select(reference.joint_names)
+        return Situation(
+            name=name,
+            title=label(name),
+            t=trajectory.absolute_times - role_origin,
+            q=trajectory.positions,
+            qd=trajectory.velocities,
+            qdd=trajectory.accelerations,
+            tau=trajectory.effort,
+            poses=None if poses is None else poses(trajectory).matrices(),
+            video=manifest["media"].get(name, ""),
+            video_start_s=manifest["media_start_s"].get(name, 0.0),
+            time_offset_s=offset_s,
+            robot=None,
+        )
+
+    comparisons = []
+    for first, second in pairs:
+        reference = trajectories[first]
+        origin = float(reference.header.stamp)
+        offset = float(offsets.get(second, 0.0)) - float(offsets.get(first, 0.0))
+        tcp_frame = poses(reference).child_frame_id if poses is not None else ""
+        hidden = "" if (first, second) in shown else " (earlier iteration)"
+        comparisons.append(
+            Comparison(
+                title=f"{label(first)} → {label(second)}",
+                name=_pair_name(first, second),
+                tab_title=f"{label(first)} → {label(second)}{hidden}",
+                joint_names=list(reference.joint_names),
+                target=situation(first, reference, origin, 0.0),
+                situations=[situation(second, reference, origin, offset), *_clip_situations(manifest, series_names)],
+                robot=robot,
+                tcp_frame=tcp_frame or "TCP",
+                tolerances=None if pose_tolerances else tolerances,
+                tcp_tolerances=tolerances if pose_tolerances else None,
+                estimate_latency=True,
+                description=f"Errors are {label(first)} − {label(second)}, the ROS 2 convention.",
+            )
+        )
+    tags = " · ".join(f"{key}={value}" for key, value in manifest["tags"].items())
+    return write_comparison_report(
+        comparisons,
+        folder / "report.html",
+        title=manifest["title"],
+        subtitle=tags,
+        provenance={"run": manifest["name"]},
+        rerun=_rerun_available(),
+    )
+
+
+def build_drill_down(output_dir: Path | str, run_name: str) -> Path:
+    """Build ``runs/<slug>/report.html`` (and its .rrd per pair) from the files alone and return its path.
+
+    Reads the manifest and the npz files, so it needs no in-memory ``Run`` and can run long after
+    ``write_dataset_report``, in another process.
+    """
+
+    return _build_run_report(_find_run_folder(Path(output_dir), run_name))
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(prog="python -m traj_compare.dataset", description=__doc__.splitlines()[0])
+    commands = parser.add_subparsers(dest="command", required=True)
+    drill = commands.add_parser("drill", help="build one run's drill-down report")
+    drill.add_argument("output_dir", type=Path, help="the dataset directory (holds index.html and runs/)")
+    drill.add_argument("run_name", help="the run's name, as in rows.json")
+    args = parser.parse_args(argv)
+    if args.command == "drill":
+        print(build_drill_down(args.output_dir, args.run_name))
+
+
+if __name__ == "__main__":
+    main()

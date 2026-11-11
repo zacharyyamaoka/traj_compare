@@ -201,6 +201,43 @@ opened by a viewer at least as new as the SDK that wrote it, so the button and t
 | `python -m traj_compare.serve <dir>` (default `http://127.0.0.1:8767/report.html`) | `POST /__rerun/open?rrd=...`; the server starts the pinned viewer on the file (only files inside `<dir>`) | "Rerun in browser" opens app.rerun.io on the served `.rrd` |
 | `file://` or any plain static server | copies the `uvx` command (no launcher to call) | "Copy command", "Download .rrd" |
 
+## Dataset view
+
+Many runs at a glance, then drill down into one (`traj_compare.dataset`, 2026-11-11). `robot_msgs.compare` is the math,
+`write_comparison_report` the run view, this the dataset view; the domain package supplies the runs, tags, tolerances and a
+`summary` page. Every number is `robot_msgs.compare`'s; angles are SI in the files and degrees on the page.
+
+```python
+from traj_compare import Run, write_dataset_report
+
+runs = [Run(name="can13 rep 0", reference=target, measured={"sim": sim, "real": real},
+            tags={"tape": "A", "speed": 0.5, "held_out": False})]
+write_dataset_report(runs, "out/", title="Wrist coverage", group_by=("tape",), tolerances=tolerances,
+                     poses="my_rig:tool_pose", robot="my_rig:robot_display", summary=summary_page,
+                     primary={"sim": "sim_it5"}, drill_down="lazy")
+```
+
+- `Run(name, reference, measured, tags, pairs, time_offset_s, title, media, media_start_s)`: `measured` holds any number
+  of series (`"reference"` is the target's reserved name). `pairs=None` is `default_pairs(series)`: the target to each series,
+  then every series to every later one. A pair (a, b) is taken with `time_offset_s[b] - time_offset_s[a]`.
+- `poses` / `robot` are `"module:function"` import specs (`JointTrajectory -> PoseTrajectory`, `() -> RobotDisplay`), stored in
+  each manifest so a later process can rebuild the drill-down; `poses` adds the TCP rows and the run view's cartesian sections.
+- `primary={"sim": "sim_it5"}`: the default view shows the reference, the primary series, and every series that is neither an
+  alias nor named `<alias>_...` (3 pairs, not 6); the page's **show all pairs** switch and `rows.json` keep the rest.
+- **Files**: `index.html` (self-contained: answer line, your `summary` page, runs x pairs table with sort, a filter per tag,
+  verdict and shaded cells, joint x run heatmap, peak-time strip, ISO 9283 cards per group x series, per-row **Open run** and
+  **Open in Rerun**); `rows.json` and `rows.parquet` (with the `export` extra): one row per run x pair x metric x stat
+  `{run, pair, metric, stat, value, unit, <each tag>}` in SI; `runs/<slug>/manifest.json`, `reference.npz`, `<series>.npz`
+  (`robot_msgs.load_npz`), `media/<key>.<ext>`.
+- **Drill-down** (`build_drill_down(out, run_name)`, or `python -m traj_compare.dataset drill <out> "<run name>"`): one
+  `Comparison` per pair (first element is the reference), one tab per pair, `runs/<slug>/report.html` plus a `.rrd` per pair.
+  A media key equal to a series name is that situation's synced video (`Situation.video_start_s`: trajectory time at video time
+  0); any other key is an extra clip on the page.
+- **Lazy vs eager**: `"lazy"` (default) writes nothing heavy; `python -m traj_compare.serve <out>` builds a run's report, or its
+  `.rrd` when you press **Open in Rerun**, on the first request and caches it. `"eager"` builds all now. WHY lazy: 387 runs x 3
+  pairs of `.rrd` is about 2 GB up front. From `file://` the buttons copy the command instead.
+- `examples/dataset_demo.py --out DIR [--eager]` writes twelve synthetic runs of the planar 2R arm.
+
 ## Parquet and MCAP exports
 
 `write_comparison_report(comparisons, out_dir, exports=True)` also writes `exports/<comparison.name>.parquet` and

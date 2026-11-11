@@ -365,11 +365,17 @@ class Situation:
     # every error, verdict, goal and aggregate for it is taken with the run shifted back by this
     # much. 0 = the clocks agree. Set it to a latency estimate to see the error that is left.
     time_offset_s: float = 0.0
+    # Trajectory time shown at video time 0 (CameraOverlay.t0_s for a plain situation video): a
+    # recording rarely starts exactly when the trajectory does, so the video plays at t - video_start_s.
+    video_start_s: float = 0.0
 
     def __post_init__(self) -> None:
         self.time_offset_s = float(self.time_offset_s)
         if not np.isfinite(self.time_offset_s):
             raise ValueError(f"situation '{self.name}': time_offset_s must be finite")
+        self.video_start_s = float(self.video_start_s)
+        if not np.isfinite(self.video_start_s):
+            raise ValueError(f"situation '{self.name}': video_start_s must be finite")
         if not self.title:
             self.title = self.name
         if not self.group:

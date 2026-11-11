@@ -307,15 +307,15 @@ class _Writer:
             ),
         )
 
-    def video(self, entity: str, path: Path) -> None:
+    def video(self, entity: str, path: Path, start_s: float = 0.0) -> None:
         asset = rr.AssetVideo(path=path)
         self.recording.log(entity, asset, static=True)
         frame_nanos = asset.read_frame_timestamps_nanos()
-        # A video plays at video time = trajectory time (as in the HTML viewer), so frame k sits at
-        # its own timestamp minus the reference's start.
+        # A video plays at video time = trajectory time - start_s (as in the HTML viewer), so frame k
+        # sits at its own timestamp plus the trajectory time shown at video time 0, minus the reference's start.
         self.recording.send_columns(
             entity,
-            indexes=[rr.TimeColumn(TIMELINE, duration=frame_nanos / 1e9 - self.t0)],
+            indexes=[rr.TimeColumn(TIMELINE, duration=frame_nanos / 1e9 + start_s - self.t0)],
             columns=rr.VideoFrameReference.columns_nanos(frame_nanos),
         )
 
@@ -415,7 +415,11 @@ def _blueprint(payload: dict[str, Any], videos: dict[str, Path]) -> Any:
 
 
 def _resolvable_videos(payload: dict[str, Any], video_root: Path) -> dict[str, Path]:
-    """The situations whose video can go into the recording: an MP4 that exists."""
+    """The situations whose video can go into the recording: an MP4 that exists and Rerun can read.
+
+    WHY the read here: a dataset run's media comes from outside (a recorder, a stand-in), and one
+    unreadable clip must cost its video view, not the whole run's recording.
+    """
 
     found: dict[str, Path] = {}
     for entry in payload["situations"]:
@@ -427,6 +431,11 @@ def _resolvable_videos(payload: dict[str, Any], video_root: Path) -> dict[str, P
         elif not video_path.is_file():
             warnings.warn(f"{video_path}: video file not found; skipped", stacklevel=3)
         else:
+            try:
+                rr.AssetVideo(path=video_path).read_frame_timestamps_nanos()
+            except RuntimeError as error:
+                warnings.warn(f"{video_path}: Rerun cannot read the video ({error}); skipped", stacklevel=3)
+                continue
             found[entry["name"]] = video_path
     return found
 
@@ -513,7 +522,7 @@ def write_rrd(
         if robot is not None and entry["robot_track"] is not None:
             writer.robot(f"/world/{name}", robot, entry["robot_track"], color)
         if entry["name"] in videos:
-            writer.video(f"/video/{name}", videos[entry["name"]])
+            writer.video(f"/video/{name}", videos[entry["name"]], entry.get("video_start_s", 0.0))
 
     recording.log(
         "/notes",

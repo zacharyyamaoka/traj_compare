@@ -706,6 +706,7 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
             "note": situation.note,
             "derived": [],
             "video": situation.video or None,
+            "video_start_s": situation.video_start_s,
             "group": situation.group,
             "group_title": situation.group_title,
             "meta": _json_clean(situation.meta),

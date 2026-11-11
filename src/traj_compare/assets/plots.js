@@ -736,7 +736,7 @@ var TrajCompare = (function () {
       video.addEventListener('click', function () {
         if (page.transport) page.transport.toggle();
       });
-      page.videos.push({ sit: sit, el: video, card: card });
+      page.videos.push({ sit: sit, el: video, card: card, t0: sit.video_start_s || 0 });
       if (page.visible[sit.name] === false) card.style.display = 'none';
     });
     // One transport for every video on the page — the videos are frames of
@@ -1787,8 +1787,14 @@ var TrajCompare = (function () {
     activatePage(0);
   }
 
+  /* The dataset view (dataset.py) draws a Summary ReportPage with this same renderer. */
+  function renderReportPage(parent, data) {
+    buildReportPage({ el: parent, data: data });
+  }
+
   return {
     boot: boot,
+    renderReportPage: renderReportPage,
     state: state,
     buildTransportBar: buildTransportBar,
     prefs: function () { return state.prefs; },

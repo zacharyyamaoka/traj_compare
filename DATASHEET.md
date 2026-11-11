@@ -94,6 +94,26 @@ the reference's first sample on the payload's plot grid (the .rrd's clock).
 
 Optional `export` extra: `pyarrow>=15`, `mcap>=1.2` (only `export.py` imports them).
 
+## Dataset view (many runs, then drill down)
+
+Module `traj_compare.dataset`; exports `Run`, `default_pairs`, `write_dataset_report`, `build_drill_down`.
+
+| Input | Meaning |
+| --- | --- |
+| `Run` | `name`, `reference` (JointTrajectory), `measured` (series name -> JointTrajectory), `tags` (str/int/float/bool), `pairs` (default `default_pairs`), `time_offset_s` per series, `title`, `media` + `media_start_s` per key |
+| `write_dataset_report(runs, out, title=, group_by=, tolerances=, poses=, robot=, summary=, primary=, drill_down=)` | `poses` / `robot` are `"module:function"` specs; `primary` is alias -> series; `drill_down` is `"lazy"` or `"eager"` |
+
+| Output | Content |
+| --- | --- |
+| `out/index.html` | self-contained page; payload in `<script id="traj-compare-dataset">`: `rows` (run x pair: tags, `verdict`, `peak_t`, per-joint and TCP stats), `aggregates` (`"k=v, ..."` -> series -> `{runs, accuracy, repeatability}` or `{"status": "references differ"}`), `default_pairs`, `labels`, `angle_unit: "deg"` |
+| `out/rows.json`, `rows.parquet` | one row per run x pair x metric x stat, SI, `unit`, every tag its own column (a tag may not be named `run`, `pair`, `metric`, `stat`, `value` or `unit`); extra metrics `coverage` and `latency` (stat `value`) |
+| `out/runs/<slug>/` | `manifest.json`, `reference.npz`, `<series>.npz` (robot_msgs `save_npz`), `media/`, and `report.html` + `rerun/<a>--<b>.rrd` once built |
+
+Drill-down: one tab per pair, built from the files alone. `Situation.video_start_s` (new, default 0) is the trajectory time at
+video time 0 and reaches the viewer's transport and the .rrd. A pair whose two series never overlap is recorded as a row with an
+`error` and a warning, never silently dropped. Lazy builds go through `traj_compare.serve` (GET of a missing `runs/<slug>/report.html`
+or POST of its `.rrd`); a rewrite of the dataset deletes the cached reports. No Rerun SDK: the drill-down is built without `.rrd` and warns.
+
 ## Dependencies
 
 Runtime: `numpy` and `robot-msgs` (numpy-only; every error signal and statistic comes from
@@ -101,7 +121,7 @@ Runtime: `numpy` and `robot-msgs` (numpy-only; every error signal and statistic 
 (`src/traj_compare/assets/VENDORED.md`). Test extra: `pytest`, `scipy`
 (rotation oracle). Optional `rerun` extra: `rerun-sdk==0.40.0` (only `rerun_export.py` imports it); optional `export` extra: `pyarrow`, `mcap`.
 
-## Tests — `uv run --extra test python -m pytest -q tests` → **81 passed** (with `--extra rerun --extra export`; `test_rerun_export.py` and `test_exports.py` skip without their extras)
+## Tests — `uv run --extra test python -m pytest -q tests` → **100 passed** (with `--extra rerun --extra export`; `test_rerun_export.py` and `test_exports.py` skip without their extras)
 
 (`python -m`: the venv's `pytest` script can carry a stale shebang from before the package moved
 under `mdp/agent/`. `test_playback.py` checks video frame gaps < 0.6 s and can trip when the machine
@@ -117,6 +137,8 @@ is saturated; base and current builds measured the same 0.24–0.42 s spread on 
 | `test_time_offset.py` (4) | `Situation.time_offset_s` reaches compare / check / goal / aggregate for that run: errors equal `robot_msgs.compare` at that offset, a 20 ms late run passes once told, the status cell says "shifted", NaN is refused |
 | `test_wave2_rerun.py` (1) | the .rrd verifies and holds `/error/tool/contour_mm`, `lag_time_ms`, `/error/axes/<label>_mm`; the notes carry verdicts, latency, goal and aggregates |
 | `test_exports.py` (4) | the Parquet is tidy rows whose joint-error values equal the payload (target − run); the MCAP has one JSON topic per situation and channel with a time-ordered `t`; `exports=True` writes both and links them; the payload has no `exports` by default |
+| `test_dataset.py` (15) | rows equal `robot_msgs.compare` for every pair with tags as columns; verdicts equal `check`; ISO cards per group and series equal `aggregate`; differing references are named, not aggregated; peak time is where the error is largest; the human view is degrees; run files round-trip through `load_npz`; lazy / eager drill-down; serve builds a missing report on first GET; `poses` adds TCP rows; 3+ series give every pair; `primary` gives the 3-pair default; media is copied and synced with `video_start_s` |
+| `test_dataset_serve.py` (4) | Open in Rerun builds an unbuilt run's .rrd first; unknown run paths stay 404; rewriting a dataset drops stale reports; bad input (duplicate run names, unknown primary series, colliding tag, reserved series name) is named |
 | `test_report.py` (9) | report is self-contained, embeds both libs + data, groups comparison/situation navigation, derives error statistics, serializes Summary/Insights primitives, surfaces torque by default when requested, embeds each distinct robot link mesh once per report (`mesh_library`) however many pages pose it, preserves `</script>` safely, and rejects an empty list |
 
 ## Examples
@@ -124,6 +146,7 @@ is saturated; base and current builds measured the same 0.24–0.42 s spread on 
 | What you see | How to run |
 | --- | --- |
 | Camera overlay + motor current on a toy 1-DOF rack (synthetic mp4s via ffmpeg) | `cd ~/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_compare && uv run python examples/overlay_demo.py --out /tmp/overlay_demo` → `/tmp/overlay_demo/report.html` |
+| Dataset view: twelve runs of a planar 2R arm, three series, tags, verdicts, ISO cards, a run with video | `cd ~/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_compare && uv run --extra rerun --extra export python examples/dataset_demo.py --out /tmp/dataset_demo` then `python -m traj_compare.serve /tmp/dataset_demo` |
 | Full-featured UR5e A/B report (conveyor track + joint reach, empty Real slot) | `cd ../traj_integration_tests && PYTHONPATH=src python -m traj_integration_tests ur-compare` → `out/ur_compare_<date>/report.html` |
 
 ## Boundaries

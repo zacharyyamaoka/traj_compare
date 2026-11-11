@@ -1,0 +1,120 @@
+/* traj_compare dataset view — one calm answer first, detail on demand.
+   Same family language as style.css (1px structure, shallow radii, colour reserved for data);
+   amber/red appear only on a violated tolerance or a run that could not be analysed. */
+
+main.ds { max-width: 1480px; margin: 0 auto; padding: 18px 22px 48px; }
+.ds h1 { font-size: 19px; margin: 0 0 4px; color: #22211f; }
+.ds-sub { margin: 0; color: #8a8983; font-size: 12px; }
+.ds-answer { margin: 10px 0 0; font-size: 14.5px; color: #22211f; max-width: 980px; }
+.ds-answer .ds-fail { color: #a4372a; font-weight: 600; }
+.ds-answer .ds-mut { color: #8a8983; }
+.ds-answer b { font-weight: 650; }
+.ds-banner { margin: 12px 0 0; padding: 8px 12px; border: 1px solid #dddcd6; border-radius: 6px;
+             background: #fcfcfb; color: #52514e; font-size: 12.5px; max-width: 980px; }
+.ds-banner code { display: block; margin-top: 4px; user-select: all; overflow-x: auto;
+                  white-space: nowrap; color: #22211f; }
+
+.ds-summary { margin-top: 14px; }
+.ds-summary .tc-page-title { display: none; }
+
+.ds-card { background: #fcfcfb; border: 1px solid #dddcd6; border-radius: 8px;
+           padding: 12px 14px; margin: 14px 0; }
+.ds-card > h2 { font-size: 13.5px; margin: 0; color: #22211f; display: flex; flex-wrap: wrap;
+                align-items: baseline; gap: 4px 12px; }
+.ds-card > h2 .ds-hint { font-weight: 400; color: #8a8983; font-size: 12px; }
+.ds-bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin: 10px 0 8px;
+          font-size: 12px; color: #52514e; }
+.ds-bar label { display: inline-flex; align-items: center; gap: 6px; }
+.ds-bar .ds-k { color: #8a8983; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.ds select, .ds input[type="text"] { border: 1px solid #cfcec8; background: #fcfcfb; border-radius: 5px;
+        padding: 2px 6px; font: inherit; font-size: 12px; color: #22211f; max-width: 190px; }
+.ds input[type="checkbox"] { accent-color: #2a78d6; margin: 0; }
+.ds-pairpick { margin-left: auto; }
+
+/* runs x pairs table */
+.ds-scroll { overflow: auto; max-height: 560px; border: 1px solid #e6e5e0; border-radius: 6px; }
+table.ds-table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 12px;
+                 font-variant-numeric: tabular-nums; }
+.ds-table th, .ds-table td { padding: 4px 9px; text-align: right; white-space: nowrap;
+                             border-bottom: 1px solid #efeee9; background: #fcfcfb; }
+.ds-table thead th { position: sticky; top: 0; z-index: 2; background: #f7f7f5; color: #52514e;
+                     font-weight: 600; cursor: pointer; user-select: none; vertical-align: bottom;
+                     border-bottom: 1px solid #dddcd6; }
+.ds-table thead th .ds-unit { display: block; font-weight: 400; color: #8a8983; font-size: 10.5px; }
+.ds-table thead th.sorted::after { content: ' ▾'; color: #2a78d6; }
+.ds-table thead th.sorted.asc::after { content: ' ▴'; }
+.ds-table .ds-text { text-align: left; }
+.ds-table td.ds-first, .ds-table th.ds-first { position: sticky; left: 0; z-index: 1; text-align: left;
+        border-right: 1px solid #efeee9; max-width: 190px; overflow: hidden; text-overflow: ellipsis; }
+.ds-table thead th.ds-first { z-index: 3; }
+.ds-table tbody tr:hover td { background: #f4f6fa; }
+.ds-table td.ds-shade { background-image: linear-gradient(var(--tint), var(--tint)); }
+.ds-table td.ds-worst { font-weight: 650; box-shadow: inset 0 0 0 1px rgba(42, 120, 214, 0.55); }
+.ds-table td .ds-joint { color: #8a8983; font-weight: 400; margin-left: 5px; font-size: 11px; }
+.ds-table td.ds-pass { color: #2a7a3c; }
+.ds-table td.ds-violated { color: #a4372a; background: #fbeeed; }
+.ds-table td.ds-muted { color: #8a8983; }
+.ds-table td.ds-actions { text-align: left; }
+.ds-link, .ds-btn { border: 1px solid #cfcec8; background: #fcfcfb; border-radius: 5px; padding: 1px 8px;
+        font: inherit; font-size: 11.5px; color: #22211f; cursor: pointer; text-decoration: none;
+        margin-right: 4px; display: inline-block; }
+.ds-link:hover, .ds-btn:hover { border-color: #9dbde4; background: #eef3fa; }
+.ds-more { margin-top: 8px; }
+.ds-status { min-height: 18px; margin-top: 6px; font-size: 11.5px; color: #8a8983; }
+.ds-status.bad { color: #a4372a; }
+
+/* joint x run heatmap */
+.ds-heatwrap { overflow-x: auto; padding-bottom: 4px; }
+.ds-heat { display: grid; gap: 2px; align-items: stretch; width: max-content; }
+.ds-heat .ds-rowlabel { font-size: 11.5px; color: #52514e; padding-right: 8px; display: flex;
+                        align-items: center; position: sticky; left: 0; background: #fcfcfb; z-index: 1; }
+.ds-heat .ds-colhead { font-size: 10.5px; color: #8a8983; writing-mode: vertical-rl;
+                       transform: rotate(180deg); max-height: 120px; overflow: hidden;
+                       white-space: nowrap; text-overflow: ellipsis; justify-self: center; }
+.ds-heat a.ds-cell { height: 30px; border-radius: 3px; background: #f1f0ec; display: block;
+                     background-image: linear-gradient(var(--tint), var(--tint)); }
+.ds-heat a.ds-cell:hover { outline: 1px solid #52514e; }
+.ds-heat a.ds-cell.ds-worst { outline: 1.5px solid #2a78d6; outline-offset: 0; }
+.ds-heat a.ds-cell.ds-none { background: repeating-linear-gradient(45deg, #f1f0ec, #f1f0ec 3px, #e6e5e0 3px, #e6e5e0 4px); }
+.ds-legend { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 11.5px; color: #8a8983; }
+.ds-legend .ds-ramp { width: 120px; height: 8px; border-radius: 3px;
+                      background: linear-gradient(90deg, rgba(42, 120, 214, 0.04), rgba(42, 120, 214, 0.62)); }
+
+/* peak-time strip */
+.ds-peaks { max-height: 380px; overflow-y: auto; border: 1px solid #e6e5e0; border-radius: 6px; padding: 4px 8px 6px; }
+.ds-peakrow { display: grid; grid-template-columns: minmax(70px, 160px) 1fr; align-items: center; gap: 10px;
+              height: 17px; font-size: 11px; color: #52514e; }
+.ds-peakrow .ds-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ds-track { position: relative; height: 100%; border-bottom: 1px solid #efeee9; }
+.ds-track a.ds-dot { position: absolute; top: 4px; width: 9px; height: 9px; margin-left: -4.5px;
+                     border-radius: 50%; opacity: 0.9; }
+.ds-track a.ds-dot:hover { outline: 1px solid #22211f; z-index: 2; }
+.ds-peakaxis { display: grid; grid-template-columns: minmax(70px, 160px) 1fr; gap: 10px; font-size: 10.5px;
+               color: #8a8983; padding: 3px 8px 0; }
+.ds-peakaxis div:last-child { display: flex; justify-content: space-between; }
+.ds-keys { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11.5px; color: #52514e; }
+.ds-keys .ds-swatch { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; }
+
+/* ISO 9283 cards */
+.ds-iso { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 12px;
+          margin-top: 10px; }
+.ds-isocard { border: 1px solid #e6e5e0; border-radius: 6px; padding: 8px 10px; background: #fcfcfb; }
+.ds-isocard h3 { font-size: 12.5px; margin: 0 0 6px; color: #22211f; font-weight: 600; }
+.ds-isocard h3 .ds-mut { font-weight: 400; color: #8a8983; }
+.ds-isocard table { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
+.ds-isocard th, .ds-isocard td { padding: 3px 6px; text-align: right; border-bottom: 1px solid #efeee9; }
+.ds-isocard th:first-child, .ds-isocard td:first-child { text-align: left; }
+.ds-isocard thead th { color: #8a8983; font-weight: 600; font-size: 11px; }
+.ds-isocard.ds-pending { color: #8a8983; font-size: 12px; border-style: dashed; }
+.ds-note { color: #8a8983; font-size: 11.5px; margin: 8px 0 0; max-width: 980px; }
+
+footer.ds-foot { margin-top: 18px; color: #8a8983; font-size: 11.5px; }
+
+@media (max-width: 720px) {
+  main.ds { padding: 14px 12px 40px; }
+  .ds-pairpick { margin-left: 0; }
+  .ds-table td.ds-first, .ds-table th.ds-first { max-width: 120px; }
+  .ds-scroll { max-height: 440px; }
+  /* WHY: on a phone the verdict and the numbers matter more than the tags (which the filters still cover) */
+  .ds-table .ds-tag { display: none; }
+}

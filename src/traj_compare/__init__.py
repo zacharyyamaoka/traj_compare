@@ -22,6 +22,19 @@ from .model import (
 )
 from .report import write_comparison_report
 
+# WHY lazy: ``python -m traj_compare.dataset`` runs dataset.py as __main__; importing it here eagerly
+# would load it twice and print runpy's "found in sys.modules" warning on every CLI call.
+_DATASET_EXPORTS = ("Run", "build_drill_down", "default_pairs", "write_dataset_report")
+
+
+def __getattr__(name: str):
+    if name in _DATASET_EXPORTS:
+        from . import dataset
+
+        return getattr(dataset, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 __all__ = [
     "BarChart",
     "BarSeries",
@@ -29,6 +42,7 @@ __all__ = [
     "Comparison",
     "Insight",
     "MetricCard",
+    "Run",
     "ReportImage",
     "ReportPage",
     "ReportTable",
@@ -36,7 +50,10 @@ __all__ = [
     "Situation",
     "TableRow",
     "analyze_comparison",
+    "build_drill_down",
+    "default_pairs",
     "write_comparison_report",
+    "write_dataset_report",
 ]
 
 __version__ = "0.1.0"

@@ -2,7 +2,9 @@
 
     python -m traj_compare.serve <dir> [--port 8767] [--host 127.0.0.1]
 
-A plain static server plus one endpoint, ``POST /__rerun/open?rrd=<path relative to the root>``,
+A plain static server plus two behaviours. A request for a dataset run's ``runs/<slug>/report.html``
+(or its ``rerun/*.rrd``) that was never built is built on the spot from that run's manifest
+(``traj_compare.dataset.build_drill_down``) and cached on disk; and one endpoint, ``POST /__rerun/open?rrd=<path relative to the root>``,
 which is what the report's "Open in Rerun" button calls. WHY an endpoint and not a custom URL
 scheme: a browser page cannot start a process, and a registered ``rerun://`` handler would be one
 more thing to install per machine; this is the same ``uvx`` command the "Copy command" button
@@ -13,16 +15,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
+import threading
 from collections.abc import Callable
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from .rerun_export import viewer_argv, viewer_command
 
 DEFAULT_PORT = 8767
 OPEN_PATH = "/__rerun/open"
+# runs/<slug>/report.html or runs/<slug>/rerun/<pair>.rrd, relative to the served root
+_LAZY_BUILD = re.compile(r"^runs/([A-Za-z0-9][A-Za-z0-9._-]*)/(?:report\.html|rerun/[A-Za-z0-9._-]+\.rrd)$")
 
 
 def _spawn_detached(argv: list[str]) -> None:
@@ -43,6 +49,24 @@ def make_handler(
     """A request-handler class serving ``root``; ``spawn`` launches the viewer (injected for tests)."""
 
     root = Path(root).resolve()
+    # WHY one lock: two clicks on the same run must build it once, and a build writes the .rrd files
+    # and the page; building different runs at once would also pile up Rerun SDK processes.
+    build_lock = threading.Lock()
+
+    def build_missing(relative: str) -> None:
+        """Build a dataset run's drill-down when ``relative`` names one of its unbuilt files."""
+        match = _LAZY_BUILD.match(relative)
+        if match is None or (root / relative).is_file():
+            return
+        manifest = root / "runs" / match.group(1) / "manifest.json"
+        if not manifest.is_file():
+            return
+        with build_lock:
+            if (root / relative).is_file():  # another request built it while this one waited
+                return
+            from .dataset import build_drill_down
+
+            build_drill_down(root, json.loads(manifest.read_text("utf-8"))["name"])
 
     class Handler(SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs) -> None:
@@ -65,6 +89,22 @@ def make_handler(
             self.send_header("Access-Control-Max-Age", "600")
             self.send_header("Content-Length", "0")
             self.end_headers()
+
+        def _serve_built(self, serve: Callable[[], None]) -> None:
+            relative = unquote(urlsplit(self.path).path).lstrip("/")
+            try:
+                build_missing(relative)
+            except Exception as error:  # noqa: BLE001 - the browser gets the reason, the server keeps running
+                reason = (str(error).splitlines() or [type(error).__name__])[0]  # one header line
+                self.send_error(500, f"could not build {relative}: {reason}")
+                return
+            serve()
+
+        def do_GET(self) -> None:  # noqa: N802
+            self._serve_built(super().do_GET)
+
+        def do_HEAD(self) -> None:  # noqa: N802
+            self._serve_built(super().do_HEAD)
 
         def _json(self, status: int, body: dict) -> None:
             data = json.dumps(body).encode("utf-8")
@@ -99,6 +139,13 @@ def make_handler(
             if resolved.suffix.lower() != ".rrd":
                 self._json(400, {"ok": False, "error": "only .rrd files can be opened"})
                 return
+            if not resolved.is_file():
+                # A dataset page links the .rrd of a run nobody opened yet: build it, then open it.
+                try:
+                    build_missing(PurePosixPath(requested).as_posix())
+                except Exception as error:  # noqa: BLE001
+                    self._json(500, {"ok": False, "error": f"could not build {requested}: {error}"})
+                    return
             if not resolved.is_file():
                 self._json(404, {"ok": False, "error": f"no such file: {requested}"})
                 return
