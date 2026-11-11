@@ -80,6 +80,7 @@ def test_write_rrd_logs_the_standard_entity_layout(tmp_path):
         "/error/joint/j2/real",
         "/error/tool/position_mm/sim",
         "/error/tool/rotation_mrad/real",
+        "/error/tool/rotation_deg/real",  # the same error in degrees: the entity is data, the view shows degrees
         "/position/j1/target",
         "/position/j1/sim",
         "/vec/Conveyor/sim",  # signed speed along the named direction
@@ -186,3 +187,23 @@ def test_serve_open_endpoint_launches_the_pinned_viewer_on_a_file_inside_the_roo
         assert len(launched) == 1
     finally:
         server.shutdown()
+
+
+def test_notes_markdown_shows_degrees_and_mm_never_milliradians():
+    """The /notes page is human-facing: verdict limits, latency RMS and goal errors read in degrees (the tool in mm)."""
+    from robot_msgs.compare import JointTolerance, Tolerances
+
+    from traj_compare.rerun_export import _notes_markdown
+
+    comparison = three_way()
+    comparison.tolerances = Tolerances(
+        path=tuple(JointTolerance(name=joint, position=0.001) for joint in ("j1", "j2")),
+        goal=tuple(JointTolerance(name=joint, position=0.001) for joint in ("j1", "j2")),
+    )
+    comparison.estimate_latency = True
+    comparison.goal_band = 0.001
+    markdown = _notes_markdown(analyze_comparison(comparison))
+    for heading in ("## Verdicts", "## Estimated latency", "## Goal"):
+        assert heading in markdown
+    assert "> 0.0573°" in markdown  # the verdict's limit (0.001 rad), in degrees
+    assert "mrad" not in markdown and "(SI)" not in markdown

@@ -525,6 +525,7 @@ def write_dataset_report(
     summary: ReportPage | None = None,
     primary: Mapping[str, str] | None = None,
     drill_down: str = "lazy",
+    data_ui: bool = False,
 ) -> Path:
     """Write ``output_dir/index.html`` (many runs at a glance), ``rows.json``/``rows.parquet`` and ``runs/<slug>/``.
 
@@ -539,6 +540,9 @@ def write_dataset_report(
       ``traj_compare.serve`` (or ``python -m traj_compare.dataset drill``); ``"eager"`` builds them all now.
       WHY lazy is the default: a run's drill-down writes one .rrd per pair, so 387 runs x 3 pairs is
       about 2 GB up front for pages almost nobody opens.
+    - ``data_ui``: also write ``output_dir/data-ui/`` (``traj_compare.data_ui.write_tables``): data-ui's trajectory-contract
+      tables over the same runs (the TCP from ``poses``, the links from ``robot``) and a ``views.base`` dashboard whose run
+      rows link back to the drill-down. Open it in data-ui; see the README's "data-ui" section.
     """
 
     runs = list(runs)
@@ -666,6 +670,16 @@ def write_dataset_report(
     index = output_dir / "index.html"
     index.write_text(document, encoding="utf-8")
 
+    if data_ui:
+        from .data_ui import links_from_robot, stage_viewer, write_tables  # lazy: data_ui imports this module
+
+        write_tables(
+            runs,
+            output_dir / "data-ui",
+            poses=options.poses,
+            links=links_from_robot(_import_spec(robot, import_roots)) if robot else None,
+        )
+        stage_viewer(output_dir, title=title)  # data-ui.html + kit link when a built data-ui is on this machine
     if drill_down == "eager":
         for run in runs:
             build_drill_down(output_dir, run.name)

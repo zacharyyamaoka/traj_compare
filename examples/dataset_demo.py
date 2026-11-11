@@ -199,6 +199,7 @@ def build(out: Path, eager: bool = False) -> Path:
         summary=summary_page(runs),
         primary={"sim": "sim_it5"},
         drill_down="eager" if eager else "lazy",
+        data_ui=True,
     )
     if media_dir is not None:
         shutil.rmtree(media_dir)  # write_dataset_report copied the clips into runs/<slug>/media/

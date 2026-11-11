@@ -156,7 +156,7 @@ write_comparison_report([comparison], out_dir, insights=insights)
 
   | `Comparison` field | Adds |
   | --- | --- |
-  | `tolerances` / `tcp_tolerances` (`Tolerances`: `JointTolerance` groups / `PoseTolerance`) | per run `entry["verdict"] = {"joint": …, "tcp": …}` (`check`: `code_name`, `violations`, `margins`, `goal_time`, `unchecked`); a green/red **verdict badge** on the run's legend chip whose hover is the first violation ("positions/j2: 8.8 mrad > 4 mrad at t = 0.71 s"); **Verdict** column; a "Verdicts" details block |
+  | `tolerances` / `tcp_tolerances` (`Tolerances`: `JointTolerance` groups / `PoseTolerance`) | per run `entry["verdict"] = {"joint": …, "tcp": …}` (`check`: `code_name`, `violations`, `margins`, `goal_time`, `unchecked`); a green/red **verdict badge** on the run's legend chip whose hover is the first violation ("positions/j2: 0.504° > 0.229° at t = 0.71 s"; joints and rotations in °, the tool in mm); **Verdict** column; a "Verdicts" details block |
   | `estimate_latency=True` | `entry["latency"] = {offset_s, rms_before, rms_after}` (`estimate_time_offset` on the joints); **Est. latency** column |
   | `goal_band` (rad) / `tcp_goal_band` (m) | `entry["goal"]` (`goal`: final error, settling time, overshoot); **Settling · overshoot** column (TCP, else the slowest joint) |
   | `error_axes=[(label, vector), …]` | `payload["error_axes"]`, `plot["err_axes"]` and the TCP-error rows above |
@@ -186,7 +186,7 @@ write_comparison_report(comparisons, out_dir, rerun=True)   # needs: uv run --ex
 embedded) and gives each page an **Open in Rerun** control. Without the SDK it raises an `ImportError` naming the
 `rerun` extra; the default `rerun=False` never imports it. `write_rrd(comparison, path)` writes one file directly.
 The numbers come from the same payload as the HTML (so from `robot_msgs.compare`): `/error/joint/<joint>/<situation>`
-is target − run in rad, `/error/tool/...` in mm / mrad, `/vec/<label>/<situation>` the signed speed along each `vec_dirs`
+is target − run in rad (the data; the notes page shows degrees), `/error/tool/...` in mm / mrad and degrees (`rotation_deg` beside `rotation_mrad`), `/vec/<label>/<situation>` the signed speed along each `vec_dirs`
 direction, plus `/position`, `/velocity`, `/torque`, `/world/<situation>/{robot,tcp}`, `/video/<situation>` (MP4) and
 a `/notes` statistics table.
 
@@ -222,6 +222,7 @@ write_dataset_report(runs, "out/", title="Wrist coverage", group_by=("tape",), t
   then every series to every later one. A pair (a, b) is taken with `time_offset_s[b] - time_offset_s[a]`.
 - `poses` / `robot` are `"module:function"` import specs (`JointTrajectory -> PoseTrajectory`, `() -> RobotDisplay`), stored in
   each manifest so a later process can rebuild the drill-down; `poses` adds the TCP rows and the run view's cartesian sections.
+- `data_ui=True` also writes `out/data-ui/` for data-ui's dashboards (the **data-ui** section below).
 - `primary={"sim": "sim_it5"}`: the default view shows the reference, the primary series, and every series that is neither an
   alias nor named `<alias>_...` (3 pairs, not 6); the page's **show all pairs** switch and `rows.json` keep the rest.
 - **Files**: `index.html` (self-contained: answer line, your `summary` page, runs x pairs table with sort, a filter per tag,
@@ -237,6 +238,39 @@ write_dataset_report(runs, "out/", title="Wrist coverage", group_by=("tape",), t
   `.rrd` when you press **Open in Rerun**, on the first request and caches it. `"eager"` builds all now. WHY lazy: 387 runs x 3
   pairs of `.rrd` is about 2 GB up front. From `file://` the buttons copy the command instead.
 - `examples/dataset_demo.py --out DIR [--eager]` writes twelve synthetic runs of the planar 2R arm.
+
+## data-ui
+
+The dataset also feeds data-ui's robotics dashboards (`traj_compare.data_ui`, 2026-11-11), through data-ui's **trajectory
+contract, version 1** (`/home/bam/data-ui/gallery/robotics/CONTRACT.md`). Seams: `robot_msgs.compare` is the math, this is the
+classic run view + dataset view + the data-ui producer, data-ui only draws, sim2real is the domain.
+
+```python
+write_dataset_report(runs, "out/", title="Wrist coverage", poses="my_rig:tool_pose", robot="my_rig:robot_display", data_ui=True)
+# or on its own: from traj_compare.data_ui import write_tables; write_tables(runs, "out/data-ui", poses=..., links=...)
+```
+
+- **Files**, in `out/data-ui/`: `runs.json` (`url` is the classic drill-down, `../runs/<slug>/report.html`; every tag a column),
+  `samples.json` (`q_deg`, `qd_deg_s`, `qdd_deg_s2`, `tau_nm` per joint), `devices.json` (one servo per joint), `diff_samples.json`,
+  and with `poses` the TCP in `poses.json` + `diff_poses.json` (mm, wxyz), with `links` (or a `robot` spec) `links.json`,
+  and `media.json` only when a run has media. Each file carries its contract schema inline, with the declared units.
+  `views.base` is the dashboard over them (runs table, playback, 3D path + top view, tool error, joint error, joint angle, coverage).
+- **Situations**: `target` (family `target`), a series named `real…` (family `real`), every other series (family `sim`). Pairs
+  written: each situation against `target`, each `sim` against each `real`. A series' clock is shifted by its `time_offset_s`
+  onto the target's.
+- **`difference(a, b)`** (CONTRACT section 5, b − a) is `traj_compare.data_ui.difference`: the numbers are `robot_msgs.compare`'s
+  error (reference = b) converted at the edge, and it reproduces the contract's fixture (`tests/test_data_ui.py`). Rows are picked
+  at `display_hz` (default 100 Hz), never averaged, and the differences are computed on the rows written.
+- **Open it**: `write_dataset_report(data_ui=True)` also stages `out/data-ui.html` and a `out/kit` link to a built data-ui
+  (`traj_compare.data_ui.stage_viewer`, when `/home/bam/data-ui/dist/site/kit` exists); then
+  `python -m traj_compare.serve out/` and open `/data-ui.html` (a run's link goes to its drill-down, built on first open). Any host
+  page works the same: `<data-dashboard src="data-ui/views.base">` beside data-ui's `kit/`. Check the file with
+  `node /home/bam/data-ui/bin/data-ui.mjs check out/data-ui/views.base`.
+- **Degrees rule**: stored data is a display projection (data-ui converts nothing, and a `.base` formula is a coalesce, never
+  arithmetic), so the joint error is stored in degrees as `e_q_deg` beside the contract's `e_q_mrad` (and `err_rot_deg` beside
+  `err_rot_mrad`): CONTRACT section 5 lets a library add `e_<channel>`. Every panel reads `e_q_deg` (°) and `err_mm` (mm); no view shows rad or mrad.
+- **Contract gap found**: `robot_msgs.trajectory`'s `quat_slerp` falls back to a normalised lerp under 1.8° (`dot > 0.9995`), which is
+  up to 8e-4 mrad off the contract's slerp, so `difference` takes b's orientation at t from its own exact slerp (the rest is robot_msgs').
 
 ## Parquet and MCAP exports
 

@@ -11,7 +11,7 @@ Entity layout (situations are the last path part so a plot view can overlay them
     /world/<situation>/tcp              static LineStrips3D path + per-time Points3D marker
     /position|velocity|torque/<joint>/<situation>
     /error/joint/<joint>/<situation>    target - run, SI radians
-    /error/tool/<channel>/<situation>   position_mm, rotation_mrad, {x,y,z}_mm, lag_mm, cross_track_mm,
+    /error/tool/<channel>/<situation>   position_mm, rotation_mrad (and rotation_deg), {x,y,z}_mm, lag_mm, cross_track_mm,
                                         contour_mm (exact), lag_time_ms (+ behind)
     /error/axes/<label>_mm/<situation>  the position error projected on each ``error_axes`` direction
     /vec/<label>/<situation>            signed speed along a ``vec_dirs`` direction (belt matching)
@@ -24,6 +24,7 @@ The timeline ``t`` is a duration in seconds from the reference's (target's) firs
 
 from __future__ import annotations
 
+import math
 import shlex
 import warnings
 from pathlib import Path
@@ -55,6 +56,7 @@ VIEWER_ARGV_PREFIX = ["uvx", "--from", f"rerun-sdk=={RERUN_SDK_VERSION}", "rerun
 _TOOL_ERROR_CHANNELS = (
     ("xyz_mag", "position_mm", 1000.0),
     ("rot_mag", "rotation_mrad", 1000.0),
+    ("rot_mag", "rotation_deg", 180.0 / math.pi),  # WHY beside the mrad one: the entity is data, the view shows degrees
     ("err_x", "x_mm", 1000.0),
     ("err_y", "y_mm", 1000.0),
     ("err_z", "z_mm", 1000.0),
@@ -138,8 +140,30 @@ def _notes_markdown(payload: dict[str, Any]) -> str:
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
-def _mrad(value: float | None) -> str:
-    return "—" if value is None else f"{value * 1000.0:.3g} mrad"
+def _deg(value: float | None) -> str:
+    """An angle given in radians, shown in degrees (the display edge of the SI payload)."""
+    return "—" if value is None else f"{math.degrees(value):.3g}°"
+
+
+def _limit(metric: str, value: float) -> str:
+    """A verdict's SI error or limit, shown in the units a person reads: ° (°/s, °/s²) for joints and rotations, mm for the tool."""
+    magnitude = abs(value)
+    head = metric.split("/")[0]
+    if head == "velocities" or metric == "angular_velocity":
+        return f"{math.degrees(magnitude):.3g}°/s"
+    if head == "accelerations":
+        return f"{math.degrees(magnitude):.3g}°/s²"
+    if head == "positions" or metric in ("rotation", "rx", "ry", "rz"):
+        return f"{math.degrees(magnitude):.3g}°"
+    if metric == "linear_velocity":
+        return f"{magnitude * 1000.0:.3g} mm/s"
+    if metric in ("position", "x", "y", "z", "lag", "cross_track", "contour"):
+        return f"{magnitude * 1000.0:.3g} mm"
+    if metric == "lag_time":
+        return f"{magnitude * 1000.0:.3g} ms"
+    if head == "effort":
+        return f"{magnitude:.3g} N·m"
+    return f"{magnitude:.3g}"
 
 
 def _mm(value: float | None) -> str:
@@ -155,8 +179,8 @@ def _verdict_lines(payload: dict[str, Any]) -> list[str]:
                 continue
             first = outcome["violations"][0] if outcome["violations"] else None
             detail = (
-                f"{first['phase']} · {first['metric']}: |error| {abs(first['error']):.4g} > "
-                f"{first['limit']:.4g} at t = {first['t']:.2f} s (SI)"
+                f"{first['phase']} · {first['metric']}: |error| {_limit(first['metric'], first['error'])} > "
+                f"{_limit(first['metric'], first['limit'])} at t = {first['t']:.2f} s"
                 if first
                 else outcome["error_string"] or "every tolerance met"
             )
@@ -172,7 +196,7 @@ def _verdict_lines(payload: dict[str, Any]) -> list[str]:
 def _latency_lines(payload: dict[str, Any]) -> list[str]:
     rows = [
         f"| {_markdown_cell(entry['title'])} | {entry['latency']['offset_s'] * 1000.0:.2f} ms | "
-        f"{_mrad(entry['latency']['rms_before'])} | {_mrad(entry['latency']['rms_after'])} |"
+        f"{_deg(entry['latency']['rms_before'])} | {_deg(entry['latency']['rms_after'])} |"
         for entry in payload["situations"]
         if entry.get("latency") and entry["latency"].get("offset_s") is not None
     ]
@@ -193,7 +217,7 @@ def _goal_lines(payload: dict[str, Any]) -> list[str]:
     for entry in payload["situations"]:
         for key, frame in (("joint", "joints"), ("tcp", payload["tcp_frame"])):
             for metric, stats in ((entry.get("goal") or {}).get(key) or {}).items():
-                unit = _mm if key == "tcp" else _mrad
+                unit = _mm if key == "tcp" else _deg
                 settling = "not settled" if stats["settling_time"] is None else f"{stats['settling_time']:.3f} s"
                 rows.append(
                     f"| {_markdown_cell(entry['title'])} | {frame} {metric.split('/')[-1]} | "
@@ -228,8 +252,8 @@ def _aggregate_lines(payload: dict[str, Any]) -> list[str]:
             key = f"positions/{joint}"
             if "joint" in info and key in info["joint"]["accuracy"]:
                 lines.append(
-                    f"| {_markdown_cell(joint)} | {_mrad(info['joint']['accuracy'][key]['max_abs'])} | "
-                    f"{_mrad(info['joint']['repeatability'][key]['max'])} |"
+                    f"| {_markdown_cell(joint)} | {_deg(info['joint']['accuracy'][key]['max_abs'])} | "
+                    f"{_deg(info['joint']['repeatability'][key]['max'])} |"
                 )
         if "tcp" in info:
             lines.append(
@@ -352,6 +376,13 @@ def _blueprint(payload: dict[str, Any], videos: dict[str, Path]) -> Any:
                 name=f"{payload['tcp_frame']} position error [mm]",
             )
         )
+        if any("rot_mag" in plot for plot in measured):
+            error_views.append(
+                rrb.TimeSeriesView(
+                    origin="/error/tool/rotation_deg",
+                    name=f"{payload['tcp_frame']} rotation error [°]",
+                )
+            )
     if any("contour" in plot for plot in measured):
         error_views.append(
             rrb.TimeSeriesView(

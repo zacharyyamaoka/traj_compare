@@ -1232,15 +1232,21 @@ var TrajCompare = (function () {
 
   /* ---------------- verdicts + ISO 9283 (robot_msgs.compare.check / aggregate) ---------------- */
 
-  // Joints are shown as angles throughout this viewer, so a joint limit reads in mrad.
+  // WHY degrees (Zach's rule: degrees at the display edge, never a milli-radian): a verdict's error and limit are SI, so a joint
+  // position, a rotation and an angular rate read in °, °/s, °/s²; a TCP distance in mm. A metric this does not know prints
+  // its SI number with no unit rather than a wrong one.
   function formatLimit(metric, value) {
     var magnitude = Math.abs(value);
-    var scaled = function (unit) { return Number((magnitude * 1000).toPrecision(3)) + ' ' + unit; };
-    if (metric === 'position') return scaled('mm');
-    if (metric === 'linear_velocity') return scaled('mm/s');
-    if (metric.indexOf('velocities/') === 0) return scaled('mrad/s');
-    if (metric.indexOf('accelerations/') === 0) return scaled('mrad/s²');
-    return scaled('mrad');  // positions/<joint>, rotation
+    var number = function (x, unit) { return Number(x.toPrecision(3)) + unit; };
+    var head = metric.split('/')[0];
+    if (head === 'velocities' || metric === 'angular_velocity') return number(magnitude * RAD2DEG, '°/s');
+    if (head === 'accelerations') return number(magnitude * RAD2DEG, '°/s²');
+    if (head === 'positions' || ['rotation', 'rx', 'ry', 'rz'].indexOf(metric) >= 0) return number(magnitude * RAD2DEG, '°');
+    if (metric === 'linear_velocity') return number(magnitude * 1000, ' mm/s');
+    if (['position', 'x', 'y', 'z', 'lag', 'cross_track', 'contour'].indexOf(metric) >= 0) return number(magnitude * 1000, ' mm');
+    if (metric === 'lag_time') return number(magnitude * 1000, ' ms');
+    if (head === 'effort') return number(magnitude, ' N·m');
+    return number(magnitude, '');
   }
 
   function violationText(violation) {

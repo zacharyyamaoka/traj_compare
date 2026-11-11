@@ -63,7 +63,7 @@ recording per comparison, application id `traj_compare`, timeline `t` in seconds
 embedded) and adds `comparisons[i].rerun = {rrd, sdk, command}` to the payload, which the viewer turns into the header
 control. `write_rrd(comparison, path)` is the same writer on its own. Entities: `/world/<situation>/{robot/<link>,tcp}`,
 `/position|velocity|torque/<joint>/<situation>`, `/error/joint/<joint>/<situation>` (target − run, SI rad, from the
-analyze payload), `/error/tool/{position_mm,rotation_mrad,x_mm,y_mm,z_mm,lag_mm,cross_track_mm}/<situation>`,
+analyze payload), `/error/tool/{position_mm,rotation_mrad,rotation_deg,x_mm,y_mm,z_mm,lag_mm,cross_track_mm}/<situation>`,
 `/vec/<label>/<situation>`, `/video/<situation>` (MP4), `/notes`.
 
 **Pin:** `RERUN_SDK_VERSION = "0.40.0"`; the `rerun` extra is `rerun-sdk==0.40.0`. An `.rrd` needs a viewer at least as new
@@ -101,7 +101,7 @@ Module `traj_compare.dataset`; exports `Run`, `default_pairs`, `write_dataset_re
 | Input | Meaning |
 | --- | --- |
 | `Run` | `name`, `reference` (JointTrajectory), `measured` (series name -> JointTrajectory), `tags` (str/int/float/bool), `pairs` (default `default_pairs`), `time_offset_s` per series, `title`, `media` + `media_start_s` per key |
-| `write_dataset_report(runs, out, title=, group_by=, tolerances=, poses=, robot=, summary=, primary=, drill_down=)` | `poses` / `robot` are `"module:function"` specs; `primary` is alias -> series; `drill_down` is `"lazy"` or `"eager"` |
+| `write_dataset_report(runs, out, title=, group_by=, tolerances=, poses=, robot=, summary=, primary=, drill_down=, data_ui=)` | `poses` / `robot` are `"module:function"` specs; `primary` is alias -> series; `drill_down` is `"lazy"` or `"eager"` |
 
 | Output | Content |
 | --- | --- |
@@ -114,6 +114,28 @@ video time 0 and reaches the viewer's transport and the .rrd. A pair whose two s
 `error` and a warning, never silently dropped. Lazy builds go through `traj_compare.serve` (GET of a missing `runs/<slug>/report.html`
 or POST of its `.rrd`); a rewrite of the dataset deletes the cached reports. No Rerun SDK: the drill-down is built without `.rrd` and warns.
 
+## data-ui (the trajectory contract, version 1)
+
+Module `traj_compare.data_ui`; exports `write_tables`, `difference`, `links_from_robot`. Contract: `/home/bam/data-ui/gallery/robotics/CONTRACT.md` (schemas copied to `src/traj_compare/assets/data_ui/schemas/`; `tests/test_data_ui.py` compares them with the checkout's). `write_dataset_report(..., data_ui=True)` calls `write_tables(runs, out/"data-ui", poses=<its poses>, links=<from its robot>)`.
+
+| Call | Meaning |
+|---|---|
+| `write_tables(runs, out_dir, *, poses=None, links=None, frame="base", display_hz=100, deployment="", started=None)` | `poses`: `"module:function"` or callable, `JointTrajectory -> PoseTrajectory` (m); `links`: the same returning `{link: PoseTrajectory}`; `started`: datetime / ISO text / `{run name: ...}`, else a `started` tag, else the write time (the row's `note` says so) |
+| `difference(a_rows, b_rows)` | CONTRACT section 5, b − a, rows of one table (poses or samples); equals `fixture.check_difference` |
+
+| File in `out/data-ui/` | One row per | Units |
+|---|---|---|
+| `runs.json` | run (`url` = `../runs/<slug>/report.html`, `when` = short start text, one column per tag) | s, Hz |
+| `samples.json` | t x run x situation x joint | deg, deg/s, deg/s², N·m |
+| `devices.json` | joint (`servo`; limits when the reference has `JointLimits`) | deg, deg/s, N·m |
+| `poses.json`, `diff_poses.json` | t x run x situation (x reference) | mm, wxyz; `err_mm`, `err_rot_mrad`, `err_rot_deg` |
+| `links.json` | t x run x situation | link x/y/z mm, link qw..qz |
+| `diff_samples.json` | t x run x situation x reference x joint | `e_q_mrad`, `e_q_deg`, `e_qd_deg_s`, `e_tau_nm` |
+| `media.json` | clip (only when a run has media; `basis` null, `fps`/`duration` null without ffprobe) | s |
+| `views.base` | the dashboard; every angle in degrees, the tool in mm | |
+
+Situations: `target`, `real…` (family `real`), the rest `sim`. Pairs: each against `target`, each `sim` against each `real`. Rows are picked (never averaged) to at most `display_hz`; a series' `t` is shifted by its `time_offset_s` onto the target's. Rounding: 6 decimals (9 for angles and quaternions). Degrees rule: `e_q_deg` / `err_rot_deg` are this producer's own columns beside the contract's mrad ones (section 5: a library may add `e_<channel>`), because data-ui draws the stored number and a `.base` formula cannot do arithmetic.
+
 ## Dependencies
 
 Runtime: `numpy` and `robot-msgs` (numpy-only; every error signal and statistic comes from
@@ -121,7 +143,7 @@ Runtime: `numpy` and `robot-msgs` (numpy-only; every error signal and statistic 
 (`src/traj_compare/assets/VENDORED.md`). Test extra: `pytest`, `scipy`
 (rotation oracle). Optional `rerun` extra: `rerun-sdk==0.40.0` (only `rerun_export.py` imports it); optional `export` extra: `pyarrow`, `mcap`.
 
-## Tests — `uv run --extra test python -m pytest -q tests` → **100 passed** (with `--extra rerun --extra export`; `test_rerun_export.py` and `test_exports.py` skip without their extras)
+## Tests — `uv run --extra test python -m pytest -q tests` → **127 passed** (with `--extra rerun --extra export`; `test_rerun_export.py` and `test_exports.py` skip without their extras)
 
 (`python -m`: the venv's `pytest` script can carry a stale shebang from before the package moved
 under `mdp/agent/`. `test_playback.py` checks video frame gaps < 0.6 s and can trip when the machine
@@ -132,12 +154,13 @@ is saturated; base and current builds measured the same 0.24–0.42 s spread on 
 | `test_rotations.py` (7) | mat→quat/rpy match scipy (incl. near-π), geodesic angles, accumulation, unwrap/align |
 | `test_analysis.py` (15) | arc-length/percent/vec identities on a constant-speed line; pure rotation accumulates RPY path; pct normalized by **target** total; exact error magnitudes for a known offset; null padding beyond a short run's span (no fabricated plateau); derived-channel flagging; empty situation + JSON round trip; joint-only comparisons; NaN → null; robot mesh base64 round-trip + per-link pose tracks; bounded display-only model-track sampling with endpoint preservation; RobotDisplay validation; video passthrough |
 | `test_overlay.py` (8) | camera overlay carried into the payload; no overlays/current leaves the payload as before; overlay validation; current resampled onto the target grid with null padding; missing current is fine and never invented for the target; current shape validation; the report ships the Camera section / current channel / pref keys; `camera` accepted as a default section |
-| `test_rerun_export.py` (8) | the .rrd verifies and prints through Rerun's own CLI with the standard entity layout and an embedded blueprint; its error values equal the HTML payload; `rerun=True` writes one .rrd per comparison with `{rrd, sdk, command}` and `rerun=False` writes none; `reference_title` names the minuend; `serve` sends CORS + private-network headers and launches the pinned viewer only on a file inside its root |
+| `test_rerun_export.py` (9) | the .rrd verifies and prints through Rerun's own CLI with the standard entity layout and an embedded blueprint; its error values equal the HTML payload; `rerun=True` writes one .rrd per comparison with `{rrd, sdk, command}` and `rerun=False` writes none; `reference_title` names the minuend; `serve` sends CORS + private-network headers and launches the pinned viewer only on a file inside its root; the notes page shows degrees, never mrad |
 | `test_wave2_viewer.py` (8) | verdicts, latency, goal / settling, contour + lag time, errors along named axes and ISO 9283 aggregates equal what `robot_msgs.compare` returns for the same inputs; all off by default; the report shows the Verdict / Est. latency / Settling columns and the ISO 9283 card |
 | `test_time_offset.py` (4) | `Situation.time_offset_s` reaches compare / check / goal / aggregate for that run: errors equal `robot_msgs.compare` at that offset, a 20 ms late run passes once told, the status cell says "shifted", NaN is refused |
 | `test_wave2_rerun.py` (1) | the .rrd verifies and holds `/error/tool/contour_mm`, `lag_time_ms`, `/error/axes/<label>_mm`; the notes carry verdicts, latency, goal and aggregates |
 | `test_exports.py` (4) | the Parquet is tidy rows whose joint-error values equal the payload (target − run); the MCAP has one JSON topic per situation and channel with a time-ordered `t`; `exports=True` writes both and links them; the payload has no `exports` by default |
 | `test_dataset.py` (15) | rows equal `robot_msgs.compare` for every pair with tags as columns; verdicts equal `check`; ISO cards per group and series equal `aggregate`; differing references are named, not aggregated; peak time is where the error is largest; the human view is degrees; run files round-trip through `load_npz`; lazy / eager drill-down; serve builds a missing report on first GET; `poses` adds TCP rows; 3+ series give every pair; `primary` gives the 3-pair default; media is copied and synced with `video_start_s` |
+| `test_data_ui.py` (27) | `difference` reproduces data-ui's fixture (poses and samples); the vendored schemas equal data-ui's; every table has the contract's required columns, units and only declared columns; `runs.url` is the drill-down; rows are picked at the display rate, in degrees; a series clock shifts onto the target's; `diff_samples` equal `robot_msgs.compare` in mrad and degrees; pairs; poses/links only when given; `media.json` only with media; `started` is given or says it is the write time; views.base shows degrees/mm and passes `data-ui check`; no mrad in plots.js / dataset.js / CSS |
 | `test_dataset_serve.py` (4) | Open in Rerun builds an unbuilt run's .rrd first; unknown run paths stay 404; rewriting a dataset drops stale reports; bad input (duplicate run names, unknown primary series, colliding tag, reserved series name) is named |
 | `test_report.py` (9) | report is self-contained, embeds both libs + data, groups comparison/situation navigation, derives error statistics, serializes Summary/Insights primitives, surfaces torque by default when requested, embeds each distinct robot link mesh once per report (`mesh_library`) however many pages pose it, preserves `</script>` safely, and rejects an empty list |
 
