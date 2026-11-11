@@ -14,11 +14,12 @@ degrees-by-default toggle) is a viewer concern, never a storage concern.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
+from robot_msgs.compare import Tolerances
 
 # (N, DOF) joint configurations in → (N, 4, 4) TCP poses out.
 FkFunction = Callable[[np.ndarray], np.ndarray]
@@ -459,6 +460,24 @@ class Comparison:
     # five-bar's L2 tip or coupler), so the report has to say which one every
     # cartesian number is about. Shown in the TCP section hints and the table.
     tcp_frame: str = "TCP"
+    # robot_msgs.compare's second wave, all off by default so an existing report is unchanged.
+    # Verdicts (ROS 2 joint_trajectory_controller tolerances): ``tolerances`` judges the joints,
+    # ``tcp_tolerances`` (PoseTolerance groups) the ``fk`` / ``poses`` frame; each run against the
+    # reference gets a code name and the first violation.
+    tolerances: Tolerances | None = None
+    tcp_tolerances: Tolerances | None = None
+    # Latency: estimate_time_offset on the joint trajectories, shown beside the verdict.
+    estimate_latency: bool = False
+    # Settling bands for ``goal``: rad (joints) / m (TCP position). None = no goal statistics.
+    goal_band: float | None = None
+    tcp_goal_band: float | None = None
+    # Labeled unit vectors the TCP position error (reference - run) is projected onto.
+    # WHY: errors along the conveyor (along / across / up) are what belt picking cares about; the
+    # world x / y / z only coincide with them when the belt happens to be axis-aligned.
+    error_axes: Sequence[tuple[str, Any]] | None = None
+    # group name -> situation names that are repeats of one run: ISO 9283 accuracy vs
+    # repeatability (robot_msgs.compare.aggregate) against the reference.
+    repeat_groups: Mapping[str, Sequence[str]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -505,3 +524,26 @@ class Comparison:
                     "unknown default sections "
                     f"{sorted(unknown_sections)}; known: {sorted(_SECTION_IDS)}"
                 )
+        if self.error_axes is not None:
+            axes: list[tuple[str, np.ndarray]] = []
+            for label, direction in self.error_axes:
+                vector = np.asarray(direction, dtype=float).reshape(3)
+                norm = float(np.linalg.norm(vector))
+                if norm < 1e-12:
+                    raise ValueError(f"error axis '{label}' must be non-zero")
+                axes.append((str(label), vector / norm))
+            labels = [label for label, _ in axes]
+            if len(set(labels)) != len(labels):
+                raise ValueError(f"error-axis labels must be unique, got {labels}")
+            self.error_axes = axes
+        known = {situation.name for situation in self.situations}
+        groups: dict[str, list[str]] = {}
+        for group, run_names in dict(self.repeat_groups).items():
+            run_names = [str(run_name) for run_name in run_names]
+            missing = [run_name for run_name in run_names if run_name not in known]
+            if missing:
+                raise ValueError(f"repeat group '{group}' names unknown situations {missing}")
+            if len(run_names) < 2:
+                raise ValueError(f"repeat group '{group}' needs at least 2 runs")
+            groups[str(group)] = run_names
+        self.repeat_groups = groups

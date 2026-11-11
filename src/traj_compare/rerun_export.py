@@ -11,10 +11,13 @@ Entity layout (situations are the last path part so a plot view can overlay them
     /world/<situation>/tcp              static LineStrips3D path + per-time Points3D marker
     /position|velocity|torque/<joint>/<situation>
     /error/joint/<joint>/<situation>    target - run, SI radians
-    /error/tool/<channel>/<situation>   position_mm, rotation_mrad, {x,y,z}_mm, lag_mm, cross_track_mm
+    /error/tool/<channel>/<situation>   position_mm, rotation_mrad, {x,y,z}_mm, lag_mm, cross_track_mm,
+                                        contour_mm (exact), lag_time_ms (+ behind)
+    /error/axes/<label>_mm/<situation>  the position error projected on each ``error_axes`` direction
     /vec/<label>/<situation>            signed speed along a ``vec_dirs`` direction (belt matching)
     /video/<situation>                  AssetVideo + VideoFrameReference (MP4 only)
-    /notes                              the statistics table as markdown
+    /notes                              the statistics table, verdicts, latency, goal and ISO 9283
+                                        aggregates as markdown
 
 The timeline ``t`` is a duration in seconds from the reference's (target's) first sample.
 """
@@ -57,6 +60,8 @@ _TOOL_ERROR_CHANNELS = (
     ("err_z", "z_mm", 1000.0),
     ("lag", "lag_mm", 1000.0),
     ("cross_track", "cross_track_mm", 1000.0),
+    ("contour", "contour_mm", 1000.0),
+    ("lag_time", "lag_time_ms", 1000.0),
 )
 
 
@@ -123,7 +128,116 @@ def _notes_markdown(payload: dict[str, Any]) -> str:
     lines.append("|" + "---|" * len(columns))
     for row in statistics["rows"]:
         lines.append("| " + " | ".join(_markdown_cell(cell) for cell in row["cells"]) + " |")
-    return "\n".join(lines) + "\n"
+    lines.append("")
+    lines += (
+        _verdict_lines(payload)
+        + _latency_lines(payload)
+        + _goal_lines(payload)
+        + _aggregate_lines(payload)
+    )
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def _mrad(value: float | None) -> str:
+    return "—" if value is None else f"{value * 1000.0:.3g} mrad"
+
+
+def _mm(value: float | None) -> str:
+    return "—" if value is None else f"{value * 1000.0:.3g} mm"
+
+
+def _verdict_lines(payload: dict[str, Any]) -> list[str]:
+    rows = []
+    for entry in payload["situations"]:
+        for key, frame in (("joint", "joints"), ("tcp", payload["tcp_frame"])):
+            outcome = (entry.get("verdict") or {}).get(key)
+            if outcome is None:
+                continue
+            first = outcome["violations"][0] if outcome["violations"] else None
+            detail = (
+                f"{first['phase']} · {first['metric']}: |error| {abs(first['error']):.4g} > "
+                f"{first['limit']:.4g} at t = {first['t']:.2f} s (SI)"
+                if first
+                else outcome["error_string"] or "every tolerance met"
+            )
+            rows.append(
+                f"| {_markdown_cell(entry['title'])} | {frame} | {outcome['code_name']} | "
+                f"{_markdown_cell(detail)} |"
+            )
+    if not rows:
+        return []
+    return ["## Verdicts", "", "| Run | Frame | Verdict | First violation |", "|---|---|---|---|", *rows, ""]
+
+
+def _latency_lines(payload: dict[str, Any]) -> list[str]:
+    rows = [
+        f"| {_markdown_cell(entry['title'])} | {entry['latency']['offset_s'] * 1000.0:.2f} ms | "
+        f"{_mrad(entry['latency']['rms_before'])} | {_mrad(entry['latency']['rms_after'])} |"
+        for entry in payload["situations"]
+        if entry.get("latency") and entry["latency"].get("offset_s") is not None
+    ]
+    if not rows:
+        return []
+    return [
+        "## Estimated latency",
+        "",
+        "| Run | Offset | RMS before | RMS after shift |",
+        "|---|---|---|---|",
+        *rows,
+        "",
+    ]
+
+
+def _goal_lines(payload: dict[str, Any]) -> list[str]:
+    rows = []
+    for entry in payload["situations"]:
+        for key, frame in (("joint", "joints"), ("tcp", payload["tcp_frame"])):
+            for metric, stats in ((entry.get("goal") or {}).get(key) or {}).items():
+                unit = _mm if key == "tcp" else _mrad
+                settling = "not settled" if stats["settling_time"] is None else f"{stats['settling_time']:.3f} s"
+                rows.append(
+                    f"| {_markdown_cell(entry['title'])} | {frame} {metric.split('/')[-1]} | "
+                    f"{unit(stats['final_error'])} | {settling} | {unit(stats['overshoot'])} | "
+                    f"{unit(stats['band'])} |"
+                )
+    if not rows:
+        return []
+    return [
+        "## Goal",
+        "",
+        "| Run | Signal | Final error | Settling | Overshoot | Band |",
+        "|---|---|---|---|---|---|",
+        *rows,
+        "",
+    ]
+
+
+def _aggregate_lines(payload: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    for group, info in payload.get("aggregates", {}).items():
+        lines += [
+            f"## Accuracy vs repeatability (ISO 9283) — {group}",
+            "",
+            f"{len(info['runs'])} runs: {', '.join(info['titles'])}. AT = max |reference − barycentre|; "
+            "RT = max of mean + 3σ of the runs' distance to the barycentre.",
+            "",
+            "| Signal | AT | RT |",
+            "|---|---|---|",
+        ]
+        for joint in payload["joint_names"]:
+            key = f"positions/{joint}"
+            if "joint" in info and key in info["joint"]["accuracy"]:
+                lines.append(
+                    f"| {_markdown_cell(joint)} | {_mrad(info['joint']['accuracy'][key]['max_abs'])} | "
+                    f"{_mrad(info['joint']['repeatability'][key]['max'])} |"
+                )
+        if "tcp" in info:
+            lines.append(
+                f"| {payload['tcp_frame']} position | {_mm(info['tcp']['accuracy']['position']['max_abs'])} | "
+                f"{_mm(info['tcp']['repeatability']['position']['max'])} |"
+            )
+        lines.append("")
+    return lines
 
 
 def _link_mesh(triangles: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -238,6 +352,24 @@ def _blueprint(payload: dict[str, Any], videos: dict[str, Path]) -> Any:
                 name=f"{payload['tcp_frame']} position error [mm]",
             )
         )
+    if any("contour" in plot for plot in measured):
+        error_views.append(
+            rrb.TimeSeriesView(
+                origin="/error/tool/contour_mm", name=f"{payload['tcp_frame']} contour error [mm]"
+            )
+        )
+        error_views.append(
+            rrb.TimeSeriesView(
+                origin="/error/tool/lag_time_ms", name=f"{payload['tcp_frame']} lag time [ms]"
+            )
+        )
+    if any("err_axes" in plot for plot in measured):
+        error_views += [
+            rrb.TimeSeriesView(
+                origin=f"/error/axes/{_part(f'{label}_mm')}", name=f"error {label} [mm]"
+            )
+            for label in payload["error_axes"]
+        ]
     tabs = [
         joint_grid("position", "rad", "Position"),
         joint_grid("velocity", "rad/s", "Velocity"),
@@ -365,6 +497,12 @@ def write_rrd(
         for key, channel, scale in _TOOL_ERROR_CHANNELS:
             if key in plot:
                 writer.series(f"/error/tool/{channel}/{name}", plot_t, _array(plot[key]) * scale, color, label)
+        for index, axis_label in enumerate(payload["error_axes"]):
+            if "err_axes" in plot:
+                writer.series(
+                    f"/error/axes/{_part(f'{axis_label}_mm')}/{name}",
+                    plot_t, _array(plot["err_axes"][index]) * 1000.0, color, label,
+                )  # fmt: skip
         for index, vec_label in enumerate(payload["vec_labels"]):
             if f"vec{index}_d" in plot:
                 writer.series(f"/vec/{_part(vec_label)}/{name}", plot_t, _array(plot[f"vec{index}_d"]), color, label)

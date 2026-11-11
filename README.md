@@ -42,6 +42,7 @@ players.
 | Joint error | per joint, `target(t) − q` | off |
 | TCP pose | x, y, z [m], rx, ry, rz [deg] (extrinsic xyz, unwrapped) of the `tcp_frame` | off |
 | TCP error | vs target (error = target − run) at the run's own samples: \|Δp\| [mm] and rotation angle [deg]; **cross-track** (off the path) and signed **lag** along it (+ when the run is behind the target) [mm]; per-axis x/y/z [mm] and rx/ry/rz [deg] as a world-axis rotation vector | on |
+| TCP error, second wave | the exact **contour** error (distance to the nearest point of the reference path) and **lag time** (+ when the run is behind) from `robot_msgs.compare`; with `Comparison.error_axes` one row per named axis (**error · along belt**, across belt, up): the same position error as x/y/z projected on those directions | with TCP error |
 | Path progress | rows path/path_d/path_dd × columns **%** (of target path length), **XYZ** arc length, **RPY** accumulated rotation, **Vec[label]** signed progress along each configured direction | on |
 | Camera | one card per `CameraOverlay` in `Comparison.overlays`: the real video with a selected sim render stacked on top — **Real ◀ ▶ Sim** opacity slider (0 = only real, 1 = only sim), sim-source dropdown, Mix / Difference blend, 2 Hz Flicker; video position = t − `t0_s`; opacity/sim/blend/flicker are report-level prefs; a missing file shows a greyed "no video" card with its path | on |
 | Videos | one card per situation with a `video`, always played/seeked together by the transport | on |
@@ -150,6 +151,19 @@ write_comparison_report([comparison], out_dir, insights=insights)
   travel (the lag / contouring split of model predictive contouring
   control); lag is + when the run is behind. Where the target rests there is
   no direction, so both are null.
+- **Verdicts, latency, settling, repeatability** (all optional, all `robot_msgs.compare`; a report without
+  them is unchanged):
+
+  | `Comparison` field | Adds |
+  | --- | --- |
+  | `tolerances` / `tcp_tolerances` (`Tolerances`: `JointTolerance` groups / `PoseTolerance`) | per run `entry["verdict"] = {"joint": …, "tcp": …}` (`check`: `code_name`, `violations`, `margins`, `goal_time`, `unchecked`); a green/red **verdict badge** on the run's legend chip whose hover is the first violation ("positions/j2: 8.8 mrad > 4 mrad at t = 0.71 s"); **Verdict** column; a "Verdicts" details block |
+  | `estimate_latency=True` | `entry["latency"] = {offset_s, rms_before, rms_after}` (`estimate_time_offset` on the joints); **Est. latency** column |
+  | `goal_band` (rad) / `tcp_goal_band` (m) | `entry["goal"]` (`goal`: final error, settling time, overshoot); **Settling · overshoot** column (TCP, else the slowest joint) |
+  | `error_axes=[(label, vector), …]` | `payload["error_axes"]`, `plot["err_axes"]` and the TCP-error rows above |
+  | `repeat_groups={"Real ×5": [names]}` | `payload["aggregates"][group]` (`aggregate`) and an **Accuracy vs repeatability (ISO 9283)** card: AT = max \|reference − barycentre\| (bias), RT = max of mean + 3σ of the runs' distance to the barycentre (scatter), per joint and TCP position |
+
+  The default `stopped_velocity_tolerance` (0.01 rad/s) applies to the goal phase whenever a run records `qd`;
+  a reference that ends moving (a conveyor track) needs it raised, or `check` can never reach the goal.
 - `examples/tracking_errors_demo.py` shows every standard field on a planar
   2R arm with a lagging and an offset run.
 - `summary=` and `insights=` accept `ReportPage` objects. A page may contain

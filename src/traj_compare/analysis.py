@@ -15,10 +15,15 @@ Per situation, computed on that situation's own time grid:
 - error channels against the target, all from ``robot_msgs.compare`` (one
   source of truth for every error signal and statistic): per-joint ``q``
   error, ``xyz_mag`` (translation error norm), ``rot_mag`` (geodesic rotation
-  error), per-axis ``err_x .. err_rz``, ``cross_track`` and ``lag``. Every
-  error is **target - run** (the ROS 2 controller-state convention), taken on
+  error), per-axis ``err_x .. err_rz``, ``cross_track``, ``lag``, the exact
+  ``contour`` / ``lag_time`` split, and (``Comparison.error_axes``) the position
+  error projected on named axes. Every error is **target - run** (the ROS 2 controller-state convention), taken on
   the run's own samples inside the target's span; the target is interpolated,
   never extrapolated.
+
+Optional, off unless the ``Comparison`` asks (all from ``robot_msgs.compare``): a verdict per
+run (``check``), a latency estimate (``estimate_time_offset``), goal / settling statistics
+(``goal``) and ISO 9283 accuracy vs repeatability over repeated runs (``aggregate``).
 
 Because the plot library draws all overlaid series against one shared x
 array, every display channel is then resampled onto a common ``plot_t``
@@ -34,10 +39,11 @@ Everything stays SI (s, rad, m, Nm, A); unit conversion happens in the viewer.
 from __future__ import annotations
 
 import base64
+import dataclasses
 from typing import Any
 
 import numpy as np
-from robot_msgs.compare import align, compare
+from robot_msgs.compare import aggregate, align, check, compare, estimate_time_offset, goal
 from robot_msgs.trajectory import JointTrajectory, PoseTrajectory
 
 from .model import Comparison, ReportTable, RobotDisplay, Situation, TableRow
@@ -321,6 +327,61 @@ def _compare_or_none(reference: Any, measured: Any) -> Any:
         return None
 
 
+def _or_none(function: Any, *args: Any, **kwargs: Any) -> Any:
+    """``function(...)``, or None when the run never meets the reference's span.
+
+    WHY None, not a raise: same rule as ``_compare_or_none``; the page just lacks that number.
+    """
+
+    try:
+        return function(*args, **kwargs)
+    except ValueError as error:
+        if "overlap" not in str(error):
+            raise
+        return None
+
+
+def _message_dict(message: Any) -> dict[str, Any]:
+    return {field.name: getattr(message, field.name) for field in dataclasses.fields(message)}
+
+
+def _outcome_payload(outcome: Any) -> dict[str, Any]:
+    return _json_clean(
+        {
+            "error_code": outcome.error_code,
+            "code_name": outcome.code_name,
+            "error_string": outcome.error_string,
+            "violations": [
+                {
+                    "phase": violation.phase,
+                    "metric": violation.metric,
+                    "t": violation.t,
+                    "error": violation.error,
+                    "limit": violation.limit,
+                }
+                for violation in outcome.violations
+            ],
+            "margins": dict(outcome.margins),
+            "goal_time": outcome.goal_time,
+            "unchecked": list(outcome.unchecked),
+        }
+    )
+
+
+def _stats_payload(stats: dict[str, Any]) -> dict[str, Any]:
+    return _json_clean({name: _message_dict(value) for name, value in stats.items()})
+
+
+def _aggregate_payload(result: Any) -> dict[str, Any]:
+    return _json_clean(
+        {
+            "accuracy": {name: value.as_dict() for name, value in result.accuracy.metrics.items()},
+            "repeatability": {name: value.as_dict() for name, value in result.metrics.items()},
+            "coverage": result.coverage,
+        }
+    )
+
+
 def _format_degrees(value_rad: float) -> str:
     if not np.isfinite(value_rad):
         return "—"
@@ -343,11 +404,66 @@ def reference_title(comparison: Comparison) -> str:
     return comparison.target.title if comparison.target is not None else "Target"
 
 
+def _verdict_cells(comparison: Comparison, metric: dict[str, Any]) -> list[str]:
+    codes = metric.get("verdict", {})
+    return [codes.get(key, "—") for key in ("joint", "tcp") if _has_verdict(comparison, key)]
+
+
+def _has_verdict(comparison: Comparison, key: str) -> bool:
+    return (comparison.tolerances if key == "joint" else comparison.tcp_tolerances) is not None
+
+
+def _latency_cell(metric: dict[str, Any]) -> str:
+    latency = metric.get("latency")
+    if not latency or latency.get("offset_s") is None:
+        return "—"
+    after = latency["rms_after"] if latency["rms_after"] is not None else float("nan")
+    before = latency["rms_before"] if latency["rms_before"] is not None else float("nan")
+    return (
+        f"{latency['offset_s'] * 1000.0:,.1f} ms · RMS {_format_degrees(after)} "
+        f"(was {_format_degrees(before)})"
+    )
+
+
+def _settling_cell(metric: dict[str, Any]) -> str:
+    """TCP settling · overshoot when the TCP has a band, else the slowest-settling joint's."""
+
+    stats = metric.get("goal") or {}
+
+    def settle(entry: dict[str, Any]) -> str:
+        seconds = entry.get("settling_time")
+        return "not settled" if seconds is None else f"{seconds * 1000.0:,.0f} ms"
+
+    tcp = (stats.get("tcp") or {}).get("position")
+    if tcp:
+        over = tcp.get("overshoot")
+        return f"{settle(tcp)} · over {_format_millimetres(over if over is not None else float('nan'))}"
+    joints = stats.get("joint") or {}
+    if not joints:
+        return "—"
+    # a joint that never settled is the worst; otherwise the slowest
+    name, worst = max(
+        joints.items(),
+        key=lambda item: float("inf") if item[1].get("settling_time") is None else item[1]["settling_time"],
+    )
+    over = worst.get("overshoot")
+    return (
+        f"{name.split('/', 1)[-1]}: {settle(worst)} · over "
+        f"{_format_degrees(over if over is not None else float('nan'))}"
+    )
+
+
 def _automatic_statistics(
     comparison: Comparison,
     metrics: dict[str, dict[str, Any]],
 ) -> ReportTable:
     rows: list[TableRow] = []
+    has_goal = comparison.goal_band is not None or comparison.tcp_goal_band is not None
+    verdict_columns = {
+        (True, False): ["Verdict"],
+        (False, True): ["Verdict (TCP)"],
+        (True, True): ["Verdict (joints)", "Verdict (TCP)"],
+    }.get((_has_verdict(comparison, "joint"), _has_verdict(comparison, "tcp")), [])
     for situation in comparison.situations:
         metric = metrics[situation.name]
         status = metric["status"]
@@ -392,10 +508,29 @@ def _automatic_statistics(
                     pair("position", _format_millimetres),
                     pair("rotation", _format_degrees),
                     track,
+                    *_verdict_cells(comparison, metric),
+                    *([_latency_cell(metric)] if comparison.estimate_latency else []),
+                    *([_settling_cell(metric)] if has_goal else []),
                     status,
                 ],
                 tone=tone,
             )
+        )
+    notes = ""
+    if verdict_columns:
+        notes += (
+            " Verdict is robot_msgs.compare.check against the declared tolerances (ROS 2 "
+            "joint_trajectory_controller: path while the reference runs, goal after it ends)."
+        )
+    if comparison.estimate_latency:
+        notes += (
+            " Est. latency is how late the run's clock runs (estimate_time_offset), with the joint "
+            "RMS error once shifted by it."
+        )
+    if has_goal:
+        notes += (
+            " Settling is the time after the reference ends to stay inside the goal band, "
+            "with the overshoot past the final value."
         )
     return ReportTable(
         title="Error statistics vs target",
@@ -406,6 +541,7 @@ def _automatic_statistics(
             "Cross-track is distance off the target's direction of travel; lag is "
             "signed along it, + when the run is behind the target. Angles are shown "
             "in degrees and positions in millimetres; raw report data remains SI."
+            + notes
         ),
         columns=[
             "Situation",
@@ -416,10 +552,106 @@ def _automatic_statistics(
             "TCP pos max · final",
             "TCP rot max · final",
             "Cross-track · lag RMS",
+            *verdict_columns,
+            *(["Est. latency"] if comparison.estimate_latency else []),
+            *(["Settling · overshoot"] if has_goal else []),
             "Samples / status",
         ],
         rows=rows,
     )
+
+
+def _second_wave(
+    comparison: Comparison,
+    entry: dict[str, Any],
+    metric: dict[str, Any],
+    target_joints: JointTrajectory,
+    run_joints: JointTrajectory,
+    target_pose_track: PoseTrajectory | None,
+    run_pose_track: PoseTrajectory | None,
+) -> None:
+    """The optional verdict / latency / goal blocks of one run, each from one robot_msgs.compare call."""
+
+    has_pose = target_pose_track is not None and run_pose_track is not None
+    if comparison.tolerances is not None or (comparison.tcp_tolerances is not None and has_pose):
+        verdict: dict[str, Any] = {}
+        raw: dict[str, Any] = {}
+        for key, tolerances, reference, run in (
+            ("joint", comparison.tolerances, target_joints, run_joints),
+            ("tcp", comparison.tcp_tolerances, target_pose_track, run_pose_track),
+        ):
+            if tolerances is None or reference is None or run is None:
+                continue
+            outcome = _or_none(check, reference, run, tolerances)
+            if outcome is not None:
+                raw[key] = outcome
+                verdict[key] = _outcome_payload(outcome)
+        if verdict:
+            entry["verdict"] = verdict
+            metric["verdict"] = {key: outcome.code_name for key, outcome in raw.items()}
+
+    if comparison.estimate_latency:
+        estimate = _or_none(estimate_time_offset, target_joints, run_joints)
+        if estimate is not None:
+            entry["latency"] = _json_clean(_message_dict(estimate))
+            metric["latency"] = entry["latency"]
+
+    if comparison.goal_band is not None or comparison.tcp_goal_band is not None:
+        stats: dict[str, Any] = {}
+        if comparison.goal_band is not None:
+            joint_goal = _or_none(goal, target_joints, run_joints, band=comparison.goal_band)
+            if joint_goal is not None:
+                stats["joint"] = _stats_payload(joint_goal)
+        if comparison.tcp_goal_band is not None and has_pose:
+            tcp_goal = _or_none(
+                goal, target_pose_track, run_pose_track, band=comparison.tcp_goal_band
+            )
+            if tcp_goal is not None:
+                stats["tcp"] = _stats_payload(tcp_goal)
+        if stats:
+            entry["goal"] = stats
+            metric["goal"] = stats
+
+
+def _aggregates(
+    comparison: Comparison,
+    target_joints: JointTrajectory | None,
+    target_pose_track: PoseTrajectory | None,
+) -> dict[str, Any]:
+    """ISO 9283 accuracy vs repeatability per repeat group, against the reference."""
+
+    out: dict[str, Any] = {}
+    if target_joints is None:
+        return out
+    by_name = {situation.name: situation for situation in comparison.situations}
+    for group, names in comparison.repeat_groups.items():
+        runs = [by_name[name] for name in names if by_name[name].has_data]
+        if len(runs) < 2:
+            continue
+        block: dict[str, Any] = {
+            "runs": [run.name for run in runs],
+            "titles": [run.title for run in runs],
+        }
+        joint = _or_none(
+            aggregate, target_joints, [_joint_trajectory(run, comparison.joint_names) for run in runs]
+        )
+        if joint is not None:
+            block["joint"] = _aggregate_payload(joint)
+        run_poses = [_situation_poses(run, comparison) for run in runs]
+        if target_pose_track is not None and all(poses is not None for poses in run_poses):
+            tcp = _or_none(
+                aggregate,
+                target_pose_track,
+                [
+                    _pose_trajectory(run, poses, comparison.tcp_frame)
+                    for run, poses in zip(runs, run_poses, strict=True)
+                ],
+            )
+            if tcp is not None:
+                block["tcp"] = _aggregate_payload(tcp)
+        if "joint" in block or "tcp" in block:
+            out[group] = block
+    return out
 
 
 def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
@@ -600,7 +832,12 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
                 run_pose_track = _pose_trajectory(situation, poses, comparison.tcp_frame)
                 pose_result = _compare_or_none(target_pose_track, run_pose_track)
             else:
+                run_pose_track = None
                 pose_result = None
+            _second_wave(
+                comparison, entry, automatic_metrics[situation.name],
+                target_joints, run_joints, target_pose_track, run_pose_track,
+            )  # fmt: skip
             if pose_result is not None:
                 pose_error = pose_result.error  # target - run, a PoseTrajectory
                 pose_t = pose_error.t
@@ -620,6 +857,14 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
                     plot[f"err_r{axis}"] = _clean(on_grid(rotation_delta[:, col], pose_t))
                 plot["cross_track"] = _clean(on_grid(pose_error.channels["cross_track"], pose_t))
                 plot["lag"] = _clean(on_grid(pose_error.channels["lag"], pose_t))
+                plot["contour"] = _clean(on_grid(pose_error.channels["contour"], pose_t))
+                plot["lag_time"] = _clean(on_grid(pose_error.channels["lag_time"], pose_t))
+                if comparison.error_axes:
+                    # the same vector as err_x / err_y / err_z, read on the named axes
+                    plot["err_axes"] = [
+                        _clean(on_grid(position_delta @ axis, pose_t))
+                        for _, axis in comparison.error_axes
+                    ]
                 # The target at the run's own instants, exactly as compare() lined it up, so the
                 # 3D difference arrows point at the pose the plotted error was measured against.
                 target_at, _, _, _ = align(target_pose_track, run_pose_track)
@@ -639,6 +884,7 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
         if role != "target" and entry["error_metrics"] is None:
             entry["error_metrics"] = {}  # measured, but nothing to measure against
     statistics = comparison.statistics or _automatic_statistics(comparison, automatic_metrics)
+    aggregates = _aggregates(comparison, target_joints, target_pose_track)
     return {
         "name": comparison.name,
         "title": comparison.title,
@@ -651,6 +897,8 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
         "tcp_frame": comparison.tcp_frame,
         "reference_title": reference_title(comparison),
         "vec_labels": [label for label, _ in comparison.vec_dirs],
+        "error_axes": [label for label, _ in comparison.error_axes or ()],
+        "aggregates": aggregates,
         "pct_reference": "target" if pct_total else "self",
         "has_cartesian": any_cartesian,
         "has_tau": any_tau,

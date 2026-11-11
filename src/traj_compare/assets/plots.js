@@ -32,6 +32,7 @@ var TrajCompare = (function () {
     angle_acc: { angle: true, rad: 'rad/s²', deg: '°/s²' },
     m: { label: 'm' },
     mm: { label: 'mm', scale: 1000 },
+    ms: { label: 'ms', scale: 1000 },
     m_s: { label: 'm/s' },
     m_s2: { label: 'm/s²' },
     Nm: { label: 'Nm' },
@@ -652,14 +653,23 @@ var TrajCompare = (function () {
      ['rot_mag', frame + ' rotation error', 'angle'],
      ['cross_track', frame + ' cross-track error (off path)', 'mm'],
      ['lag', frame + ' lag (+ behind target)', 'mm'],
+     ['contour', frame + ' contour (exact)', 'mm'],
+     ['lag_time', frame + ' lag time (+ behind)', 'ms']]
+      .concat((page.data.error_axes || []).map(function (label, index) {
+        // WHY a field of its own per axis: err_axes is one list per axis, not one channel
+        return ['err_axes:' + index, frame + ' error · ' + label + ' (' + minus + ')', 'mm'];
+      }))
+      .concat([
      ['err_x', frame + ' x error (' + minus + ')', 'mm'],
      ['err_y', frame + ' y error (' + minus + ')', 'mm'],
      ['err_z', frame + ' z error (' + minus + ')', 'mm'],
      ['err_rx', frame + ' rx error (' + minus + ')', 'angle'],
      ['err_ry', frame + ' ry error (' + minus + ')', 'angle'],
-     ['err_rz', frame + ' rz error (' + minus + ')', 'angle']].forEach(function (row) {
-      var series = sitsWith(page, row[0]).map(function (sit) {
-        return { sit: sit, values: sit.plot[row[0]] };
+     ['err_rz', frame + ' rz error (' + minus + ')', 'angle']]).forEach(function (row) {
+      var axis = row[0].indexOf('err_axes:') === 0 ? Number(row[0].slice(9)) : null;
+      var field = axis === null ? row[0] : 'err_axes';
+      var series = sitsWith(page, field).map(function (sit) {
+        return { sit: sit, values: axis === null ? sit.plot[field] : sit.plot[field][axis] };
       });
       if (!series.length) return;
       makeChart(page, el('div', 'tc-plotcard', grid),
@@ -1003,7 +1013,10 @@ var TrajCompare = (function () {
     if (id === 'tcp-err') {
       hint = (data.tcp_frame || 'TCP') + ' frame, error = ' + referenceTitle(data) + ' − run at the run\'s own sample times; ' +
         'axis errors are world-frame, rotation as a world-axis rotation vector; ' +
-        'lag is + when the run is behind the target';
+        'lag is + when the run is behind the target; contour is the exact distance to the reference path, ' +
+        'lag time the time offset to its nearest point' +
+        (data.error_axes && data.error_axes.length
+          ? '; error · <axis> is the position error projected on ' + data.error_axes.join(' / ') : '');
     }
     if (id === 'tcp-pose') hint = (data.tcp_frame || 'TCP') + ' frame';
     if (id === 'videos') hint = 'always played together, seeked by the scrubber';
@@ -1034,7 +1047,10 @@ var TrajCompare = (function () {
     table.rows.forEach(function (row) {
       var tr = el('tr', row.tone ? 'tone-' + row.tone : '', body);
       row.cells.forEach(function (cell, index) {
-        el(index === 0 ? 'th' : 'td', '', tr, cell);
+        var tag = index === 0 ? 'th' : 'td';
+        // A verdict column reads green when SUCCESSFUL and red only for a violation.
+        var verdict = index > 0 && table.columns[index].indexOf('Verdict') === 0 && cell !== '—';
+        el(tag, verdict ? 'verdict ' + (cell === 'SUCCESSFUL' ? 'ok' : 'bad') : '', tr, cell);
       });
     });
     return block;
@@ -1194,6 +1210,148 @@ var TrajCompare = (function () {
     };
   }
 
+  /* ---------------- verdicts + ISO 9283 (robot_msgs.compare.check / aggregate) ---------------- */
+
+  // Joints are shown as angles throughout this viewer, so a joint limit reads in mrad.
+  function formatLimit(metric, value) {
+    var magnitude = Math.abs(value);
+    var scaled = function (unit) { return Number((magnitude * 1000).toPrecision(3)) + ' ' + unit; };
+    if (metric === 'position') return scaled('mm');
+    if (metric === 'linear_velocity') return scaled('mm/s');
+    if (metric.indexOf('velocities/') === 0) return scaled('mrad/s');
+    if (metric.indexOf('accelerations/') === 0) return scaled('mrad/s²');
+    return scaled('mrad');  // positions/<joint>, rotation
+  }
+
+  function violationText(violation) {
+    return violation.metric + ': ' + formatLimit(violation.metric, violation.error) + ' > ' +
+      formatLimit(violation.metric, violation.limit) + ' at t = ' + violation.t.toFixed(2) + ' s';
+  }
+
+  function outcomeText(outcome) {
+    if (outcome.violations && outcome.violations.length) return violationText(outcome.violations[0]);
+    return outcome.error_code === 0 ? 'every tolerance met' : (outcome.error_string || outcome.code_name);
+  }
+
+  var VERDICT_GROUPS = [['joint', 'joints'], ['tcp', 'TCP']];
+
+  /* One calm badge per run: green "pass", else the failed phase; the first violation is its hover. */
+  function verdictBadge(sit) {
+    if (!sit.verdict) return null;
+    var failed = null, lines = [];
+    VERDICT_GROUPS.forEach(function (group) {
+      var outcome = sit.verdict[group[0]];
+      if (!outcome) return;
+      if (outcome.error_code !== 0 && !failed) failed = outcome;
+      lines.push(group[1] + ': ' + outcomeText(outcome));
+    });
+    if (!lines.length) return null;
+    var badge = document.createElement('span');
+    badge.className = 'verdict-badge ' + (failed ? 'bad' : 'ok');
+    badge.textContent = failed ? '✗ ' + failed.code_name.split('_')[0].toLowerCase() : '✓ pass';
+    badge.title = lines.join('\n');
+    return badge;
+  }
+
+  function buildVerdictDetails(parent, data) {
+    var judged = data.situations.filter(function (sit) { return sit.verdict; });
+    if (!judged.length) return;
+    var failing = judged.filter(function (sit) {
+      return VERDICT_GROUPS.some(function (group) {
+        return sit.verdict[group[0]] && sit.verdict[group[0]].error_code !== 0;
+      });
+    }).length;
+    var details = el('details', 'tc-verdicts', parent);
+    el('summary', '', details, 'Verdicts (ROS 2 tolerances) — ' + (judged.length - failing) + ' of ' +
+      judged.length + ' pass; first violation, margins and anything unchecked');
+    var scroll = el('div', 'tc-table-scroll', details);
+    var table = el('table', 'tc-metrics', scroll);
+    var headRow = el('tr', '', el('thead', '', table));
+    ['Run', 'Frame', 'Verdict', 'First violation per limit', 'Tightest margin', 'Unchecked']
+      .forEach(function (name) { el('th', '', headRow, name); });
+    var body = el('tbody', '', table);
+    judged.forEach(function (sit) {
+      VERDICT_GROUPS.forEach(function (group) {
+        var outcome = sit.verdict[group[0]];
+        if (!outcome) return;
+        var tr = el('tr', '', body);
+        el('th', '', tr, sit.title);
+        el('td', '', tr, group[1]);
+        el('td', 'verdict ' + (outcome.error_code === 0 ? 'ok' : 'bad'), tr, outcome.code_name);
+        var cell = el('td', 'wrap', tr);
+        if (outcome.violations.length) {
+          outcome.violations.forEach(function (violation) {
+            el('div', '', cell, violation.phase + ' · ' + violationText(violation));
+          });
+        } else {
+          cell.textContent = '—';
+        }
+        var keys = Object.keys(outcome.margins || {});
+        var tight = null;
+        keys.forEach(function (key) {
+          if (tight === null || outcome.margins[key] < outcome.margins[tight]) tight = key;
+        });
+        el('td', '', tr, tight === null ? '—' :
+          tight + ' ' + (outcome.margins[tight] < 0 ? '−' : '+') + formatLimit(tight.split('/').slice(1).join('/'), outcome.margins[tight]));
+        el('td', 'wrap', tr, (outcome.unchecked && outcome.unchecked.length) ? outcome.unchecked.join('; ') : '—');
+      });
+    });
+  }
+
+  function significant(value) {
+    return String(Number(value.toPrecision(3)));
+  }
+
+  function buildAggregateCards(page, parent, data) {
+    var groups = Object.keys(data.aggregates || {});
+    if (!groups.length) return;
+    var host = el('div', 'tc-aggregates', parent);
+    groups.forEach(function (group) {
+      var info = data.aggregates[group];
+      var card = el('section', 'tc-aggregate', host);
+      el('h3', '', card, 'Accuracy vs repeatability (ISO 9283) — ' + group);
+      el('p', 'tc-table-desc', card,
+        info.runs.length + ' runs (' + info.titles.join(', ') + ') against ' + referenceTitle(data) + '. ' +
+        'AT: how far the average of the runs sits from the reference — a systematic bias a feed-forward could remove. ' +
+        'RT: how widely the runs scatter around their own average (mean + 3σ of the distance to it) — only a better ' +
+        'controller or a steadier plant reduces it.');
+      var scroll = el('div', 'tc-table-scroll', card);
+      var table = el('table', 'tc-metrics', scroll);
+      var headRow = el('tr', '', el('thead', '', table));
+      ['', 'AT — accuracy (max |reference − mean|)', 'RT — repeatability (max of mean + 3σ)']
+        .forEach(function (name) { el('th', '', headRow, name); });
+      var body = el('tbody', '', table);
+      var rows = [];
+      if (info.joint) {
+        data.joint_names.forEach(function (jointName) {
+          var key = 'positions/' + jointName;
+          var accuracy = info.joint.accuracy[key], spread = info.joint.repeatability[key];
+          if (accuracy && spread) rows.push({ label: jointName, kind: 'angle', at: accuracy.max_abs, rt: spread.max });
+        });
+      }
+      if (info.tcp && info.tcp.accuracy.position && info.tcp.repeatability.position) {
+        rows.push({ label: frameName(page) + ' position', kind: 'mm',
+                    at: info.tcp.accuracy.position.max_abs, rt: info.tcp.repeatability.position.max });
+      }
+      function show(row, value) {
+        if (value === null || value === undefined) return '—';
+        if (row.kind === 'mm') return significant(value * 1000) + ' mm';
+        return state.unit === 'deg' ? significant(value * RAD2DEG) + '°' : significant(value) + ' rad';
+      }
+      function paint() {
+        body.innerHTML = '';
+        rows.forEach(function (row) {
+          var tr = el('tr', '', body);
+          el('th', '', tr, row.label);
+          el('td', '', tr, show(row, row.at));
+          el('td', '', tr, show(row, row.rt));
+        });
+      }
+      paint();
+      page.unitRepaints.push(paint);
+    });
+  }
+
   function buildPage(page) {
     var data = page.data;
     var root = page.el;
@@ -1204,6 +1362,9 @@ var TrajCompare = (function () {
     if (data.description) el('p', 'tc-desc', root, data.description);
     if (data.rerun) buildRerunBar(root, data.rerun);
     if (data.statistics) buildTable(root, data.statistics, true);
+    page.unitRepaints = [];
+    buildVerdictDetails(root, data);
+    buildAggregateCards(page, root, data);
 
     var summary = data.meta && data.meta.summary;
     if (summary) {
@@ -1273,6 +1434,8 @@ var TrajCompare = (function () {
         swatch.style.background = sit.color;
         swatch.style.color = sit.color;
         chip.appendChild(document.createTextNode(sit.title));
+        var badge = verdictBadge(sit);
+        if (badge) chip.appendChild(badge);
 
         function apply(show, remember) {
           page.visible[sit.name] = show;
@@ -1326,6 +1489,7 @@ var TrajCompare = (function () {
     function paintUnits() {
       degChip.className = 'chip ' + (state.unit === 'deg' ? 'on' : 'off');
       radChip.className = 'chip ' + (state.unit === 'rad' ? 'on' : 'off');
+      page.unitRepaints.forEach(function (repaint) { repaint(); });
     }
     function setUnit(unit) {
       if (state.unit === unit) return;

@@ -282,3 +282,23 @@ footer.tc { padding: 10px 22px 26px; color: #8a8983; font-size: 11.5px; }
 .tc-ovl-ctl input[type="range"] { width: 150px; accent-color: #2a78d6; }
 .tc-ovl-ctl select { border: 1px solid #cfcec8; background: #fcfcfb; border-radius: 5px;
                      padding: 2px 6px; font-size: 12px; color: #22211f; }
+
+/* verdicts: green when SUCCESSFUL, red only for a violated tolerance */
+table.tc-metrics td.verdict.ok { color: #2a7a3c; }
+table.tc-metrics td.verdict.bad { color: #a4372a; background: #fbeeed; }
+table.tc-metrics td.wrap { white-space: normal; text-align: left; min-width: 220px; }
+.verdict-badge { font-size: 10.5px; line-height: 1; padding: 2px 5px; border-radius: 4px;
+                 font-variant-numeric: tabular-nums; }
+.verdict-badge.ok { color: #2a7a3c; background: #eef8f1; }
+.verdict-badge.bad { color: #a4372a; background: #fbeeed; }
+.tc-verdicts { background: #fcfcfb; border: 1px solid #dddcd6; border-radius: 8px;
+               padding: 8px 12px; margin: 0 0 12px; }
+.tc-verdicts summary { cursor: pointer; font-size: 12.5px; color: #52514e; }
+.tc-verdicts[open] summary { margin-bottom: 8px; }
+.tc-aggregates { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
+                 gap: 12px; margin: 0 0 12px; }
+.tc-aggregate { background: #fcfcfb; border: 1px solid #dddcd6; border-radius: 8px;
+                padding: 10px 12px; }
+.tc-aggregate h3 { font-size: 13.5px; margin: 0 0 6px; color: #22211f; }
+.tc-aggregate table.tc-metrics { min-width: 0; }
+.tc-verdicts table.tc-metrics th, .tc-verdicts table.tc-metrics td { text-align: left; }

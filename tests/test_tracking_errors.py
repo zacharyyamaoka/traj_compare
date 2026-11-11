@@ -142,7 +142,10 @@ def test_error_metrics_carry_every_error_stat_per_metric():
         "x", "y", "z", "rx", "ry", "rz",
         "coverage", "dropped", "time_offset_s",
     }  # fmt: skip
-    stat_fields = {"n", "rms", "mean", "median", "std", "min", "max", "max_abs", "p95_abs", "final"}
+    stat_fields = {
+        "n", "rms", "mean", "median", "std", "min", "max", "max_abs", "p95_abs", "final",
+        "iae", "ise", "itae",
+    }  # fmt: skip
     for summary in (metrics["position"], metrics["rotation"], metrics["x"], metrics["positions/j"]):
         assert set(summary) == stat_fields
     assert (metrics["coverage"], metrics["dropped"], metrics["time_offset_s"]) == (1.0, 0, 0.0)
