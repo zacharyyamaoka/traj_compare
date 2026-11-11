@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>traj_compare docs</title>
+<meta name="description" content="How robot_msgs.compare and traj_compare compare a trajectory against a reference: the rules, every metric, verdicts, ISO 9283, latency, the viewers and the prior art."/>
+<style>{{css}}</style>
+</head>
+<body>
+<header class="topbar"><div class="topbar-inner">
+  <a class="wordmark" href="index.html"><span class="dot"></span>traj_compare <small>· robot_msgs.compare</small></a>
+  <nav class="topnav">
+    <a href="docs.html" class="active">Docs</a>
+    <a href="index.html#examples">Examples</a>
+    <a href="#rerun">Rerun</a>
+    <a href="#prior-art">Prior art</a>
+  </nav>
+</div></header>
+
+<div class="docs">
+<aside class="sidebar" aria-label="Contents">
+  <h4>Start</h4>
+  <ul class="toc">
+    <li><a href="#how-it-works">How it works</a></li>
+    <li><a href="#rules">The rules</a></li>
+    <li><a href="#pairings">Target, sim and real</a></li>
+    <li><a href="#cartesian">Cartesian: one pose per point</a></li>
+    <li><a href="#conveyor">The conveyor frame</a></li>
+  </ul>
+  <h4>Reference</h4>
+  <ul class="toc">
+    <li><a href="#metrics">Metrics</a></li>
+    <li><a href="#error-stats">ErrorStats</a></li>
+    <li><a href="#verdicts">Verdicts</a></li>
+    <li><a href="#online">Online and offline</a></li>
+    <li><a href="#iso-9283">Across N runs (ISO 9283)</a></li>
+    <li><a href="#latency">Latency</a></li>
+    <li><a href="#goal">Goal, settling, overshoot</a></li>
+    <li><a href="#drift">Drift</a></li>
+    <li><a href="#frechet">Shape: Fréchet</a></li>
+    <li><a href="#integrals">Integrals</a></li>
+  </ul>
+  <h4>Viewers</h4>
+  <ul class="toc">
+    <li><a href="#report">The HTML report</a></li>
+    <li><a href="#rerun">Rerun</a></li>
+    <li><a href="#install">Install and run</a></li>
+  </ul>
+  <h4>Background</h4>
+  <ul class="toc">
+    <li><a href="#prior-art">Prior art</a></li>
+    <li><a href="#sources">Sources</a></li>
+  </ul>
+</aside>
+<div class="gutter" title="drag to resize · double-click to reset" aria-hidden="true"></div>
+
+<article class="content">
+  <h1>traj_compare documentation</h1>
+  <p class="lede">How a trajectory is measured against a reference, what every number means, and how to look at it.</p>
+
+  <details class="mobile-toc"><summary>Contents</summary>
+    <ul class="toc">
+      <li><a href="#how-it-works">How it works</a></li><li><a href="#rules">The rules</a></li>
+      <li><a href="#pairings">Target, sim and real</a></li><li><a href="#cartesian">Cartesian</a></li>
+      <li><a href="#conveyor">The conveyor frame</a></li><li><a href="#metrics">Metrics</a></li>
+      <li><a href="#error-stats">ErrorStats</a></li><li><a href="#verdicts">Verdicts</a></li>
+      <li><a href="#online">Online and offline</a></li><li><a href="#iso-9283">ISO 9283</a></li>
+      <li><a href="#latency">Latency</a></li><li><a href="#goal">Goal, settling</a></li>
+      <li><a href="#drift">Drift</a></li><li><a href="#frechet">Fréchet</a></li><li><a href="#integrals">Integrals</a></li>
+      <li><a href="#report">The HTML report</a></li><li><a href="#rerun">Rerun</a></li>
+      <li><a href="#install">Install and run</a></li><li><a href="#prior-art">Prior art</a></li><li><a href="#sources">Sources</a></li>
+    </ul>
+  </details>
+
+  <div class="verdict">
+    <p><strong>Pick a pair and call <code>compare(reference, measured)</code>.</strong> You get the error as a trajectory of the same type, <code>reference − measured</code> on the measured run's own samples, an <code>ErrorStats</code> per joint, axis and channel, and a record of how the two clocks were lined up. <code>check</code> turns that into a ROS 2 verdict; <code>traj_compare</code> draws it as an offline report and a Rerun file.</p>
+  </div>
+
+  <!-- ─────────────────────────────────────────────────────────────── -->
+  <h2 id="how-it-works">How it works<a class="anchor" href="#how-it-works">#</a></h2>
+  <p>Two packages, split at one line: the maths in a library you can call from anywhere, the pictures in a viewer that only reads its results.</p>
+  <ul>
+    <li><strong><code>robot_msgs.compare</code> is the library.</strong> Pure numpy, like the rest of robot_msgs, so it runs in a notebook, a test or a controller loop. One generic function dispatched on the trajectory type, plus a one-line method: <code>target.compare(real)</code> is <code>compare(target, real)</code>.[[n:code_design]]</li>
+    <li><strong><code>traj_compare</code> is the viewer.</strong> You hand it runs as arrays (<code>Situation</code>: <code>t</code>, <code>q</code>, <code>qd</code>, <code>qdd</code>, <code>tau</code>, <code>current</code>, <code>poses</code>, <code>video</code>) and an <code>fk</code>. It calls robot_msgs.compare for every error and statistic and never computes one itself, then writes <code>report.html</code> and, with <code>rerun=True</code>, one <code>.rrd</code> per page.[[n:code_viewer]]</li>
+  </ul>
+  <figure class="diagram">{{svg_flow}}<figcaption>Runs go through <code>compare</code> one pair at a time. The verdict, ISO 9283 and latency functions take the same pair. The viewers only read the results, so the report, the <code>.rrd</code> and your own script see the same numbers.</figcaption></figure>
+  <p>What <code>compare</code> returns, <code>robot_msgs.compare.Comparison</code>:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Field</th><th>What it holds</th></tr></thead>
+    <tbody>
+      <tr><td><code>error</code></td><td>A trajectory of the <em>same type</em> as the inputs (<code>JointTrajectory</code> or <code>PoseTrajectory</code>), <code>reference − measured</code>, on the measured run's samples inside the reference. A pose error also carries channels: <code>rotation_vector</code>, <code>rotation_angle</code>, <code>lag</code>, <code>cross_track</code>, <code>contour</code>, <code>lag_time</code>.</td></tr>
+      <tr><td><code>metrics</code></td><td>Stable name → <code>ErrorStats</code> (<a href="#metrics">metric names</a>, <a href="#error-stats">fields</a>). <code>rows()</code> gives them as tidy rows for a table.</td></tr>
+      <tr><td><code>time_offset_s</code></td><td>The offset applied to the measured clock: how late it runs.</td></tr>
+      <tr><td><code>dropped</code></td><td>Measured samples outside the reference's span, so not compared.</td></tr>
+      <tr><td><code>coverage</code></td><td>Fraction of the reference's duration the measured run covers.</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">Same word, two objects. <code>robot_msgs.compare.Comparison</code> is the <em>result</em> above. <code>traj_compare.Comparison</code> is the <em>page you hand the viewer</em>: a reference (its <code>target</code> field), the runs to overlay, an <code>fk</code> and display options.</p>
+
+  <!-- ─────────────────────────────────────────────────────────────── -->
+  <h2 id="rules">The rules<a class="anchor" href="#rules">#</a></h2>
+  <p>Each rule is in the code; each has a reason.</p>
+  <ol class="rules">
+    <li><strong>error = reference − measured.</strong><p class="why">It is the ROS 2 <code>JointTrajectoryControllerState</code> convention, and the controller computes it the same way.[[n:jtc_state,jtc_cpp]] A positive error is the correction still to apply, and a positive <code>lag</code> means the run is behind.</p></li>
+    <li><strong>Errors are taken on the measured run's own samples.</strong><p class="why">Never on a shared resampled grid: a 1 kHz joint's ringing disappears on a 100 Hz grid. The reference is interpolated at the measured instants, which is safe because a commanded reference is dense.[[n:code_align]]</p></li>
+    <li><strong>Never extrapolate.</strong> Measured samples outside the reference are dropped and counted (<code>dropped</code>), and <code>coverage</code> says how much of the reference was measured.<p class="why">An error against a frozen last value is invented, not observed. And without <code>coverage</code>, a run covering 60 % and one covering 100 % report RMS over different windows with no warning.[[n:code_align,matlab_sdi]]</p></li>
+    <li><strong>One clock; latency is explicit.</strong> Both runs sit on <code>header.stamp + t</code>. A known latency is <code>time_offset_s</code> (how late the measured clock runs), passed by you, never guessed.<p class="why">An offset applied silently is a decision hidden inside a number. <a href="#latency"><code>estimate_time_offset</code></a> measures it; you decide to apply it.</p></li>
+    <li><strong>Same type in, same type out.</strong><p class="why">The error of two <code>JointTrajectory</code>s is a <code>JointTrajectory</code>, so every plot, resampler, slicer and serialiser already works on it. No parallel “error” schema.[[n:code_design]]</p></li>
+    <li><strong>Pairwise on purpose.</strong> N runs is a loop. N repeats of one reference is <a href="#iso-9283"><code>aggregate</code></a>. Sim → real has no target.<p class="why">Every SLAM evaluator keeps compare pairwise.[[n:evo,rpg,evalio]] Widening it would hide which run was the reference.</p></li>
+    <li><strong>Cartesian is built outside.</strong> Make a <code>PoseTrajectory</code> per point you care about with your FK, name it in <code>child_frame_id</code>, and compare those: <code>PoseTrajectory.from_matrices(t, fk(q), child_frame_id="TCP")</code>.<p class="why">The right point differs per robot (a 6-DOF TCP, a five-bar's L2 tip or coupler point), and the library owns no kinematics.</p></li>
+    <li><strong>Every decision travels with the numbers.</strong><p class="why"><code>time_offset_s</code>, <code>dropped</code> and <code>coverage</code> sit beside <code>error</code> and <code>metrics</code>, and a <code>Comparison</code> round-trips through JSON / npz like any message. A number separated from how it was made cannot be checked later.[[n:code_design]]</p></li>
+    <li><strong>Metric names are stable strings.</strong><p class="why"><code>positions/&lt;joint&gt;</code>, <code>position</code>, <code>lag</code>, <code>channels/&lt;name&gt;</code>…: adding a metric never changes a type.</p></li>
+  </ol>
+
+  <!-- ─────────────────────────────────────────────────────────────── -->
+  <h2 id="pairings">Target → sim, target → real, sim → real<a class="anchor" href="#pairings">#</a></h2>
+  <p>Three questions, three pairs. The reference is whichever run you trust for the question; the error always reads <em>reference − measured</em>.</p>
+  <figure class="diagram" style="max-width:560px">{{svg_pairings}}</figure>
+  <ul>
+    <li><strong>Target → sim</strong>: is the controller good enough in sim? Tune here first.</li>
+    <li><strong>Target → real</strong>: does the robot do what we commanded? This is the one a <a href="#verdicts">verdict</a> gates.</li>
+    <li><strong>Sim → real</strong>: is the sim a faithful twin? No target involved: sim is the reference. If this error is small, results in sim transfer.</li>
+  </ul>
+  <h3>With the library</h3>
+  {{snippet_pairings}}
+  <p>The real run here starts 0.2 s late and stops 0.3 s after the plan: <code>coverage</code> and <code>dropped</code> say so instead of the RMS quietly covering a shorter window.</p>
+  <h3>As report pages</h3>
+  <p>In the viewer each pair is one page. A page's <code>target</code> is just its reference, so the sim → real page passes the sim run there; the report then labels every error “Sim − run”.</p>
+  {{snippet_pages}}
+  <h3>The UR5e example</h3>
+  {{ur_code}}
+
+  <!-- ─────────────────────────────────────────────────────────────── -->
+  <h2 id="cartesian">Cartesian: one pose per point<a class="anchor" href="#cartesian">#</a></h2>
+  <p>Joint error says which motor; Cartesian error says what the tool did. Build a <code>PoseTrajectory</code> for each point you care about and compare those.</p>
+  {{snippet_cartesian}}
+  <p>Two ways to split the position error against a moving reference, both reported:</p>
+  <ul>
+    <li><strong>Tangent split</strong> (<code>lag</code>, <code>cross_track</code>): the error projected on the reference's direction of travel at the same instant. No search, exact on straight segments; on a curve it leaks some lag into cross-track. This is the lag / contour linearisation of model predictive contouring control.[[n:code_difference]]</li>
+    <li><strong>Nearest point</strong> (<code>contour</code>, <code>lag_time</code>): the exact distance to the reference path, and how many seconds behind that nearest point the run is. Searched only within ±<code>contour_window_s</code> (0.25 s) of the sample's reference time, so a route that retraces itself cannot snap to its other pass.[[n:cnc_fiveaxis,cnc_thesis]]</li>
+  </ul>
+  <figure class="diagram">{{svg_tracking}}<figcaption>Drawn to scale from the definitions. On this curve <code>cross_track</code> is longer than <code>contour</code>: the tangent split charges part of the lag as being off the path. On a straight segment the two agree.</figcaption></figure>
+  <p>Rotation errors are a world-frame rotation vector of <code>q_ref · q_meas⁻¹</code>, so <code>rx</code> / <code>ry</code> / <code>rz</code> are about the fixed axes. They are never a difference of Euler angles, which couple and jump at gimbal lock.</p>
+
+  <!-- ─────────────────────────────────────────────────────────────── -->
+  <h2 id="conveyor">The conveyor frame<a class="anchor" href="#conveyor">#</a></h2>
+  <p>A belt pick cares about errors along and across the belt, and whether the tool holds belt speed. Two options on the page say which directions matter.</p>
+  <figure class="diagram">{{svg_conveyor}}<figcaption>Top view, belt at 20° to world x so the two frames differ. The error vector is the same; only the axes it is read on change.</figcaption></figure>
+  <ul>
+    <li><strong><code>vec_dirs=[("Conveyor", direction)]</code></strong> adds Path-progress channels <code>Vec[Conveyor]</code>: signed progress, speed (<code>_d</code>) and acceleration along that direction. Belt-speed matching reads straight off <code>Vec[Conveyor]_d</code>: on the track segment it must sit flat at belt speed (0.35 m/s in the UR5e example). A plateau at the wrong height means the tool slips against the part; a sloped one means it is still accelerating.</li>
+    <li><strong><code>error_axes=[("along belt", b), ("across belt", b × up), ("up", up)]</code></strong> projects the TCP position error (reference − run) on each direction, as extra TCP-error plots in mm and as <code>/error/axes/…</code> in Rerun. With the belt along world +y, “along belt” equals the world y error exactly; the viewer's test pins that to 1e-12.[[n:code_wave2_test]]</li>
+  </ul>
+  {{snippet_conveyor}}
+
+  <!-- ─────────────────────────────────────────────────────────────── -->
+  <h2 id="metrics">Metrics<a class="anchor" href="#metrics">#</a></h2>
+  <p>Every metric is a stable string key in <code>Comparison.metrics</code>, valued an <a href="#error-stats"><code>ErrorStats</code></a>, in SI units. Which ones appear depends on the input type and on what both runs carry.[[n:code_metrics]]</p>
+  {{metrics_table}}
+
+  <h3 id="error-stats">ErrorStats<a class="anchor" href="#error-stats">#</a></h3>
+  <p>The summary of one error signal, in its own unit. It is evo's statistic set plus what tracking needs on top: the worst magnitude, a p95 that ignores one glitch, the final error and the control-loop integrals.[[n:evo,sproclib]]</p>
+  {{error_stats_table}}
+
+  <!-- ─────────────────────────────────────────────────────────────── -->
+  <h2 id="verdicts">Verdicts<a class="anchor" href="#verdicts">#</a></h2>
+  <p><code>check(reference, measured, tolerances)</code> judges a recorded run the way ROS 2's <code>joint_trajectory_controller</code> judges a live one, in its vocabulary, and returns an <code>Outcome</code> with a <code>FollowJointTrajectory</code> result code.[[n:fjt_action,joint_tolerance,jtc_docs,code_tolerances]]</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Here</th><th>ROS 2</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>Tolerances.path</code></td><td>goal <code>path_tolerance</code> · JTC <code>constraints.&lt;joint&gt;.trajectory</code></td><td>Limits at every sample while the reference runs. The first breach ends the check, as JTC aborts the goal.</td></tr>
+      <tr><td><code>Tolerances.goal</code></td><td>goal <code>goal_tolerance</code> · JTC <code>constraints.&lt;joint&gt;.goal</code></td><td>Limits once the reference has ended, judged against its final point held.</td></tr>
+      <tr><td><code>goal_time_tolerance</code></td><td>goal <code>goal_time_tolerance</code> · JTC <code>constraints.goal_time</code></td><td>Seconds after the end to meet the goal. <strong>0 here means “as long as the data lasts”</strong>; JTC's parameter defaults to 10 s and reads 0 as no grace period.[[n:jtc_params]] Pass the controller's value.</td></tr>
+      <tr><td><code>stopped_velocity_tolerance</code></td><td>JTC <code>constraints.stopped_velocity_tolerance</code></td><td>Default goal limit on every joint's |velocity| (0.01, as in JTC), used when <code>goal</code> has a limit and the joint sets no velocity of its own.</td></tr>
+      <tr><td><code>JointTolerance(name, position, velocity, acceleration)</code></td><td><code>control_msgs/JointTolerance</code></td><td>Above 0 is a limit on |reference − measured|. 0 or −1 means not checked (ROS: 0 = server default, −1 = none; here a <code>Tolerances</code> already is the default set).</td></tr>
+      <tr><td><code>PoseTolerance(position, rotation)</code></td><td>— (ours)</td><td>Magnitude limits for a <code>PoseTrajectory</code>, m and rad.</td></tr>
+      <tr><td><code>Outcome.error_code</code></td><td>result <code>error_code</code></td><td><code>SUCCESSFUL</code> {{code_successful}}, <code>PATH_TOLERANCE_VIOLATED</code> {{code_path}}, <code>GOAL_TOLERANCE_VIOLATED</code> {{code_goal}}.</td></tr>
+    </tbody>
+  </table></div>
+  <p>Two phases, one boundary:</p>
+  <ul>
+    <li><strong>Path</strong>: measured samples inside the reference, before its end.</li>
+    <li><strong>Goal</strong>: from the reference's end on (inclusive), within <code>goal_time_tolerance</code> if it is set, against the final point held. That is the controller's own convention, and the only place a held reference is used; it never feeds a path statistic.</li>
+  </ul>
+  <p>The <code>Outcome</code> says why, not just whether:</p>
+  <ul>
+    <li><code>violations</code>: the first breach per (phase, metric), by time: <code>phase</code>, <code>metric</code>, <code>t</code>, signed <code>error</code>, <code>limit</code>.</li>
+    <li><code>margins</code>: <code>path/&lt;metric&gt;</code> = limit − worst |error|; <code>goal/&lt;metric&gt;</code> = limit − |error| where the goal was decided. Negative = violated by that much.</li>
+    <li><code>goal_time</code>: seconds after the end at which the goal was met (NaN if not).</li>
+    <li><code>unchecked</code>: defaults the data could not support, such as a stopped-velocity check on a run without velocities. Never a silent pass. A limit you set explicitly with no data to check it raises instead.</li>
+    <li>A run that ends before the goal is observed is <code>GOAL_TOLERANCE_VIOLATED</code>, never a pass.</li>
+  </ul>
+  {{snippet_verdict_offline}}
+
+  <h3 id="online">Online and offline<a class="anchor" href="#online">#</a></h3>
+  <p>The same rule runs inside a controller loop, so the controller can stop the moment a tolerance breaks. <code>ToleranceMonitor.step(t, reference_point, measured_point)</code> returns <code>None</code> while undecided, then the <code>Outcome</code> on that tick and every later one.</p>
+  {{snippet_verdict_online}}
+  <p><code>check</code> and <code>ToleranceMonitor</code> share one per-sample function and one phase boundary, so the online verdict and the offline verdict on the same samples cannot disagree. The test suite mutates that boundary and both the online and offline tests go red.[[n:code_tolerances]]</p>
+  <p class="note">ROS's <code>joint_trajectory_controller</code> does its own checking with the same vocabulary.[[n:jtc_docs,jtc_params]] Given the same tolerances, an abort on the robot and the offline check of its recording report the same code; the one setting to align by hand is <code>goal_time</code>, whose zero means something different there.</p>
+
+  <!-- ─────────────────────────────────────────────────────────────── -->
+  <h2 id="iso-9283">Across N runs: accuracy vs repeatability<a class="anchor" href="#iso-9283">#</a></h2>
+  <p>Repeat a motion N times and the error has two parts with different cures. ISO 9283 separates them around the runs' barycentre.[[n:iso_hexagon,robodk,code_aggregate]]</p>
+  <figure class="diagram" style="max-width:680px">{{svg_iso}}<figcaption>Accuracy is where the average run lands; repeatability is how widely the runs scatter around their own average.</figcaption></figure>
+  <ul>
+    <li><strong>Accuracy</strong> (<code>result.accuracy</code>): <code>compare(reference, barycentre)</code>, a full <code>Comparison</code>. A bias; feed-forward or calibration can remove it.</li>
+    <li><strong>Repeatability</strong> (<code>result.repeatability</code>, <code>result.metrics</code>): per instant RP = l̄ + 3·S<sub>l</sub>, where l<sub>i</sub> is run i's distance to the barycentre and S<sub>l</sub> its sample standard deviation (ddof = 1). Joints: per joint. Poses: <code>position</code> and <code>rotation</code>. Only a better controller or a steadier plant shrinks it.</li>
+    <li>Every run is resampled onto the reference instants that <em>all</em> runs cover, never extrapolated; <code>coverage</code> says how much that is. Needs at least 2 runs; <code>time_offset_s</code> may be one per run.</li>
+  </ul>
+  {{snippet_aggregate}}
+  <p class="why">Not an average of per-sample errors across runs (evo's <code>merge_results</code>): per-sample errors only line up on identical timelines, and a mean of signed errors hides the spread.[[n:evo]]</p>
+  <p class="note">The standard is paywalled; the procedure details here come from secondary summaries.[[n:iso_hexagon,iso_sample,robodk]] In the report, <code>repeat_groups={"Real ×3": [...]}</code> adds an ISO 9283 card per group.</p>
+
+  <!-- ─────────────────────────────────────────────────────────────── -->
+  <h2 id="latency">Latency<a class="anchor" href="#latency">#</a></h2>
+  <p><code>estimate_time_offset(reference, measured)</code> measures how late the measured clock runs, from positions alone.[[n:code_timing,trajectopy,scipy_lags]]</p>
+  <ol>
+    <li><strong>Coarse</strong>: normalised cross-correlation of the two runs' velocities on a uniform grid at the reference's median step, lags within ±<code>max_offset_s</code> (0.25 s).</li>
+    <li><strong>Refine</strong>: golden-section search for the offset that minimises the position RMS, over the coarse lag ± 3 steps, to 1 µs.</li>
+  </ol>
+  <p>It returns <code>offset_s</code> (the sign of <code>time_offset_s</code>), <code>rms_before</code> and <code>rms_after</code>. If the RMS barely drops, timing was not the problem. Then feed it back, explicitly:</p>
+  {{snippet_latency}}
+  <p class="why">Velocities for the coarse step, because positions of a ramp or slow drift have no sharp correlation peak. Normalised over the overlap, because a motion between rests keeps the same correlation sum as the overlap shrinks, so a per-sample mean rewards the largest lag (a 10 ms delay once read as 88 ms).[[n:code_timing]]</p>
+  <p>In the report, <code>estimate_latency=True</code> adds an “Est. latency” column per run.</p>
+
+  <!-- ─────────────────────────────────────────────────────────────── -->
+  <h2 id="goal">Goal, settling, overshoot<a class="anchor" href="#goal">#</a></h2>
+  <p><code>goal(reference, measured, band=...)</code> looks at the samples at or after the reference's end, against its final point held (the same rule as the goal phase of a verdict), and returns a <code>GoalStats</code> per joint (<code>positions/&lt;joint&gt;</code>) or for a pose (<code>position</code>).[[n:stepinfo,python_control,code_goal]]</p>
+  <ul>
+    <li><code>final_error</code>: at the last measured sample.</li>
+    <li><code>settling_time</code>: seconds after the end from which |error| ≤ <code>band</code> holds for every later sample. NaN if it never settles, never “the end of the data”.</li>
+    <li><code>overshoot</code>, <code>overshoot_percent</code>: how far past the final value along the reference's net move, and as a percent of the move (MATLAB <code>stepinfo</code>'s convention).</li>
+    <li><code>band</code>: one number, or a mapping metric → band, in the signal's unit.</li>
+  </ul>
+  {{snippet_goal}}
+  <p>In the report, <code>goal_band</code> (rad) and <code>tcp_goal_band</code> (m) add the “Settling · overshoot” column.</p>
+
+  <!-- ─────────────────────────────────────────────────────────────── -->
+  <h2 id="drift">Drift: relative error over windows<a class="anchor" href="#drift">#</a></h2>
+  <p><code>relative_error(reference, measured, delta=..., unit="s" | "m")</code> is evo's relative pose error: for each sample i and the first sample j at least <code>delta</code> later (seconds, or metres of the reference's path), E<sub>ij</sub> = (Q<sub>i</sub>⁻¹Q<sub>j</sub>)⁻¹(P<sub>i</sub>⁻¹P<sub>j</sub>), the motion the run gained beyond the reference's own. A constant offset cancels; a drift does not. Keys: <code>relative/&lt;delta&gt;&lt;unit&gt;/position</code> and <code>…/rotation</code>.[[n:evo,tum,kitti,evalio,code_goal]]</p>
+  {{snippet_drift}}
+  <p>Mostly for long conveyor tracking, where a slow creep along the belt hides under a large constant offset.</p>
+
+  <!-- ─────────────────────────────────────────────────────────────── -->
+  <h2 id="frechet">Shape without time: Fréchet<a class="anchor" href="#frechet">#</a></h2>
+  <p><code>frechet(reference, measured)</code> is the discrete Fréchet distance between the two position curves (or joint-position vectors, matched by name): how far apart the paths are as shapes, whatever the timing. No alignment, no offset; orientation is not included. A run on the right path at the wrong speed scores near 0 here and badly in <code>compare</code>.[[n:eiter,shapely,similaritymeasures,code_goal]]</p>
+  {{snippet_frechet}}
+
+  <!-- ─────────────────────────────────────────────────────────────── -->
+  <h2 id="integrals">Integrals: IAE, ISE, ITAE<a class="anchor" href="#integrals">#</a></h2>
+  <p>Every <code>ErrorStats</code> carries the control-loop integral criteria, by the trapezoid rule over intervals observed at both ends:[[n:sproclib,code_metrics]]</p>
+  <ul>
+    <li><code>iae</code> = ∫|e| dt: total error, robust.</li>
+    <li><code>ise</code> = ∫e² dt: punishes large errors.</li>
+    <li><code>itae</code> = ∫(t − t₀)|e| dt: punishes errors that persist late; the one to watch for slow settling.</li>
+  </ul>
+  <p>They are NaN when a series has no time axis, so data saved before these fields existed still loads.</p>
+
+  <!-- ─────────────────────────────────────────────────────────────── -->
+  <h2 id="report">The HTML report<a class="anchor" href="#report">#</a></h2>
+  <p><code>write_comparison_report(pages, out_dir)</code> writes one self-contained <code>report.html</code>: the data as one JSON block, uPlot and three.js inlined, no server, no CDN, no install at view time. Open it from disk and keep it beside the run it describes.[[n:code_viewer]]</p>
+  {{snippet_report_full}}
+  <div class="shots">
+    {{shot_overview}}
+    {{shot_tcp}}
+    {{shot_3d}}
+    {{shot_iso}}
+    {{shot_sim_real}}
+    {{shot_videos}}
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Section</th><th>What it shows</th></tr></thead>
+    <tbody>
+      <tr><td>Statistics</td><td>Mean and worst joint RMS, TCP position and rotation RMS, max · final, cross-track · lag RMS. With the options on: Verdict (joints), Verdict (TCP), Est. latency, Settling · overshoot.</td></tr>
+      <tr><td>Verdicts</td><td>Per run and frame: the code, the first violation per limit, the tightest margin, anything unchecked.</td></tr>
+      <tr><td>ISO 9283</td><td>Per repeat group: accuracy (max |reference − mean|) and repeatability (max of mean + 3σ), per joint and for the TCP.</td></tr>
+      <tr><td>Joint q / qd / qdd / τ / i</td><td>Per joint, every run overlaid on the reference; i is motor current, when a run has it.</td></tr>
+      <tr><td>Joint error</td><td>Per joint, reference − run.</td></tr>
+      <tr><td>TCP pose</td><td>x, y, z and rx, ry, rz of the named <code>tcp_frame</code>.</td></tr>
+      <tr><td>TCP error</td><td>|Δp| and rotation; lag (+ = behind) and cross-track; contour and lag time; per-axis x / y / z and rx / ry / rz; the error along each <code>error_axes</code> direction.</td></tr>
+      <tr><td>Path progress</td><td>% of the reference path, arc length, accumulated rotation, and <code>Vec[label]</code> along each <code>vec_dirs</code> direction.</td></tr>
+      <tr><td>Camera</td><td>A real video with a sim render on top: Real ◀ ▶ Sim opacity, Mix / Difference blend, 2 Hz flicker.</td></tr>
+      <tr><td>Videos</td><td>One per run, always played and seeked together.</td></tr>
+      <tr><td>3D paths</td><td>Paths, points, pose frames, z vectors, arrows to where the run should have been, z-rotation arcs, and the robot posed in each run's colour; a view cube for axis views.</td></tr>
+    </tbody>
+  </table></div>
+  <ul>
+    <li><strong>Units</strong>: arrays are SI; angles show in degrees by default, one toggle for rad. Unit conversion is a viewer concern, never a storage one.</li>
+    <li><strong>One clock per page</strong>: hover a plot to preview that instant in 3D; the scrubber's play / step buttons commit a time that moves the cursor on every plot, the 3D truncation and robot pose, and every video.</li>
+    <li><strong>Layout is report-wide</strong>: pick which sections, runs and 3D elements are on once, and every page you switch to shows the same.</li>
+    <li><strong>Missing data stays visible</strong>: a run declared without data keeps its legend slot as “no data — note”, so a sim → real report still builds when real was not run.</li>
+  </ul>
+
+  <!-- ─────────────────────────────────────────────────────────────── -->
+  <h2 id="rerun">Rerun<a class="anchor" href="#rerun">#</a></h2>
+  <p>With <code>rerun=True</code> every page is also written as <code>rerun/&lt;page name&gt;.rrd</code> beside the report: the same payload, a second projection. Application id <code>traj_compare</code>, timeline <code>t</code> in seconds from the reference's first sample, and the layout embedded in the file with <code>default_blueprint</code>, so there is no separate blueprint to ship.[[n:code_viewer,rerun_sinks]]</p>
+  {{shot_rerun}}
+  <div class="codeblock labelled"><div class="label">Entity layout</div><button class="copy" type="button">Copy</button><pre><code>/world/&lt;run&gt;/robot/&lt;link&gt;        static Mesh3D + per-time Transform3D
+/world/&lt;run&gt;/tcp                 the path (LineStrips3D) + a marker at t
+/position|velocity|torque/&lt;joint&gt;/&lt;run&gt;
+/error/joint/&lt;joint&gt;/&lt;run&gt;       reference − run, rad
+/error/tool/&lt;channel&gt;/&lt;run&gt;      position_mm  rotation_mrad  x_mm y_mm z_mm  lag_mm
+                                 cross_track_mm  contour_mm  lag_time_ms (+ behind)
+/error/axes/&lt;label&gt;_mm/&lt;run&gt;     the position error on each error_axes direction
+/vec/&lt;label&gt;/&lt;run&gt;               signed speed along each vec_dirs direction
+/video/&lt;run&gt;                     AssetVideo + frame references (MP4)
+/notes                           statistics, verdicts, latency, goal and ISO 9283, as markdown</code></pre></div>
+  <p>The embedded layout puts the statistics (<code>/notes</code>) on the left; on the right the 3D view, a grid of error plots, tabs for position, velocity, torque and <code>Vec</code> speeds, and the videos. Runs are the last path part, so each plot overlays them.</p>
+  <h3>The version pin</h3>
+  <p>An <code>.rrd</code> must be opened by a viewer at least as new as the SDK that wrote it; a newer viewer migrates older files, the reverse is not promised.[[n:rerun_rrd,rerun_embed]] So one pin, <code>RERUN_SDK_VERSION = "{{sdk}}"</code>, writes the file and names the viewer in every command: <code>uvx --from rerun-sdk=={{sdk}} rerun &lt;abs path&gt;</code>.[[n:rerun_release]]</p>
+  <h3>Three ways to open it</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Opened from</th><th>Open in Rerun</th><th>Also</th></tr></thead>
+    <tbody>
+      <tr><td><code>python -m traj_compare.serve &lt;dir&gt;</code> (port 8767)</td><td>POSTs <code>/__rerun/open?rrd=&lt;path&gt;</code>; the server starts the pinned native viewer on that file</td><td>“Rerun in browser”: app.rerun.io fetches the <code>.rrd</code> from this server</td></tr>
+      <tr><td><code>file://</code> or any static server</td><td>Copies the <code>uvx</code> command (a page cannot start a process)</td><td>“Copy command”, “Download .rrd”</td></tr>
+    </tbody>
+  </table></div>
+  {{docs_rerun}}
+  <p>The launcher is narrow on purpose: it opens only <code>.rrd</code> files inside the folder it serves, refuses absolute paths and cross-origin POSTs, and sends the CORS and private-network headers app.rerun.io needs to read a localhost file.[[n:code_viewer]] Video goes in as MP4 (H.264 or AV1, decoded by the browser's WebCodecs).[[n:rerun_video]]</p>
+
+  <!-- ─────────────────────────────────────────────────────────────── -->
+  <h2 id="install">Install and run<a class="anchor" href="#install">#</a></h2>
+  <p>Runtime dependencies: numpy and robot_msgs (itself numpy-only). The Rerun SDK is an extra, imported only when you ask for <code>rerun=True</code>; scipy appears only in the test extra, as the rotation oracle.[[n:code_viewer]]</p>
+  <div class="codeblock labelled"><div class="label">Run the tests</div><button class="copy" type="button">Copy</button><pre><code>uv run --directory ~/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_compare --extra test --extra rerun python -m pytest -q</code></pre></div>
+  <div class="codeblock labelled"><div class="label">Write a report with its Rerun files</div><button class="copy" type="button">Copy</button><pre><code>uv run --directory ~/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_compare --extra rerun python examples/tracking_errors_demo.py --out /tmp/tracking_errors_demo --rerun</code></pre></div>
+  <div class="codeblock labelled"><div class="label">Serve it so Open in Rerun launches the viewer</div><button class="copy" type="button">Copy</button><pre><code>uv run --directory ~/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_compare python -m traj_compare.serve /tmp/tracking_errors_demo --port 8767</code></pre></div>
+  <p>In code: <code>write_comparison_report(pages, out_dir, rerun=True)</code> (raises an <code>ImportError</code> naming the <code>rerun</code> extra when the SDK is absent), or <code>write_rrd(page, path)</code> for one file. This site is built by <code>docs/site/build_site.py</code>; its README has the commands.</p>
+
+  <!-- ─────────────────────────────────────────────────────────────── -->
+  <h2 id="prior-art">Prior art<a class="anchor" href="#prior-art">#</a></h2>
+  <div class="verdict"><p><strong>Nobody ships this off the shelf, but each field solved one piece. We copied ideas, not code.</strong> SLAM evaluators are best at bookkeeping, robot controllers at verdicts, industrial standards at separating path from timing, shape metrics at time-free comparison. None does joint space, torque and Cartesian together, and the two closest tools (evo, trajectopy) are GPL-3.0 and bring matplotlib / pandas / scipy, while robot_msgs stays numpy-only.[[n:evo,trajectopy]]</p></div>
+  {{prior_art}}
+  <h3>What we kept doing, against the field</h3>
+  <ul>
+    <li><strong>No spatial alignment by default.</strong> SLAM tools align because an estimator's frame is defined only up to free degrees of freedom.[[n:rpg,zhang18]] A command is the frame.</li>
+    <li><strong>Interpolating the reference</strong> at the measured instants instead of matching nearest timestamps: the field avoids inventing poses, but a dense commanded reference is exactly where interpolation is safe.[[n:evo,tum]]</li>
+    <li><strong>Joint space, derivatives and effort</strong> beside Cartesian: SLAM has no actuators, controllers keep no statistics.</li>
+    <li><strong>Signed per-axis error, p95 and final</strong>: evo reduces everything to norms and angles; for tuning a controller the sign and the axis are the point.[[n:evo]]</li>
+  </ul>
+  <h3>Not in yet</h3>
+  <ul>
+    <li>MCAP / Parquet export of a <code>Comparison</code>, so PlotJuggler, Foxglove and LeRobot-style datasets can overlay runs without recomputing.[[n:plotjuggler,foxglove,lerobot]]</li>
+    <li>MoveIt-style start-state and execution-duration checks.[[n:moveit]]</li>
+    <li>Time weighting: RMS over time lets dwells dominate; a moving-only or per-arc-length variant is open.</li>
+  </ul>
+  <p class="note">Not verified: the ISO 9283 path procedure (paywalled; secondary summaries), and the control_msgs version that renamed <code>desired</code> / <code>actual</code> to <code>reference</code> / <code>feedback</code> (the changelog does not name the fields; the current names are confirmed).[[n:iso_hexagon,control_msgs_changelog,jtc_state]]</p>
+
+  <!-- ─────────────────────────────────────────────────────────────── -->
+  <h2 id="sources">Sources<a class="anchor" href="#sources">#</a></h2>
+  <p>External sources accessed 2026-11-10. Code references are paths in the robot_msgs and traj_compare sources.</p>
+  <!--SOURCE_INDEX-->
+  <p style="color:var(--faint);font-size:13px;margin-top:2em">Built {{stamp}} by <code>docs/site/build_site.py</code>. The Rerun pin, result codes and field names on this page were read from the code at build time. {{run_note}}</p>
+</article>
+</div>
+<button class="fold" type="button">Hide contents</button>
+<script>{{rerun_js}}</script>
+<script>{{site_js}}</script>
+</body>
+</html>

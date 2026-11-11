@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>traj_compare</title>
+<meta name="description" content="Compare any trajectory against a reference — target, sim or real — and get the error signal, the standard numbers, a verdict, an offline HTML viewer and an Open in Rerun backdoor."/>
+<style>{{css}}</style>
+</head>
+<body>
+<header class="topbar"><div class="topbar-inner">
+  <a class="wordmark" href="index.html"><span class="dot"></span>traj_compare <small>· robot_msgs.compare</small></a>
+  <nav class="topnav">
+    <a href="docs.html">Docs</a>
+    <a href="#examples">Examples</a>
+    <a href="#rerun">Rerun</a>
+    <a href="docs.html#prior-art">Prior art</a>
+  </nav>
+</div></header>
+
+<main>
+<section class="wrap hero">
+  <p class="kicker-line">traj_compare · robot_msgs.compare</p>
+  <h1>Compare any trajectory against a reference — target, sim or real.</h1>
+  <p class="lede">Get the error signal, the standard numbers, a verdict, an offline HTML viewer and an Open in Rerun backdoor.</p>
+  <p class="split"><code>robot_msgs.compare</code> does the maths (pure numpy, one pair at a time). <code>traj_compare</code> draws it: one self-contained <code>report.html</code> plus one <code>.rrd</code> per comparison.</p>
+  <div class="cta">
+    <a class="btn primary" href="docs.html">Read the docs</a>
+    <a class="btn" href="#examples">See the examples</a>
+    <a class="btn" href="docs.html#pairings">Sim → real in 10 lines</a>
+  </div>
+  {{hero_media}}
+</section>
+
+<section class="band"><div class="wrap">
+  <h2>Three things, one source of truth</h2>
+  <p class="sub">Every number the viewer shows comes from the library. The report and the <code>.rrd</code> read the same payload, so they cannot disagree.</p>
+  <div class="cards">
+    <article class="card">
+      <div class="kicker">Compare</div>
+      <h3>The error, as a trajectory</h3>
+      <p><code>compare(reference, measured)</code> returns the error as the <em>same type</em> as its inputs, <code>reference − measured</code> (the ROS 2 sign), on the measured run's own samples.</p>
+      <ul>
+        <li>Standard numbers per joint, axis and channel: rms, max, p95, final, IAE…</li>
+        <li>Never extrapolates: <code>coverage</code> and <code>dropped</code> travel with the numbers.</li>
+        <li>Cartesian: lag (+ = behind), cross-track, exact contour.</li>
+      </ul>
+    </article>
+    <article class="card">
+      <div class="kicker">Judge</div>
+      <h3>A verdict in ROS 2 terms</h3>
+      <p><code>check()</code> returns <code>SUCCESSFUL</code>, <code>PATH_TOLERANCE_VIOLATED</code> or <code>GOAL_TOLERANCE_VIOLATED</code>, the first violation and the margins left.</p>
+      <ul>
+        <li><code>ToleranceMonitor</code> runs the same rule per controller tick, so online and offline agree.</li>
+        <li><code>aggregate()</code> splits N runs into accuracy (bias) and repeatability (spread), ISO 9283.</li>
+        <li><code>estimate_time_offset()</code> measures latency.</li>
+      </ul>
+    </article>
+    <article class="card">
+      <div class="kicker">View</div>
+      <h3>Offline report, Rerun backdoor</h3>
+      <p>One <code>report.html</code> that opens from disk forever: plots, 3D with the robot posed, synced videos, verdicts. No server, no CDN.</p>
+      <ul>
+        <li>Degrees by default, one click to rad; every section show/hide-able.</li>
+        <li><code>rerun=True</code> writes the same data as a <code>.rrd</code> with its layout inside.</li>
+        <li>An Open in Rerun button on every page.</li>
+      </ul>
+    </article>
+  </div>
+</div></section>
+
+<section class="band"><div class="wrap">
+  <h2>Target → sim, target → real, sim → real</h2>
+  <p class="sub">Comparison is pairwise on purpose. Pick the reference; the other run is measured against it. Sim → real needs no target at all.</p>
+  <div class="pairings">
+    <div>{{pairings_svg}}</div>
+    <div class="pair-list">
+      <div class="pair"><h4><span class="role target">Target</span><span class="arrow">→</span><span class="role sim">Sim</span></h4><p>Is the controller good enough, in sim? Tune here first: it is cheap and repeatable.</p></div>
+      <div class="pair"><h4><span class="role target">Target</span><span class="arrow">→</span><span class="role real">Real</span></h4><p>Does the robot do what we commanded? The number a customer cares about, and the one a verdict gates.</p></div>
+      <div class="pair"><h4><span class="role sim">Sim</span><span class="arrow">→</span><span class="role real">Real</span></h4><p>Is the sim a faithful twin? Small sim → real error means sim results transfer.</p></div>
+    </div>
+  </div>
+</div></section>
+
+<section class="band"><div class="wrap">
+  <h2>Quickstart</h2>
+  <p class="sub">Joint error, TCP lag, and a report with its Rerun file. {{run_note}}</p>
+  {{quickstart}}
+  <p style="font-size:14.5px;color:var(--muted)">Install, run the tests and serve a report: <a href="docs.html#install">docs → Install and run</a>.</p>
+</div></section>
+
+<section class="band" id="examples"><div class="wrap">
+  <h2>Examples</h2>
+  <p class="sub">Real reports, generated by the examples in the repo. Open one: it is the same file you would get.</p>
+  {{gallery}}
+</div></section>
+
+<section class="band" id="rerun"><div class="wrap">
+  <h2>Open in Rerun</h2>
+  <p class="sub">The HTML report is the offline view you keep. Rerun is the backdoor for digging: the same numbers, one <code>.rrd</code> per comparison, its layout (blueprint) embedded, written by <code>rerun-sdk=={{sdk}}</code>. A file must be opened by a viewer at least as new as the SDK that wrote it, so every button and command names that version.</p>
+  <div class="rerun-ways">
+    <article class="card"><div class="kicker">1 · Button</div><h3>Served: it launches</h3><p>Serve the folder with <code>python -m traj_compare.serve</code>. The button POSTs <code>/__rerun/open?rrd=…</code> and the server starts the pinned native viewer on that file (only files inside the folder).</p></article>
+    <article class="card"><div class="kicker">2 · Copy</div><h3>From disk: it copies</h3><p>Opened as <code>file://</code> or from a plain static server, the same button copies <code>uvx --from rerun-sdk=={{sdk}} rerun &lt;file&gt;</code>. Paste it in a terminal.</p></article>
+    <article class="card"><div class="kicker">3 · Download</div><h3>Anywhere: the file</h3><p>Download the <code>.rrd</code> and open it in any Rerun {{sdk}} or newer. Served pages also offer “Rerun in browser” (app.rerun.io fetches the file from your server).</p></article>
+  </div>
+  {{landing_rerun}}
+  <p style="margin-top:16px;font-size:14.5px;color:var(--muted)">Serve this site so the buttons launch Rerun:</p>
+  <div class="codeblock"><button class="copy" type="button">Copy</button><pre><code>{{serve_command}}</code></pre></div>
+</div></section>
+</main>
+
+<footer class="footer"><div class="wrap">
+  <span>traj_compare + robot_msgs.compare · built {{stamp}}</span>
+  <span><a href="docs.html">Docs</a> · <a href="docs.html#prior-art">Prior art</a> · <a href="docs.html#sources">Sources</a></span>
+</div></footer>
+<script>{{rerun_js}}</script>
+<script>{{site_js}}</script>
+</body>
+</html>
