@@ -176,6 +176,10 @@ def _difference_samples(a_rows: Sequence[Mapping[str, Any]], b_rows: Sequence[Ma
                 )  # fmt: skip
                 for name, values in channels:
                     entry[name] = _number(values[row])
+                # WHY a's own angle rides along (as diff_poses carries a's coordinates): an angle-coloured-by-error
+                # chart reads q and e_q from one row, and data-ui never joins (asked by sim2real's presentation lane).
+                if columns["q"] in source:
+                    entry[columns["q"]] = source[columns["q"]]
     return [out[index] for index in sorted(out)]
 
 
@@ -625,7 +629,11 @@ def write_tables(
     _write_table(
         out / "diff_samples.json", "diff_samples", "Difference of the joints: each situation against the target, each sim against the real (b − a)",
         source, joint_diff,
-        [{"name": "e_q_deg", "type": "number", "unit": "deg", "description": "b − a of q_deg: e_q_mrad's difference in degrees (this producer's own column, the display unit)"}],
+        [
+            {"name": "e_q_deg", "type": "number", "unit": "deg", "description": "b − a of q_deg: e_q_mrad's difference in degrees (this producer's own column, the display unit)"},
+            {"name": "q_deg", "type": "number", "unit": "deg", "description": "a's own joint angle at t, as written in samples.json (a revolute axis)"},
+            {"name": "q_mm", "type": "number", "unit": "mm", "description": "a's own position at t, as written in samples.json (a prismatic axis)"},
+        ],
     )  # fmt: skip
     if pose_of is not None:
         tcp_diff = diff_table(pose_rows, "tool")

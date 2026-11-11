@@ -117,7 +117,7 @@ def test_tables_have_the_contracts_required_columns_and_units(tmp_path, name):
         if field["name"] in units:  # a contract column keeps the contract's unit
             assert field.get("unit") == units[field["name"]], (name, field["name"])
         else:  # a producer's own column is declared, and ends in the unit it declares
-            assert field["name"] in {"when", "tape", "speed", "e_q_deg", "err_rot_deg"}, (name, field["name"])
+            assert field["name"] in {"when", "tape", "speed", "e_q_deg", "err_rot_deg", "q_deg", "q_mm"}, (name, field["name"])
     declared = {field["name"] for field in doc["schema"]["fields"]}
     assert doc["rows"], name
     for row in doc["rows"]:
@@ -292,3 +292,18 @@ def test_stage_viewer_links_a_built_kit_and_writes_the_host_page(tmp_path):
     assert page.name == "data-ui.html" and (tmp_path / "out" / "kit" / "data-ui.js").is_file()
     assert 'src="data-ui/views.base"' in page.read_text("utf-8") and "A &lt;b>" in page.read_text("utf-8")
     assert stage_viewer(tmp_path / "out", tmp_path / "no-kit") is None
+
+
+def test_diff_samples_carry_a_s_own_angle(tmp_path):
+    """Asked by sim2real's presentation lane (2026-11-11): q of series a on each difference row, as
+    diff_poses carries a's coordinates, so an angle-coloured-by-error chart needs no join."""
+    run = make_run(0)
+    folder = written(tmp_path, [run])
+    rows = [r for r in table(folder, "diff_samples")["rows"] if (r["situation"], r["reference"], r["device"]) == ("real", "target", "j1")]
+    samples = {
+        r["t"]: r["q_deg"]
+        for r in table(folder, "samples")["rows"]
+        if (r["situation"], r["device"]) == ("real", "j1")
+    }
+    assert rows
+    np.testing.assert_allclose([r["q_deg"] for r in rows], [samples[r["t"]] for r in rows], atol=1e-6)
