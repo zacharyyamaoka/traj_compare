@@ -28,7 +28,7 @@ import math
 import shlex
 import warnings
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -486,12 +486,21 @@ def write_rrd(
     *,
     payload: dict[str, Any] | None = None,
     video_root: Path | str | None = None,
+    blueprint: Callable[[dict[str, Any], dict[str, Path]], Any] | None = None,
+    application_id: str = APPLICATION_ID,
+    extra: Callable[[Any, dict[str, Any], float], None] | None = None,
 ) -> Path:
     """Write ``comparison`` as one .rrd (blueprint embedded) and return its path.
 
     ``payload`` is an already-computed ``analyze_comparison`` result (colours included) so a report
     that also writes the HTML does not analyze twice; omitted, it is computed here. ``video_root``
     is the directory ``Situation.video`` paths are relative to (default: beside the .rrd).
+
+    Layout hooks (for trying other viewer layouts without forking the writer): ``blueprint`` builds
+    the embedded layout from ``(payload, videos)`` instead of the default; ``application_id`` keeps
+    several layouts of one comparison apart when they are open in one viewer (Rerun keys the
+    default blueprint by application); ``extra(recording, payload, t0)`` logs more entities into
+    the same recording before it is closed.
     """
 
     _require_sdk()
@@ -509,11 +518,11 @@ def write_rrd(
 
     videos = _resolvable_videos(payload, video_root)
     t0 = _reference_start(comparison)
-    recording = rr.RecordingStream(APPLICATION_ID, recording_id=comparison.name)
+    recording = rr.RecordingStream(application_id, recording_id=comparison.name)
     recording.send_recording_name(_recording_name(comparison))
     # WHY embedded: the blueprint travels inside the .rrd (default_blueprint), so the layout opens
     # the same in any viewer of the pinned version, with no sidecar file.
-    recording.save(path, default_blueprint=_blueprint(payload, videos))
+    recording.save(path, default_blueprint=(blueprint or _blueprint)(payload, videos))
     writer = _Writer(recording, t0)
 
     plot_t = _array(payload["plot_t"]) - t0 if payload["plot_t"] is not None else None
@@ -560,6 +569,8 @@ def write_rrd(
         rr.TextDocument(_notes_markdown(payload), media_type=rr.MediaType.MARKDOWN),
         static=True,
     )
+    if extra is not None:
+        extra(recording, payload, t0)
     recording.flush()
     recording.disconnect()
     return path

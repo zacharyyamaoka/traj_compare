@@ -207,3 +207,25 @@ def test_notes_markdown_shows_degrees_and_mm_never_milliradians():
         assert heading in markdown
     assert "> 0.0573°" in markdown  # the verdict's limit (0.001 rad), in degrees
     assert "mrad" not in markdown and "(SI)" not in markdown
+
+
+def test_write_rrd_layout_hooks_swap_the_blueprint_and_add_entities(tmp_path):
+    """blueprint= replaces the default layout, application_id= keeps layouts apart, extra= logs more entities."""
+    import rerun.blueprint as rrb
+
+    calls = []
+
+    def layout(payload, videos):
+        calls.append(payload["title"])
+        return rrb.Blueprint(rrb.TextDocumentView(origin="/notes", name="Only the notes"))
+
+    def extra(recording, payload, t0):
+        recording.log("/extra/scorecard", rr.TextDocument("# hello"), static=True)
+
+    path = write_rrd(three_way(), tmp_path / "alt.rrd", blueprint=layout, application_id="traj_compare-alt", extra=extra)
+    printed = rrd_print(path)
+    assert calls == ["Belt pick"]
+    assert "/extra/scorecard" in printed
+    assert "traj_compare-alt" in printed
+    # the one-view layout replaced the default (which has a view per joint, error channel and video)
+    assert printed.count("@ViewBlueprint:class_identifier") == 1

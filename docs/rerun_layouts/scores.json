@@ -1,0 +1,72 @@
+{
+  "default": {
+    "id": "v2",
+    "why": "Stage + Questions scores 88/100: its opening tab alone answers pass/fail, which run is worst and when (scorecard, worst-joint and tool error against shaded tolerance bands, events), and the 3D stage and camera overlay never leave the screen while you work through where, which joint, and timing-or-shape. Its one weak spot is drill-down into a single run (no per-run page).",
+    "hinge": "Drill-down weight. Run Tabs (77) wins once 'open one run on its own' matters more than layout stability: move 10 points from 'A stock default' to 'Drill into one run' and Run Tabs edges ahead, 83 to 82. The splice that removes the hinge: Stage + Questions with Run Tabs' 'All runs' overview as its first tab and per-run pages under a Runs tab."
+  },
+  "v1": {
+    "scores": {
+      "fr1": {"score": 4, "evidence": "Opening tab shows the target path coloured by the worst run's error, the tool error with its tolerance band and RMS bars per run; no verdict text, and the bars carry only numeric x labels.", "confidence": "high"},
+      "fr2": {"score": 2, "evidence": "No per-run page; isolating a run means toggling legend entries.", "confidence": "high"},
+      "fr3": {"score": 4, "evidence": "Joint error and along/across (contour, lag time) tabs are each one click, zoom-linked, with bands — but on separate full-screen tabs, so joint and timing never sit side by side.", "confidence": "medium"},
+      "fr4": {"score": 2, "evidence": "Video lives on its own tab; no plot is visible while the video plays.", "confidence": "high"},
+      "fr5": {"score": 5, "evidence": "Seven fixed tabs; joints grow inside one grid, runs inside legends; a missing video just empties one tab.", "confidence": "medium"}
+    },
+    "gates": {
+      "g1": {"pass": true, "evidence": "v1-evo-tabs.rrd opens in stock 0.40.0 with the layout embedded (screenshots are that viewer)."},
+      "g2": {"pass": true, "evidence": "Joint panels are /deg/…, tool in mm, rotation in °; the SI rad channels are not shown."}
+    }
+  },
+  "v2": {
+    "scores": {
+      "fr1": {"score": 5, "evidence": "Opening tab: scorecard sorted worst first (Real #4, 10.96 mm), worst-joint and tool error against shaded bands, events log; stage and overlay beside.", "confidence": "high"},
+      "fr2": {"score": 2, "evidence": "Runs are only legend entries; no per-run page, and the stage overlays every run at once.", "confidence": "high"},
+      "fr3": {"score": 5, "evidence": "Where? (belt frame), Which joint? (6 × ° with bands), Timing or shape? (lag time vs contour) — each a question-named tab, zoom-linked.", "confidence": "high"},
+      "fr4": {"score": 5, "evidence": "3D stage over the camera overlay stays on the left for every tab, on the same playhead.", "confidence": "high"},
+      "fr5": {"score": 5, "evidence": "Five fixed tabs; joints grow in 2-column grids; runs grow the scorecard and legends, not the tab bar.", "confidence": "medium"}
+    },
+    "gates": {
+      "g1": {"pass": true, "evidence": "v2-stage-questions.rrd, stock 0.40.0, layout embedded."},
+      "g2": {"pass": true, "evidence": "All joint views in ° and °/s, tool in mm, torque in N·m."}
+    }
+  },
+  "v3": {
+    "scores": {
+      "fr1": {"score": 5, "evidence": "'All runs' opens on the worst-first scorecard, RMS bars, every run's error and the target path coloured by the worst run's error — where on the path it peaks.", "confidence": "high"},
+      "fr2": {"score": 5, "evidence": "One tab per run: its 3D vs target, its camera (or the overlay), its numbers page, its tool and joint errors with bands only.", "confidence": "high"},
+      "fr3": {"score": 3, "evidence": "Per-run joint errors with bands, but no lag/contour/along-across view anywhere.", "confidence": "high"},
+      "fr4": {"score": 3, "evidence": "Run tabs hold 3D + camera + errors together; the opening overview has no video or robot.", "confidence": "high"},
+      "fr5": {"score": 2, "evidence": "The tab bar grows with the run count: 7 tabs here, unreadable at 20 repeats.", "confidence": "high"}
+    },
+    "gates": {
+      "g1": {"pass": true, "evidence": "v3-run-tabs.rrd, stock 0.40.0, layout embedded."},
+      "g2": {"pass": true, "evidence": "Joint errors in °, tool in mm."}
+    }
+  },
+  "v4": {
+    "scores": {
+      "fr1": {"score": 2, "evidence": "Opens on the shoulder pan tab: one joint's signals; no verdict, no worst run, no where-on-path.", "confidence": "high"},
+      "fr2": {"score": 2, "evidence": "No per-run page; legend toggles only.", "confidence": "high"},
+      "fr3": {"score": 4, "evidence": "Each joint's error sits under its position and above its velocity and torque on one clock; the Tool tab stacks contour and lag time. Strong for 'how', weak for 'which joint' (one joint per tab).", "confidence": "medium"},
+      "fr4": {"score": 5, "evidence": "3D, camera overlay and events are pinned on the right for every tab.", "confidence": "high"},
+      "fr5": {"score": 4, "evidence": "Tab count = joints + 1: fine for 2–7 DOF, but a long tab bar for a 12-DOF system.", "confidence": "medium"}
+    },
+    "gates": {
+      "g1": {"pass": true, "evidence": "v4-signal-inspector.rrd, stock 0.40.0, layout embedded."},
+      "g2": {"pass": true, "evidence": "Position °, velocity °/s, error °, tool mm and °."}
+    }
+  },
+  "v5": {
+    "scores": {
+      "fr1": {"score": 3, "evidence": "Video, worst-error path and error strips are all on screen, but there is no verdict or scorecard and the strips show only 1.5 s.", "confidence": "high"},
+      "fr2": {"score": 1, "evidence": "No way to isolate a run besides the legend.", "confidence": "high"},
+      "fr3": {"score": 1, "evidence": "Only magnitudes (tool, worst joint); no per-joint, lag or contour view.", "confidence": "high"},
+      "fr4": {"score": 5, "evidence": "The overlay video is the biggest view, the 3D beside it, the strips follow the playhead.", "confidence": "high"},
+      "fr5": {"score": 4, "evidence": "No tabs to grow; but with no video the biggest view is empty.", "confidence": "medium"}
+    },
+    "gates": {
+      "g1": {"pass": true, "evidence": "v5-replay.rrd, stock 0.40.0, layout embedded."},
+      "g2": {"pass": true, "evidence": "Worst joint in °, tool in mm."}
+    }
+  }
+}
