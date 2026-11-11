@@ -82,7 +82,7 @@ Runtime: `numpy` and `robot-msgs` (numpy-only; every error signal and statistic 
 (`src/traj_compare/assets/VENDORED.md`). Test extra: `pytest`, `scipy`
 (rotation oracle). Optional `rerun` extra: `rerun-sdk==0.40.0` (only `rerun_export.py` imports it).
 
-## Tests — `uv run --extra test python -m pytest -q tests` → **73 passed** (with `--extra rerun`; `test_rerun_export.py` skips without the SDK)
+## Tests — `uv run --extra test python -m pytest -q tests` → **77 passed** (with `--extra rerun`; `test_rerun_export.py` skips without the SDK)
 
 (`python -m`: the venv's `pytest` script can carry a stale shebang from before the package moved
 under `mdp/agent/`. `test_playback.py` checks video frame gaps < 0.6 s and can trip when the machine
@@ -95,6 +95,7 @@ is saturated; base and current builds measured the same 0.24–0.42 s spread on 
 | `test_overlay.py` (8) | camera overlay carried into the payload; no overlays/current leaves the payload as before; overlay validation; current resampled onto the target grid with null padding; missing current is fine and never invented for the target; current shape validation; the report ships the Camera section / current channel / pref keys; `camera` accepted as a default section |
 | `test_rerun_export.py` (8) | the .rrd verifies and prints through Rerun's own CLI with the standard entity layout and an embedded blueprint; its error values equal the HTML payload; `rerun=True` writes one .rrd per comparison with `{rrd, sdk, command}` and `rerun=False` writes none; `reference_title` names the minuend; `serve` sends CORS + private-network headers and launches the pinned viewer only on a file inside its root |
 | `test_wave2_viewer.py` (8) | verdicts, latency, goal / settling, contour + lag time, errors along named axes and ISO 9283 aggregates equal what `robot_msgs.compare` returns for the same inputs; all off by default; the report shows the Verdict / Est. latency / Settling columns and the ISO 9283 card |
+| `test_time_offset.py` (4) | `Situation.time_offset_s` reaches compare / check / goal / aggregate for that run: errors equal `robot_msgs.compare` at that offset, a 20 ms late run passes once told, the status cell says "shifted", NaN is refused |
 | `test_wave2_rerun.py` (1) | the .rrd verifies and holds `/error/tool/contour_mm`, `lag_time_ms`, `/error/axes/<label>_mm`; the notes carry verdicts, latency, goal and aggregates |
 | `test_report.py` (9) | report is self-contained, embeds both libs + data, groups comparison/situation navigation, derives error statistics, serializes Summary/Insights primitives, surfaces torque by default when requested, embeds each distinct robot link mesh once per report (`mesh_library`) however many pages pose it, preserves `</script>` safely, and rejects an empty list |
 

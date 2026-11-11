@@ -1436,6 +1436,11 @@ var TrajCompare = (function () {
         chip.appendChild(document.createTextNode(sit.title));
         var badge = verdictBadge(sit);
         if (badge) chip.appendChild(badge);
+        if (sit.time_offset_s) {
+          // the run's clock is shifted back by this much in every error below (Situation.time_offset_s)
+          var shift = el('span', 'verdict-badge shift', chip, 'clock −' + Number((sit.time_offset_s * 1000).toPrecision(3)) + ' ms');
+          shift.title = 'errors are taken with this run shifted ' + sit.time_offset_s * 1000 + ' ms earlier (time_offset_s)';
+        }
 
         function apply(show, remember) {
           page.visible[sit.name] = show;

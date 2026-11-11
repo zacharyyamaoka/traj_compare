@@ -361,8 +361,15 @@ class Situation:
     # these groups responsively, but it never changes their meaning.
     group: str = ""
     group_title: str = ""
+    # How late this run's clock runs against the reference (robot_msgs.compare's ``time_offset_s``):
+    # every error, verdict, goal and aggregate for it is taken with the run shifted back by this
+    # much. 0 = the clocks agree. Set it to a latency estimate to see the error that is left.
+    time_offset_s: float = 0.0
 
     def __post_init__(self) -> None:
+        self.time_offset_s = float(self.time_offset_s)
+        if not np.isfinite(self.time_offset_s):
+            raise ValueError(f"situation '{self.name}': time_offset_s must be finite")
         if not self.title:
             self.title = self.name
         if not self.group:

@@ -162,6 +162,10 @@ write_comparison_report([comparison], out_dir, insights=insights)
   | `error_axes=[(label, vector), …]` | `payload["error_axes"]`, `plot["err_axes"]` and the TCP-error rows above |
   | `repeat_groups={"Real ×5": [names]}` | `payload["aggregates"][group]` (`aggregate`) and an **Accuracy vs repeatability (ISO 9283)** card: AT = max \|reference − barycentre\| (bias), RT = max of mean + 3σ of the runs' distance to the barycentre (scatter), per joint and TCP position |
 
+  `Situation.time_offset_s` (how late the run's clock runs, `robot_msgs.compare`'s `time_offset_s`; 0 = agree) is
+  passed to every `compare` / `check` / `goal` / `aggregate` call for that run: set it to a latency estimate to
+  see the error that is left. The legend chip shows it ("clock −8 ms") and the table's status cell says
+  "shifted"; the plotted channels stay on the run's own clock.
   The default `stopped_velocity_tolerance` (0.01 rad/s) applies to the goal phase whenever a run records `qd`;
   a reference that ends moving (a conveyor track) needs it raised, or `check` can never reach the goal.
 - `examples/tracking_errors_demo.py` shows every standard field on a planar

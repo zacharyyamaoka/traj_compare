@@ -302,3 +302,4 @@ table.tc-metrics td.wrap { white-space: normal; text-align: left; min-width: 220
 .tc-aggregate h3 { font-size: 13.5px; margin: 0 0 6px; color: #22211f; }
 .tc-aggregate table.tc-metrics { min-width: 0; }
 .tc-verdicts table.tc-metrics th, .tc-verdicts table.tc-metrics td { text-align: left; }
+.verdict-badge.shift { color: #52514e; background: #efeee9; }

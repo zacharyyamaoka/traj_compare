@@ -312,15 +312,15 @@ def _pose_trajectory(situation: Situation, poses: np.ndarray, frame: str) -> Pos
     return PoseTrajectory.from_matrices(situation.t, poses, child_frame_id=frame)
 
 
-def _compare_or_none(reference: Any, measured: Any) -> Any:
-    """``compare(reference, measured)``, or None when the run never meets the target's span.
+def _compare_or_none(reference: Any, measured: Any, time_offset_s: float = 0.0) -> Any:
+    """``compare(reference, measured, time_offset_s)``, or None when the run never meets the target's span.
 
     WHY None, not a raise: a run entirely outside the target's span is a legitimate report
     page (its error is simply absent), not a failure of the whole report.
     """
 
     try:
-        return compare(reference, measured)
+        return compare(reference, measured, time_offset_s=time_offset_s)
     except ValueError as error:
         if "no overlap" not in str(error):
             raise
@@ -569,6 +569,7 @@ def _second_wave(
     run_joints: JointTrajectory,
     target_pose_track: PoseTrajectory | None,
     run_pose_track: PoseTrajectory | None,
+    time_offset_s: float = 0.0,
 ) -> None:
     """The optional verdict / latency / goal blocks of one run, each from one robot_msgs.compare call."""
 
@@ -582,7 +583,7 @@ def _second_wave(
         ):
             if tolerances is None or reference is None or run is None:
                 continue
-            outcome = _or_none(check, reference, run, tolerances)
+            outcome = _or_none(check, reference, run, tolerances, time_offset_s=time_offset_s)
             if outcome is not None:
                 raw[key] = outcome
                 verdict[key] = _outcome_payload(outcome)
@@ -599,12 +600,15 @@ def _second_wave(
     if comparison.goal_band is not None or comparison.tcp_goal_band is not None:
         stats: dict[str, Any] = {}
         if comparison.goal_band is not None:
-            joint_goal = _or_none(goal, target_joints, run_joints, band=comparison.goal_band)
+            joint_goal = _or_none(
+                goal, target_joints, run_joints, band=comparison.goal_band, time_offset_s=time_offset_s
+            )
             if joint_goal is not None:
                 stats["joint"] = _stats_payload(joint_goal)
         if comparison.tcp_goal_band is not None and has_pose:
             tcp_goal = _or_none(
-                goal, target_pose_track, run_pose_track, band=comparison.tcp_goal_band
+                goal, target_pose_track, run_pose_track,
+                band=comparison.tcp_goal_band, time_offset_s=time_offset_s,
             )
             if tcp_goal is not None:
                 stats["tcp"] = _stats_payload(tcp_goal)
@@ -632,8 +636,12 @@ def _aggregates(
             "runs": [run.name for run in runs],
             "titles": [run.title for run in runs],
         }
+        offsets = [run.time_offset_s for run in runs]
         joint = _or_none(
-            aggregate, target_joints, [_joint_trajectory(run, comparison.joint_names) for run in runs]
+            aggregate,
+            target_joints,
+            [_joint_trajectory(run, comparison.joint_names) for run in runs],
+            time_offset_s=offsets,
         )
         if joint is not None:
             block["joint"] = _aggregate_payload(joint)
@@ -646,6 +654,7 @@ def _aggregates(
                     _pose_trajectory(run, poses, comparison.tcp_frame)
                     for run, poses in zip(runs, run_poses, strict=True)
                 ],
+                time_offset_s=offsets,
             )
             if tcp is not None:
                 block["tcp"] = _aggregate_payload(tcp)
@@ -692,6 +701,7 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
             "name": situation.name,
             "title": situation.title,
             "role": role,
+            "time_offset_s": situation.time_offset_s,
             "has_data": situation.has_data,
             "note": situation.note,
             "derived": [],
@@ -709,6 +719,11 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
             automatic_metrics[situation.name] = {
                 "status": (
                     f"{len(situation.t):,} samples"
+                    + (
+                        f" · shifted {situation.time_offset_s * 1000.0:,.1f} ms"
+                        if situation.time_offset_s
+                        else ""
+                    )
                     if situation.has_data
                     else situation.note or "no data"
                 ),
@@ -789,7 +804,7 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
 
         if role != "target" and target_joints is not None:
             run_joints = _joint_trajectory(situation, comparison.joint_names)
-            joint_result = _compare_or_none(target_joints, run_joints)
+            joint_result = _compare_or_none(target_joints, run_joints, situation.time_offset_s)
             stats: dict[str, dict[str, Any]] = {}
             if joint_result is None:
                 joint_error = np.full(situation.q.shape, np.nan)
@@ -830,13 +845,16 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
             ]
             if poses is not None and target_pose_track is not None:
                 run_pose_track = _pose_trajectory(situation, poses, comparison.tcp_frame)
-                pose_result = _compare_or_none(target_pose_track, run_pose_track)
+                pose_result = _compare_or_none(
+                    target_pose_track, run_pose_track, situation.time_offset_s
+                )
             else:
                 run_pose_track = None
                 pose_result = None
             _second_wave(
                 comparison, entry, automatic_metrics[situation.name],
                 target_joints, run_joints, target_pose_track, run_pose_track,
+                situation.time_offset_s,
             )  # fmt: skip
             if pose_result is not None:
                 pose_error = pose_result.error  # target - run, a PoseTrajectory
@@ -867,7 +885,9 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
                     ]
                 # The target at the run's own instants, exactly as compare() lined it up, so the
                 # 3D difference arrows point at the pose the plotted error was measured against.
-                target_at, _, _, _ = align(target_pose_track, run_pose_track)
+                target_at, _, _, _ = align(
+                    target_pose_track, run_pose_track, time_offset_s=situation.time_offset_s
+                )
                 inside = np.searchsorted(t, pose_t)
                 target_p = np.full((len(t), 3), np.nan)
                 target_quat = np.full((len(t), 4), np.nan)
