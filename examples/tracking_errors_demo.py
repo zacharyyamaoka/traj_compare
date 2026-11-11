@@ -4,7 +4,9 @@ One target and two runs. "Sim (lagging)" follows the same joint path 40 ms
 late. "Real (offset)" is on time, but J2 reads 1.5° high. Together they show
 every standard field: joint q/qd/qdd and error, the L2-tip pose per axis,
 |Δp| / rotation, cross-track vs lag, per-axis x/y/z/rx/ry/rz error,
-and the RMS · max · final table.
+and the RMS · max · final table. Tolerances give each run a verdict (the lagging sim breaks the
+30 mrad path limit; the offset real stays on path but misses the 5 mrad goal), the latency estimate
+reads the sim's 40 ms back, and the error is also read along named axes.
 
     uv run --directory ~/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_compare python examples/tracking_errors_demo.py --out /tmp/tracking_errors_demo
     uv run --extra rerun --directory ~/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_compare python examples/tracking_errors_demo.py --out /tmp/tracking_errors_demo --rerun
@@ -16,6 +18,7 @@ import argparse
 from pathlib import Path
 
 import numpy as np
+from robot_msgs.compare import JointTolerance, PoseTolerance, Tolerances
 
 from traj_compare import Comparison, Situation, write_comparison_report
 
@@ -63,6 +66,19 @@ def build(out_dir: Path, rerun: bool = False) -> Path:
         fk=l2_tip_fk,
         tcp_frame="L2 tip",
         default_sections=["joint-q", "joint-err", "tcp-err"],
+        tolerances=Tolerances(
+            path=(JointTolerance(name="j1", position=0.030), JointTolerance(name="j2", position=0.030)),
+            goal=(JointTolerance(name="j1", position=0.005), JointTolerance(name="j2", position=0.005)),
+            stopped_velocity_tolerance=0.0,  # positions only: the runs record no velocities
+        ),
+        tcp_tolerances=Tolerances(
+            path=PoseTolerance(position=0.015), goal=PoseTolerance(position=0.005),
+            stopped_velocity_tolerance=0.0,
+        ),
+        goal_band=0.005,
+        tcp_goal_band=0.002,
+        estimate_latency=True,
+        error_axes=[("world x", np.array([1.0, 0.0, 0.0])), ("world y", np.array([0.0, 1.0, 0.0]))],
     )
     return write_comparison_report(
         [comparison], out_dir, title="Standard tracking-error fields", rerun=rerun

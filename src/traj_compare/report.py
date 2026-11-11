@@ -20,7 +20,11 @@ from .model import Comparison, ReportPage
 COLOR_TARGET = "#52514e"
 # Family palette: blue/orange first (the CVD-validated pair the earlier
 # reports established), then green/purple/magenta for wider A/B/C panels.
-SITUATION_PALETTE = ("#2a78d6", "#eb6834", "#2f9e44", "#8e5bd1", "#c22f6e")
+# WHY three more: a repeat group (5 real runs beside a sim) is 6+ situations, and a wrapped colour
+# would give two runs one swatch. Appended, so a report of five or fewer is unchanged.
+SITUATION_PALETTE = (
+    "#2a78d6", "#eb6834", "#2f9e44", "#8e5bd1", "#c22f6e", "#17a2b8", "#a67c00", "#6b7a8f",
+)  # fmt: skip
 
 
 def _asset(name: str) -> str:
