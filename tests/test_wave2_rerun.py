@@ -46,7 +46,7 @@ def test_wave2_channels_and_notes_are_in_the_recording(tmp_path):
     for entity in (
         "/error/tool/contour_mm/real_1",
         "/error/tool/lag_time_ms/real_1",
-        "/error/axes/along\\ belt_mm/real_1",  # Rerun escapes the space
+        "/error/axes/along_belt_mm/real_1",  # one spelling with robot_msgs.viz.rerun.path_part: a space becomes _
         "/error/axes/up_mm/real_1",
     ):
         assert entity in printed, f"{entity} missing"

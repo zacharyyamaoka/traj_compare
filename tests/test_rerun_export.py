@@ -76,13 +76,13 @@ def test_write_rrd_logs_the_standard_entity_layout(tmp_path):
 
     printed = rrd_print(path)
     for entity in (
-        "/error/joint/j1/sim",  # signed joint error, target - run, SI
-        "/error/joint/j2/real",
+        "/error/positions/j1/sim",  # signed joint error, target - run (robot_msgs.viz.rerun layout)
+        "/error/positions/j2/real",
         "/error/tool/position_mm/sim",
         "/error/tool/rotation_deg/real",  # degrees only (Zach: never milliradians)
         "/error/tool/rotation_deg/real",  # the same error in degrees: the entity is data, the view shows degrees
-        "/position/j1/target",
-        "/position/j1/sim",
+        "/positions/j1/target",
+        "/positions/j1/sim",
         "/vec/Conveyor/sim",  # signed speed along the named direction
         "/world/target",
         "/world/sim",
@@ -96,7 +96,7 @@ def test_rrd_error_values_match_the_html_payload(tmp_path):
     comparison = three_way()
     path = write_rrd(comparison, tmp_path / "belt_pick.rrd")
     printed = rrd_print(path)
-    assert "/error/joint/j2/real" in printed
+    assert "/error/positions/j2/real" in printed
     payload = analyze_comparison(comparison)
     real = next(entry for entry in payload["situations"] if entry["name"] == "real")
     # target - real on j2 is +0.003 rad everywhere; the .rrd logs SI radians

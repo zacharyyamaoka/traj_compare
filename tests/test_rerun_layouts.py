@@ -148,7 +148,7 @@ def test_write_rrd_embeds_one_layout_and_writes_every_layout_beside_it(tmp_path,
 def test_rrd_shows_joint_angles_in_degrees_and_keeps_the_tool_in_mm(tmp_path):
     rrd = write_rrd(three_way(), tmp_path / "belt_pick.rrd")
     # target - real on j2 is +0.003 rad everywhere (three_way); the view reads degrees
-    np.testing.assert_allclose(_scalars(rrd, "/error/joint/j2/real"), math.degrees(0.003), atol=1e-9)
+    np.testing.assert_allclose(_scalars(rrd, "/error/positions/j2/real"), math.degrees(0.003), atol=1e-9)
     np.testing.assert_allclose(_scalars(rrd, "/error/tool/position_mm/real"), 3.0, atol=1e-6)
     printed = rrd_print(rrd)
     assert "rotation_mrad" not in printed  # Zach's rule: degrees, never milliradians
@@ -157,7 +157,7 @@ def test_rrd_shows_joint_angles_in_degrees_and_keeps_the_tool_in_mm(tmp_path):
 def test_tolerance_bands_are_logged_as_shaded_measurements(tmp_path):
     rrd = write_rrd(toleranced(), tmp_path / "belt_pick.rrd")
     printed = rrd_print(rrd)
-    for entity in ("/error/joint/j1/tolerance", "/error/tool/position_mm/tolerance", "/worst/joint_deg/tolerance"):
+    for entity in ("/error/positions/j1/tolerance", "/error/tool/position_mm/tolerance", "/worst/joint_deg/tolerance"):
         assert entity in printed, f"{entity} missing"
     assert "Measurements:variances" in printed  # the band is a ±1σ shading around the centre
 
@@ -237,11 +237,11 @@ def test_camera_overlay_is_composited_into_one_video_rerun_plays(tmp_path):
     r, g, b = frame[0], frame[1], frame[2]
     assert r > 60 and b > 60, (r, g, b)
     printed = rrd_print(rrd)
-    assert "/video/overlay/front" in printed and "VideoFrameReference" in printed
+    assert "/video/overlay-front" in printed and "VideoFrameReference" in printed
     payload = analyze_comparison(comparison)
     _colorize(payload)
     stage = layout_blueprint("questions", payload, {}, overlays=["front"]).root_container.contents[0]
-    assert any(type(view).__name__ == "Spatial2DView" and str(view.origin) == "/video/overlay/front" for view in stage.contents)
+    assert any(type(view).__name__ == "Spatial2DView" and str(view.origin) == "/video/overlay-front" for view in stage.contents)
 
 
 def test_a_layout_can_open_on_a_named_tab():

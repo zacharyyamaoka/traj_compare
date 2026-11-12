@@ -69,6 +69,7 @@ rerun_layout = "evo"</pre>
   <li>RMS bars per run.</li>
   </ul></li>
 <li><b>Camera overlay:</b> a <code>CameraOverlay</code> is baked with ffmpeg into one MP4 and played by Rerun's stock video view. <code>key_color</code> keys a render's flat background out first. The UR5e example now has one: real #1's camera with the sim and target layered on top.</li>
+<li><b>Built on robot_msgs:</b> joint series, joint errors, tolerance bands, robot links and videos are now written by <code>robot_msgs.viz.rerun</code>. robot_msgs gained <code>degrees=</code>, <code>color=</code>, <code>label=</code>, <code>prefix=</code> and <code>t0=</code>, plus <code>band()</code>, <code>video()</code>, <code>links()</code> and <code>path_part()</code>. So a traj_compare recording and a <code>msg.show()</code> recording share one layout: <code>/positions</code>, <code>/velocities</code>, <code>/effort</code> and <code>/error/positions/&lt;joint&gt;/&lt;run&gt;</code>.</li>
 <li><b>Server:</b> <code>serve.py</code> accepts <code>&amp;layout=</code>, so <b>Open in Rerun</b> launches the chosen layout.</li>
 </ul>
 <h2>Open it yourself</h2>

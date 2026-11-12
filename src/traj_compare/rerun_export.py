@@ -9,15 +9,15 @@ Entity layout (situations are the last path part so a plot view can overlay them
 
     /world/<situation>/robot/<link>     static Mesh3D + per-time Transform3D
     /world/<situation>/tcp              static LineStrips3D path + per-time Points3D marker
-    /position|velocity/<joint>/<situation>  degrees, °/s (every joint shown as revolute, as in the HTML report)
-    /torque/<joint>/<situation>         N·m
-    /error/joint/<joint>/<situation>    target - run, in degrees; /error/joint/<joint>/tolerance the shaded band
+    /positions|velocities/<joint>/<situation>  degrees, °/s (every joint shown as revolute, as in the HTML report)
+    /effort/<joint>/<situation>         N·m         (these three, the errors, bands, links and video are
+    /error/positions/<joint>/<situation>  target - run in degrees, + /tolerance   written by robot_msgs.viz.rerun)
     /error/tool/<channel>/<situation>   position_mm (+ tolerance band), rotation_deg, {x,y,z}_mm, lag_mm, cross_track_mm,
                                         contour_mm (exact), lag_time_ms (+ behind)
     /worst/joint_deg/<situation>        the largest |joint error| at each instant (+ tolerance band)
     /tcp/{x,y,z}_mm/<situation>         the tool position, for evo's "trajectories" tab
     /heat_worst, /trail_worst           the reference path coloured by the worst run's tool error (static / on the clock)
-    /video/overlay/<name>               a CameraOverlay baked into one MP4 (real camera + sim renders)
+    /video/overlay-<name>               a CameraOverlay baked into one MP4 (real camera + sim renders)
     /scorecard, /events, /stats/...     the worst-first summary table, tolerance events, RMS bars
     /error/axes/<label>_mm/<situation>  the position error projected on each ``error_axes`` direction
     /vec/<label>/<situation>            signed speed along a ``vec_dirs`` direction (belt matching)
@@ -53,10 +53,17 @@ from .model import Comparison, RobotDisplay, Situation
 try:
     import rerun as rr
     import rerun.blueprint as rrb
+
+    # WHY robot_msgs' logger for the standard parts (joint series, joint errors, bands, robot links,
+    # video): one entity layout for every package (/<field>/<column>/<name>), so a traj_compare
+    # recording and a msg.show() recording overlay (agreed with the Robot Msg Agent, 2026-11-11).
+    from robot_msgs.trajectory import JointTrajectory, PoseTrajectory
+    from robot_msgs.shape import Mesh
+    from robot_msgs.viz import rerun as viz
 except ModuleNotFoundError as error:  # the core report works without the SDK; only this module needs it
     if error.name != "rerun":
         raise
-    rr = rrb = None
+    rr = rrb = viz = None
 
 # WHY one pin: an .rrd must be opened by a viewer at least as new as the SDK that wrote it, so the
 # SDK that writes the file and the viewer the button launches (uvx --from rerun-sdk==...) are the
@@ -109,9 +116,9 @@ def _require_sdk() -> None:
 
 
 def _part(name: str) -> str:
-    """One entity-path part, escaped so a joint called ``a b`` or ``l/r`` stays one part."""
+    """One entity-path part, spelled as robot_msgs' logger spells it, so both write the same paths."""
 
-    return rr.escape_entity_path_part(str(name))
+    return viz.path_part(name)
 
 
 def _hex_to_rgb(color: str) -> list[int]:
@@ -284,12 +291,33 @@ def _aggregate_lines(payload: dict[str, Any]) -> list[str]:
     return lines
 
 
-def _link_mesh(triangles: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """A triangle soup (M, 3, 3) -> vertices (3M, 3) plus flat per-face normals."""
+def _robot_links(robot: RobotDisplay, track: dict[str, Any]) -> list[tuple[str, Any, Any]]:
+    """The robot as robot_msgs' (link name, Mesh, PoseTrajectory) triples, from the payload's link track."""
 
-    normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
-    normals /= np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-12)
-    return triangles.reshape(-1, 3), np.repeat(normals, 3, axis=0)
+    track_t = _array(track["t"])
+    positions = np.asarray(track["p"], dtype=float)  # (samples, links, 3)
+    quats_wxyz = np.asarray(track["quat"], dtype=float)  # (samples, links, 4)
+    parts = []
+    for index, (link, soup) in enumerate(zip(robot.link_names, robot.link_meshes, strict=True)):
+        soup = np.asarray(soup, dtype=float)  # a triangle soup (M, 3, 3)
+        mesh = Mesh(vertices=soup.reshape(-1, 3), triangles=np.arange(3 * len(soup), dtype=np.int32).reshape(-1, 3))
+        poses = PoseTrajectory(t=track_t, positions=positions[:, index],
+                               orientations=quats_wxyz[:, index][:, [1, 2, 3, 0]])  # xyzw, as robot_msgs keeps it
+        parts.append((link, mesh, poses))
+    return parts
+
+
+def _link_colors(robot: RobotDisplay, run_rgb: list[int]) -> list[list[int]]:
+    colors = robot.link_colors or [None] * len(robot.link_names)
+    opacities = robot.link_opacities or [DEFAULT_LINK_OPACITY] * len(robot.link_names)
+    return [[*(_hex_to_rgb(color) if color else run_rgb), int(round(255 * opacity))]
+            for color, opacity in zip(colors, opacities, strict=True)]
+
+
+def _overlay_entity(name: str) -> str:
+    """The video name a CameraOverlay is logged under: ``/video/overlay-<name>``."""
+
+    return f"overlay-{name}"
 
 
 class _Writer:
@@ -304,36 +332,6 @@ class _Writer:
             indexes=[rr.TimeColumn(TIMELINE, duration=time_s)],
             columns=rr.Scalars.columns(scalars=values),
         )
-
-    def robot(self, prefix: str, robot: RobotDisplay, track: dict[str, Any], color) -> None:
-        track_t = _array(track["t"]) - self.t0
-        positions = np.asarray(track["p"], dtype=float)  # (samples, links, 3)
-        quats_wxyz = np.asarray(track["quat"], dtype=float)  # (samples, links, 4)
-        colors = robot.link_colors or [None] * len(robot.link_names)
-        opacities = robot.link_opacities or [DEFAULT_LINK_OPACITY] * len(robot.link_names)
-        for index, (link, mesh, link_color, opacity) in enumerate(
-            zip(robot.link_names, robot.link_meshes, colors, opacities, strict=True)
-        ):
-            entity = f"{prefix}/robot/{_part(link)}"
-            vertices, normals = _link_mesh(mesh)
-            rgb = _hex_to_rgb(link_color) if link_color else color
-            self.recording.log(
-                entity,
-                rr.Mesh3D(
-                    vertex_positions=vertices,
-                    vertex_normals=normals,
-                    albedo_factor=[*rgb, int(round(255 * opacity))],
-                ),
-                static=True,
-            )
-            self.recording.send_columns(
-                entity,
-                indexes=[rr.TimeColumn(TIMELINE, duration=track_t)],
-                columns=rr.Transform3D.columns(
-                    translation=positions[:, index],
-                    quaternion=quats_wxyz[:, index][:, [1, 2, 3, 0]],  # Rerun wants xyzw
-                ),
-            )
 
     def tcp(self, entity: str, three: dict[str, Any], color) -> None:
         tcp_t = _array(three["t"]) - self.t0
@@ -351,17 +349,6 @@ class _Writer:
             ),
         )
 
-    def video(self, entity: str, path: Path, start_s: float = 0.0) -> None:
-        asset = rr.AssetVideo(path=path)
-        self.recording.log(entity, asset, static=True)
-        frame_nanos = asset.read_frame_timestamps_nanos()
-        # A video plays at video time = trajectory time - start_s (as in the HTML viewer), so frame k
-        # sits at its own timestamp plus the trajectory time shown at video time 0, minus the reference's start.
-        self.recording.send_columns(
-            entity,
-            indexes=[rr.TimeColumn(TIMELINE, duration=frame_nanos / 1e9 + start_s - self.t0)],
-            columns=rr.VideoFrameReference.columns_nanos(frame_nanos),
-        )
 
 
 # ── the review entities every layout reads ─────────────────────────────────
@@ -472,23 +459,16 @@ def _log_review_entities(recording: Any, writer: "_Writer", comparison: Comparis
     plot_t = _array(payload["plot_t"]) - t0
     reference_end = float(comparison.target.t[-1]) - t0 if comparison.target is not None and comparison.target.has_data else float(plot_t[-1])
     in_goal = plot_t >= reference_end
-    band_rgba = [120, 120, 120, 70]
 
     def band(entity: str, low: np.ndarray, high: np.ndarray) -> None:
-        """A shaded tolerance band: Rerun's Measurements draws centre ± one standard deviation."""
-        recording.log(entity, rr.Measurements.from_fields(colors=[band_rgba], names=["tolerance"], widths=[0.5]), static=True)
-        recording.send_columns(
-            entity,
-            indexes=[rr.TimeColumn(TIMELINE, duration=plot_t)],
-            columns=rr.Measurements.columns(values=0.5 * (low + high), variances=(0.5 * (high - low)) ** 2),
-        )
+        viz.band(entity.lstrip("/"), plot_t, low, high, recording=recording)  # a shaded tolerance band
 
     path_limits = _joint_limits(comparison.tolerances, "path")
     goal_limits = _joint_limits(comparison.tolerances, "goal")
     for joint in payload["joint_names"]:
         if joint in path_limits or joint in goal_limits:
             limit = np.degrees(np.where(in_goal, goal_limits.get(joint, np.nan), path_limits.get(joint, np.nan)))
-            band(f"/error/joint/{_part(joint)}/tolerance", -limit, limit)
+            band(f"/error/positions/{_part(joint)}/tolerance", -limit, limit)
     if path_limits or goal_limits:
         worst_limit = np.degrees(np.where(in_goal, max(goal_limits.values(), default=np.nan),
                                           max(path_limits.values(), default=np.nan)))
@@ -625,7 +605,7 @@ def _has_tool(payload: dict[str, Any]) -> bool:
 
 def _camera_origin(videos: dict[str, Path], overlays: list[str]) -> str | None:
     if overlays:
-        return f"/video/overlay/{_part(overlays[0])}"
+        return f"/video/{_part(_overlay_entity(overlays[0]))}"
     if videos:
         measured = [name for name in videos]
         return f"/video/{_part(measured[-1])}"
@@ -668,17 +648,17 @@ def _layout_questions(payload: dict[str, Any], videos: dict[str, Path], overlays
     tabs = [rrb.Vertical(*good, row_shares=[3, 2, 2, 1][: len(good) - 1] + [1], name="Is it good?")]
     if tool:
         tabs.append(rrb.Vertical(*_where_views(payload), name="Where?"))
-    tabs.append(rrb.Grid(*[_ts(f"/error/joint/{j}", f"{_short(j)} [°]") for j in joints],
+    tabs.append(rrb.Grid(*[_ts(f"/error/positions/{j}", f"{_short(j)} [°]") for j in joints],
                          grid_columns=min(2, len(joints)), name="Which joint?"))
     if tool:
         timing = [_ts("/error/tool/lag_time_ms", "Lag time [ms] (how late along the path)", legend=True),
                   _ts("/error/tool/contour_mm", "Contour error [mm] (off the path)")]
         timing += [_ts(f"/vec/{_part(label)}", f"Speed along {label} [m/s]") for label in payload["vec_labels"]]
         tabs.append(rrb.Vertical(*timing, name="Timing or shape?"))
-    signals = [rrb.Grid(*[_ts(f"/position/{j}", f"{_short(j)} [°]") for j in joints], grid_columns=min(2, len(joints)), name="Position"),
-               rrb.Grid(*[_ts(f"/velocity/{j}", f"{_short(j)} [°/s]") for j in joints], grid_columns=min(2, len(joints)), name="Velocity")]
+    signals = [rrb.Grid(*[_ts(f"/positions/{j}", f"{_short(j)} [°]") for j in joints], grid_columns=min(2, len(joints)), name="Position"),
+               rrb.Grid(*[_ts(f"/velocities/{j}", f"{_short(j)} [°/s]") for j in joints], grid_columns=min(2, len(joints)), name="Velocity")]
     if payload["has_tau"]:
-        signals.append(rrb.Grid(*[_ts(f"/torque/{j}", f"{_short(j)} [N·m]") for j in joints], grid_columns=min(2, len(joints)), name="Torque"))
+        signals.append(rrb.Grid(*[_ts(f"/effort/{j}", f"{_short(j)} [N·m]") for j in joints], grid_columns=min(2, len(joints)), name="Torque"))
     tabs.append(rrb.Tabs(*signals, name="Signals"))
     questions = rrb.Tabs(*tabs, active_tab=_active(tabs, tab))
 
@@ -727,9 +707,9 @@ def _layout_evo(payload: dict[str, Any], videos: dict[str, Path], overlays: list
         tabs.append(rrb.Horizontal(_world(payload, "Robots + paths", ["/world/**"]), *([rrb.Vertical(*tcp)] if tcp else []),
                                    column_shares=[3, 2][: 1 + bool(tcp)], name="Trajectories"))
     else:
-        tabs.append(rrb.Grid(*[_ts(f"/position/{j}", f"{_short(j)} [°]") for j in joints], grid_columns=min(3, len(joints)),
+        tabs.append(rrb.Grid(*[_ts(f"/positions/{j}", f"{_short(j)} [°]") for j in joints], grid_columns=min(3, len(joints)),
                              name="Trajectories"))
-    tabs.append(rrb.Grid(*[_ts(f"/error/joint/{j}", f"{_short(j)} error [°]") for j in joints],
+    tabs.append(rrb.Grid(*[_ts(f"/error/positions/{j}", f"{_short(j)} error [°]") for j in joints],
                          grid_columns=min(3, len(joints)), name="Joint error"))
     if tool:
         along = _where_views(payload) + [_ts("/error/tool/contour_mm", "contour error [mm]"),
@@ -908,16 +888,20 @@ def write_rrd(
         color = _hex_to_rgb(entry["color"])
         label = entry["title"]
         plot = entry["plot"]
-        for dof, joint in enumerate(payload["joint_names"]):
-            joint_part = _part(joint)
-            writer.series(f"/position/{joint_part}/{name}", plot_t, _array(plot["q"][dof]) * DEGREES, color, label)
-            writer.series(f"/velocity/{joint_part}/{name}", plot_t, _array(plot["qd"][dof]) * DEGREES, color, label)
-            if plot["tau"] is not None:
-                writer.series(f"/torque/{joint_part}/{name}", plot_t, _array(plot["tau"][dof]), color, label)
-            if "err_q" in plot:
-                # WHY from the payload: target - run, straight from robot_msgs.compare, so the HTML and
-                # the .rrd can never disagree; shown in degrees, the display edge.
-                writer.series(f"/error/joint/{joint_part}/{name}", plot_t, _array(plot["err_q"][dof]) * DEGREES, color, label)
+        joints = list(payload["joint_names"])
+        columns = lambda key: np.array([_array(row) for row in plot[key]]).T  # (samples, joints)
+        signals = JointTrajectory(
+            t=plot_t, joint_names=joints, positions=columns("q"), velocities=columns("qd"),
+            effort=columns("tau") if plot["tau"] is not None else None,
+        )  # fmt: skip
+        # /positions, /velocities (degrees: every joint shown as revolute, as in the HTML report), /effort
+        viz.log(signals, entry["name"], recording=recording, degrees=True, color=color, label=label, t0=0.0)
+        if "err_q" in plot:
+            # WHY from the payload: target - run, straight from robot_msgs.compare, so the HTML and the
+            # .rrd can never disagree; at /error/positions/<joint>/<run>, in degrees (the display edge).
+            error = JointTrajectory(t=plot_t, joint_names=joints, positions=columns("err_q"))
+            viz.log(error, entry["name"], recording=recording, degrees=True, color=color, label=label,
+                    prefix="error/", t0=0.0)  # fmt: skip
         for key, channel, scale in _TOOL_ERROR_CHANNELS:
             if key in plot:
                 writer.series(f"/error/tool/{channel}/{name}", plot_t, _array(plot[key]) * scale, color, label)
@@ -938,11 +922,13 @@ def write_rrd(
             writer.tcp(f"/world/{name}/tcp", entry["three"], color)
         robot = by_name[entry["name"]].robot or comparison.robot
         if robot is not None and entry["robot_track"] is not None:
-            writer.robot(f"/world/{name}", robot, entry["robot_track"], color)
+            viz.links(_robot_links(robot, entry["robot_track"]), entry["name"], recording=recording,
+                      color=_link_colors(robot, color), t0=t0)  # fmt: skip
         if entry["name"] in videos:
-            writer.video(f"/video/{name}", videos[entry["name"]], entry.get("video_start_s", 0.0))
+            # a video plays at video time = trajectory time - video_start_s, as in the HTML viewer
+            viz.video(videos[entry["name"]], entry["name"], recording=recording, start_s=entry.get("video_start_s", 0.0) - t0)
     for overlay_name, (baked, start_s) in overlays.items():
-        writer.video(f"/video/overlay/{_part(overlay_name)}", baked, start_s)
+        viz.video(baked, _overlay_entity(overlay_name), recording=recording, start_s=start_s - t0)
 
     recording.log(
         "/notes",
