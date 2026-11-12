@@ -186,9 +186,11 @@ write_comparison_report(comparisons, out_dir, rerun=True)   # needs: uv run --ex
 embedded) and gives each page an **Open in Rerun** control. Without the SDK it raises an `ImportError` naming the
 `rerun` extra; the default `rerun=False` never imports it. `write_rrd(comparison, path)` writes one file directly.
 The numbers come from the same payload as the HTML (so from `robot_msgs.compare`), shown in the units a person reads:
-joints in degrees (`/position`, `/velocity` in °/s, `/error/joint/<joint>/<situation>` = target − run in °), the tool in mm
-(`/error/tool/...`, rotation in °), `/vec/<label>/<situation>` the signed speed along each `vec_dirs` direction, `/torque`,
-`/world/<situation>/{robot,tcp}`, `/video/<situation>` (MP4) and a `/notes` statistics table. The stored data (payload,
+joints in degrees (`/positions`, `/velocities` in °/s, `/error/positions/<joint>/<situation>` = target − run in °), the tool
+in mm (`/error/tool/...`, rotation in °), `/vec/<label>/<situation>` the signed speed along each `vec_dirs` direction,
+`/effort`, `/world/<situation>/{robot,tcp}`, `/video/<situation>` (MP4) and a `/notes` statistics table. The joint series,
+errors, bands, robot links and videos are written by `robot_msgs.viz.rerun` (`degrees=True`, `band`, `links`, `video`), so a
+traj_compare recording and a `msg.show()` recording share one entity layout; the rest is traj_compare's own. The stored data (payload,
 Parquet, MCAP) stays SI; the `.rrd` is a viewer. On top of that every recording carries what the layouts read:
 shaded tolerance bands (`.../tolerance`, Rerun `Measurements`), `/worst/joint_deg/<run>`, `/tcp/{x,y,z}_mm`, the
 reference path coloured by the worst run's tool error (`/heat_worst`, and `/trail_worst` on the clock), a worst-first
