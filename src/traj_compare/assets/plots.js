@@ -1183,6 +1183,20 @@ var TrajCompare = (function () {
     var rrdUrl = new URL(info.rrd, location.href);
     var bar = el('div', 'tc-rerun', root);
     var row = el('div', 'tc-rerun-row', bar);
+    // Named layouts (rerun_export.LAYOUTS): the first is the one embedded in the .rrd (the user's preference);
+    // choosing another opens its .rbl beside the .rrd. WHY a choice here: Zach, 2026-11-11 — named layouts
+    // ("evo", "questions") so each person keeps their own preference.
+    var layouts = info.layouts || [];
+    var chosen = layouts[0] || null;
+    var picker = null;
+    if (layouts.length > 1) {
+      var pick = el('label', 'tc-rerun-layout', row, 'Layout ');
+      picker = el('select', 'tc-rerun-select', pick);
+      layouts.forEach(function (layout) {
+        var option = el('option', '', picker, layout.title || layout.name);
+        option.value = layout.name;
+      });
+    }
     var open = el('button', 'tc-rerun-open', row, 'Open in Rerun');
     var copy = el('button', 'tc-rerun-btn', row, 'Copy command');
     var download = el('a', 'tc-rerun-btn', row, 'Download .rrd');
@@ -1198,7 +1212,14 @@ var TrajCompare = (function () {
       web.title = 'the web viewer fetches the .rrd from this server; it needs the serve command';
     }
     var status = el('span', 'tc-rerun-status', row);
-    var command = el('code', 'tc-rerun-cmd', bar, info.command);
+    var command = el('code', 'tc-rerun-cmd', bar, chosen ? chosen.command : info.command);
+    if (picker) {
+      picker.onchange = function () {
+        chosen = layouts.filter(function (layout) { return layout.name === picker.value; })[0] || layouts[0];
+        command.textContent = chosen.command;
+        say('');
+      };
+    }
     command.title = 'Rerun ' + info.sdk + ' (an .rrd needs a viewer at least as new as its SDK)';
 
     function say(text, bad) {
@@ -1206,7 +1227,7 @@ var TrajCompare = (function () {
       status.classList.toggle('bad', !!bad);
     }
     function copyCommand(prefix) {
-      return Promise.resolve(copyText(info.command)).then(function (ok) {
+      return Promise.resolve(copyText(chosen ? chosen.command : info.command)).then(function (ok) {
         say(ok ? prefix + 'command copied — paste it in a terminal' : prefix + 'copy failed — select the command below');
       });
     }
@@ -1216,7 +1237,8 @@ var TrajCompare = (function () {
       say('Opening Rerun…');
       // The endpoint wants a path relative to the served root, not to this page.
       var relative = decodeURIComponent(rrdUrl.pathname.replace(/^\//, ''));
-      fetch(location.origin + '/__rerun/open?rrd=' + encodeURIComponent(relative), { method: 'POST' })
+      var query = '?rrd=' + encodeURIComponent(relative) + (chosen ? '&layout=' + encodeURIComponent(chosen.name) : '');
+      fetch(location.origin + '/__rerun/open' + query, { method: 'POST' })
         .then(function (response) {
           return response.text().then(function (text) {
             var body = null;

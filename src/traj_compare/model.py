@@ -311,6 +311,9 @@ class CameraOverlay:
     sims: Sequence[tuple[str, str]]  # (label, video path) per selectable sim render
     t0_s: float = 0.0
     note: str = ""
+    # A render's flat background colour (e.g. "#fbfbf8"): keyed out when the overlay is baked into
+    # one video for Rerun, so only the rendered robot lies over the camera. Empty: a plain 50 % mix.
+    key_color: str = ""
 
     def __post_init__(self) -> None:
         if not self.name:

@@ -185,10 +185,39 @@ write_comparison_report(comparisons, out_dir, rerun=True)   # needs: uv run --ex
 `rerun=True` writes `rerun/<comparison.name>.rrd` beside `report.html` (one recording per comparison, blueprint
 embedded) and gives each page an **Open in Rerun** control. Without the SDK it raises an `ImportError` naming the
 `rerun` extra; the default `rerun=False` never imports it. `write_rrd(comparison, path)` writes one file directly.
-The numbers come from the same payload as the HTML (so from `robot_msgs.compare`): `/error/joint/<joint>/<situation>`
-is target − run in rad (the data; the notes page shows degrees), `/error/tool/...` in mm / mrad and degrees (`rotation_deg` beside `rotation_mrad`), `/vec/<label>/<situation>` the signed speed along each `vec_dirs`
-direction, plus `/position`, `/velocity`, `/torque`, `/world/<situation>/{robot,tcp}`, `/video/<situation>` (MP4) and
-a `/notes` statistics table.
+The numbers come from the same payload as the HTML (so from `robot_msgs.compare`), shown in the units a person reads:
+joints in degrees (`/position`, `/velocity` in °/s, `/error/joint/<joint>/<situation>` = target − run in °), the tool in mm
+(`/error/tool/...`, rotation in °), `/vec/<label>/<situation>` the signed speed along each `vec_dirs` direction, `/torque`,
+`/world/<situation>/{robot,tcp}`, `/video/<situation>` (MP4) and a `/notes` statistics table. The stored data (payload,
+Parquet, MCAP) stays SI; the `.rrd` is a viewer. On top of that every recording carries what the layouts read:
+shaded tolerance bands (`.../tolerance`, Rerun `Measurements`), `/worst/joint_deg/<run>`, `/tcp/{x,y,z}_mm`, the
+reference path coloured by the worst run's tool error (`/heat_worst`, and `/trail_worst` on the clock), a worst-first
+`/scorecard`, tolerance `/events` and per-run RMS bars (`/stats/...`).
+
+**Two named layouts** (`rerun_export.LAYOUTS`, Zach's pick from five, 2026-11-11):
+
+| Name | What it is | Tabs |
+| --- | --- | --- |
+| `questions` (default) | the 3D robot over the camera overlay pinned on the left; tabs named by the question | Is it good? · Where? · Which joint? · Timing or shape? · Signals |
+| `evo` | evo's own Rerun layout (`evo_ape --rerun`) plus one full-screen tab per analysis | Visualization · Trajectories · Joint error · Along / across · Video · Stats · Raw data |
+
+Tabs with nothing to show are dropped (no video → no Video tab; no tool frame → no Where? / Timing). Pick one per
+call (`write_comparison_report(..., rerun=True, rerun_layout="evo")`, `write_rrd(..., layout="evo")`) or set your
+preference once, for every call that does not name one:
+
+```bash
+export TRAJ_COMPARE_RERUN_LAYOUT=evo
+```
+
+or `rerun_layout = "evo"` in `~/.config/traj_compare/config.toml` (the env var wins). The chosen layout is embedded in
+the `.rrd`; every layout is also written beside it as `<name>.<layout>.rbl`, so the report's **Layout** menu (and
+`viewer_command(rrd, layout="evo")`) opens either. `layout_blueprint(name, payload, videos, tab="Which joint?")` opens on
+a named tab.
+
+**Camera overlay in Rerun.** A `CameraOverlay` (the real camera + sim renders) is baked with ffmpeg into one MP4,
+`rerun/<name>.overlay-<overlay>.mp4`, and logged as `/video/overlay/<overlay>`: Rerun's stock video view plays it. Each
+render is mixed at 50 %; `CameraOverlay(key_color="#fcfcfb")` keys a render's flat background out first so only the
+robot lies over the camera.
 
 **Version pin.** `RERUN_SDK_VERSION = "0.40.0"` (`traj_compare.rerun_export`, and the `rerun` extra): an `.rrd` must be
 opened by a viewer at least as new as the SDK that wrote it, so the button and the printed command always use
@@ -198,7 +227,7 @@ opened by a viewer at least as new as the SDK that wrote it, so the button and t
 
 | Opened from | "Open in Rerun" | Also |
 | --- | --- | --- |
-| `python -m traj_compare.serve <dir>` (default `http://127.0.0.1:8767/report.html`) | `POST /__rerun/open?rrd=...`; the server starts the pinned viewer on the file (only files inside `<dir>`) | "Rerun in browser" opens app.rerun.io on the served `.rrd` |
+| `python -m traj_compare.serve <dir>` (default `http://127.0.0.1:8767/report.html`) | `POST /__rerun/open?rrd=...&layout=...`; the server starts the pinned viewer on the file in the chosen layout (only files inside `<dir>`) | "Rerun in browser" opens app.rerun.io on the served `.rrd` |
 | `file://` or any plain static server | copies the `uvx` command (no launcher to call) | "Copy command", "Download .rrd" |
 
 ## Dataset view

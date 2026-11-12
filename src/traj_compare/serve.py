@@ -4,7 +4,7 @@
 
 A plain static server plus two behaviours. A request for a dataset run's ``runs/<slug>/report.html``
 (or its ``rerun/*.rrd``) that was never built is built on the spot from that run's manifest
-(``traj_compare.dataset.build_drill_down``) and cached on disk; and one endpoint, ``POST /__rerun/open?rrd=<path relative to the root>``,
+(``traj_compare.dataset.build_drill_down``) and cached on disk; and one endpoint, ``POST /__rerun/open?rrd=<path relative to the root>[&layout=questions|evo]``,
 which is what the report's "Open in Rerun" button calls. WHY an endpoint and not a custom URL
 scheme: a browser page cannot start a process, and a registered ``rerun://`` handler would be one
 more thing to install per machine; this is the same ``uvx`` command the "Copy command" button
@@ -23,7 +23,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from .rerun_export import viewer_argv, viewer_command
+from .rerun_export import LAYOUTS, blueprint_path, viewer_argv, viewer_command
 
 DEFAULT_PORT = 8767
 OPEN_PATH = "/__rerun/open"
@@ -149,19 +149,27 @@ def make_handler(
             if not resolved.is_file():
                 self._json(404, {"ok": False, "error": f"no such file: {requested}"})
                 return
+            # ?layout=<name> opens that named layout's .rbl beside the .rrd (rerun_export.LAYOUTS)
+            layout = (parse_qs(parts.query).get("layout") or [None])[0]
+            if layout is not None and layout not in LAYOUTS:
+                self._json(400, {"ok": False, "error": f"unknown layout {layout!r}; choose one of: {', '.join(LAYOUTS)}"})
+                return
+            if layout is not None and not blueprint_path(resolved, layout).is_file():
+                self._json(404, {"ok": False, "error": f"no {layout} layout file beside {requested}"})
+                return
             try:
-                spawn(viewer_argv(resolved))
+                spawn(viewer_argv(resolved, layout))
             except OSError as error:
                 self._json(
                     500,
                     {
                         "ok": False,
                         "error": f"could not start the viewer ({error}); is uv installed?",
-                        "command": viewer_command(resolved),
+                        "command": viewer_command(resolved, layout),
                     },
                 )
                 return
-            self._json(200, {"ok": True, "command": viewer_command(resolved)})
+            self._json(200, {"ok": True, "command": viewer_command(resolved, layout)})
 
     return Handler
 

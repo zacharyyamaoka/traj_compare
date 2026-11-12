@@ -73,6 +73,7 @@ def write_comparison_report(
     summary: ReportPage | None = None,
     insights: ReportPage | None = None,
     rerun: bool = False,
+    rerun_layout: str | None = None,
     exports: bool = False,
 ) -> Path:
     """Analyze the comparison(s) and write one self-contained ``report.html``.
@@ -81,6 +82,8 @@ def write_comparison_report(
     path ending in ``.html``. ``rerun=True`` also writes ``rerun/<name>.rrd`` beside
     the report for every comparison and gives each page an "Open in Rerun" control;
     it needs the ``rerun`` extra and raises ImportError naming it when the SDK is absent.
+    ``rerun_layout`` names the layout embedded in each .rrd ("questions" or "evo"; default: the user's
+    preference, ``rerun_export.default_layout()``); the page offers every layout either way.
     ``exports=True`` writes ``exports/<name>.parquet`` and ``.mcap`` the same way (the ``export`` extra)
     and links them next to the page's other downloads.
     """
@@ -99,7 +102,10 @@ def write_comparison_report(
 
     if rerun:
         # Lazy, so the core report never imports the SDK; the module raises its own clear error.
-        from .rerun_export import RERUN_SDK_VERSION, viewer_command, write_rrd
+        from .rerun_export import LAYOUTS, RERUN_SDK_VERSION, blueprint_path, default_layout, viewer_command, write_rrd
+
+        chosen = rerun_layout or default_layout()
+        layout_order = [chosen, *[name for name in LAYOUTS if name != chosen]]
 
     if exports:
         from .export import write_mcap, write_parquet
@@ -113,13 +119,26 @@ def write_comparison_report(
             rrd_path = write_rrd(
                 comparison,
                 report_path.parent / relative,
+                layout=chosen,
                 payload=payload,
                 video_root=report_path.parent,
             )
+            layouts = [
+                {
+                    "name": name,
+                    "title": LAYOUTS[name][0],
+                    "rbl": blueprint_path(relative, name).as_posix(),
+                    # the chosen layout is embedded, so its command is the bare .rrd; the others add their .rbl
+                    "command": viewer_command(rrd_path, layout=None if name == chosen else name),
+                }
+                for name in layout_order
+            ]
             payload["rerun"] = {
                 "rrd": relative,
                 "sdk": RERUN_SDK_VERSION,
-                "command": viewer_command(rrd_path),
+                "layout": chosen,
+                "layouts": layouts,
+                "command": layouts[0]["command"],
             }
         if exports:
             files = {"parquet": f"exports/{comparison.name}.parquet", "mcap": f"exports/{comparison.name}.mcap"}

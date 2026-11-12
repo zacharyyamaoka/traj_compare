@@ -79,7 +79,7 @@ def test_write_rrd_logs_the_standard_entity_layout(tmp_path):
         "/error/joint/j1/sim",  # signed joint error, target - run, SI
         "/error/joint/j2/real",
         "/error/tool/position_mm/sim",
-        "/error/tool/rotation_mrad/real",
+        "/error/tool/rotation_deg/real",  # degrees only (Zach: never milliradians)
         "/error/tool/rotation_deg/real",  # the same error in degrees: the entity is data, the view shows degrees
         "/position/j1/target",
         "/position/j1/sim",
