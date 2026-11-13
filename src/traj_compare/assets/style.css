@@ -179,7 +179,8 @@ table.tc-metrics tr.tone-muted { color: #8a8983; }
 .tc-3dcanvasbox { flex: 1 1 auto; min-width: 0; position: relative; }
 .tc-3dcanvasbox canvas { display: block; border: 1px solid #e6e5e0; border-radius: 6px;
                          background: #fcfcfb; width: 100%; }
-.tc-3dpanel { flex: 0 0 280px; font-size: 12px; color: #52514e; }
+/* min-width 0: a long dropdown label ellipsizes inside the panel instead of widening it (and the page) */
+.tc-3dpanel { flex: 0 0 280px; min-width: 0; font-size: 12px; color: #52514e; }
 .tc-3dpanel input[type="checkbox"] { accent-color: #2a78d6; margin: 0; }
 
 /* situation rows: eye + name + full-word multi-select */
@@ -248,6 +249,9 @@ footer.tc { padding: 10px 22px 26px; color: #8a8983; font-size: 11.5px; }
   nav.tc-tabs, nav.tc-subtabs { padding-left: 12px; padding-right: 12px; }
   .tc-bar-row { grid-template-columns: 130px 1fr 72px; }
   .tc-insights { grid-template-columns: 1fr; }
+  /* phone: the 3D panel goes under the canvas at full width, so neither squeezes the other off the page */
+  .tc-3dwrap { flex-direction: column; }
+  .tc-3dpanel { flex: 0 0 auto; width: 100%; }
 }
 .tc-figure { background: #fcfcfb; border: 1px solid #dddcd6; border-radius: 8px; padding: 12px 14px; margin: 0 0 14px; }
 .tc-figure h3 { font-size: 13.5px; margin: 0 0 8px; color: #22211f; }
