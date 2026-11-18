@@ -444,3 +444,37 @@ table.tc-metrics td.wrap { white-space: normal; text-align: left; min-width: 220
   .tc-stage .tc-3dwrap { flex-direction: column; }
   .tc-stage .tc-3dpanel { flex: 0 0 auto; width: 100%; }
 }
+/* scatter chart (ScatterChart): inline SVG; its colours live in these variables so a theme can override them */
+.tc-scatter { --sc-grid: #efeee9; --sc-axis: #cfcec8; --sc-tick: #8a8983; --sc-label: #52514e;
+              --sc-front: #52514e; --sc-ring: #fcfcfb; --sc-ring-front: #22211f; --sc-tip-bg: #fcfcfb;
+              --sc-tip-border: #cfcec8; --sc-tip-text: #22211f; --sc-tip-muted: #8a8983; min-width: 0; }
+.tc-scatter-legend { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 6px; }
+.tc-scatter-legend .chip { font-family: inherit; }
+.tc-scatter-legend .swatch.dot { width: 9px; height: 9px; border-radius: 50%; }
+.tc-scatter-legend .swatch.dashed { width: 18px; }
+.tc-scatter-count { color: #8a8983; font-size: 11px; font-variant-numeric: tabular-nums; }
+.tc-scatter-count:empty { display: none; }
+.tc-scatter-box { position: relative; min-width: 0; }
+.tc-scatter-svg { display: block; width: 100%; height: auto; font-size: 11px; overflow: visible; }
+.tc-sc-grid { stroke: var(--sc-grid); stroke-width: 1; }
+.tc-sc-axis { stroke: var(--sc-axis); stroke-width: 1; }
+.tc-sc-tick { fill: var(--sc-tick); font-variant-numeric: tabular-nums; }
+.tc-sc-label { fill: var(--sc-label); font-size: 12px; }
+.tc-sc-empty { fill: var(--sc-tick); font-size: 12.5px; }
+.tc-sc-band { fill-opacity: 0.14; stroke: none; }
+.tc-sc-line { fill: none; stroke-width: 1.75; stroke-linejoin: round; stroke-linecap: round; }
+.tc-sc-front { fill: none; stroke: var(--sc-front); stroke-width: 1.5; stroke-dasharray: 6 4; }
+.tc-sc-dot { stroke: var(--sc-ring); stroke-width: 1; fill-opacity: 0.9; }
+.tc-sc-dot.on-front { stroke: var(--sc-ring-front); stroke-width: 1.5; fill-opacity: 1; }
+.tc-sc-link { cursor: pointer; }
+.tc-sc-pt:hover .tc-sc-dot, .tc-sc-link:focus .tc-sc-dot { stroke: var(--sc-ring-front); stroke-width: 2; fill-opacity: 1; }
+.tc-sc-link:focus { outline: none; }
+.tc-scatter-tip { position: absolute; z-index: 5; pointer-events: none; max-width: 320px;
+                  background: var(--sc-tip-bg); border: 1px solid var(--sc-tip-border); border-radius: 6px;
+                  box-shadow: 0 4px 14px rgba(0,0,0,0.08); padding: 6px 9px; font-size: 11.5px;
+                  color: var(--sc-tip-text); overflow-wrap: anywhere; }
+.tc-scatter-tip-head { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.tc-scatter-tip-head .swatch { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: 0 0 auto; }
+.tc-scatter-tip-label { white-space: pre-line; margin-top: 2px; }
+.tc-scatter-tip-xy { color: var(--sc-tip-muted); margin-top: 3px; font-variant-numeric: tabular-nums; }
+.tc-scatter-tip-open { color: #2a78d6; margin-top: 3px; }

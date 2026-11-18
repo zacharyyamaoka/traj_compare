@@ -209,7 +209,21 @@ write_comparison_report([comparison], out_dir, insights=insights)
 - `examples/tracking_errors_demo.py` shows every standard field on a planar
   2R arm with a lagging and an offset run.
 - `summary=` and `insights=` accept `ReportPage` objects. A page may contain
-  `MetricCard`, `BarChart`, `ReportTable`, and `Insight` blocks.
+  `MetricCard`, `ScatterChart`, `BarChart`, `ReportTable`, and `Insight` blocks; the dataset view's
+  `summary=` page draws the same blocks.
+- `ScatterChart` (on `ReportPage.scatters`, drawn after the metric cards) is a clickable inline-SVG
+  scatter: each `ScatterSeries` holds `ScatterPoint(x, y, label=, href=)`s plus an optional `line`
+  (e.g. the median per x) and `band` (`(x, low, high)`, e.g. p25..p75). A point with an `href` is an
+  `<a target="_blank" rel="noopener">`, so it can open a run in Rerun through the local launcher
+  (only http(s) and relative links are kept). `pareto="max_x_min_y"` draws the non-dominated front
+  (higher x, lower y better) over the visible points; the legend toggles series; `log_y=True` for a
+  log error axis. `pareto_front(points)` is the same front in Python.
+
+  ```python
+  ScatterChart("Speed vs tracking error", "peak speed", "RMS error", x_unit="deg/s", y_unit="deg",
+               pareto="max_x_min_y", series=[ScatterSeries("Kp 8", [
+                   ScatterPoint(180.0, 1.9, label="Kp 8 · 180 deg/s", href="http://127.0.0.1:8771/open?rrd=...")])])
+  ```
 
 ## Open in Rerun
 

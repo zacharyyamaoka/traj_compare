@@ -30,7 +30,7 @@ static `report.html` out (joint/TCP/path-progress plot grids + interactive
 | `Comparison.goal_band` / `tcp_goal_band` | float or `None` | rad / m | settling band for goal / settling-time / overshoot | omitted → no goal statistics |
 | `Comparison.error_axes` | `[(label, vector)]` or `None` | — | named unit axes the TCP position error is projected on | omitted → none |
 | `Comparison.repeat_groups` | `{group: [situation names]}` | — | runs that repeat one motion: ISO 9283 AT / RT against the reference | empty → none |
-| `summary/insights` | `ReportPage` or `None` | — | report-level metric cards, bars, tables, evidence, and recommendations | omitted → no corresponding report-level tab |
+| `summary/insights` | `ReportPage` or `None` | — | report-level metric cards, clickable scatters (optional Pareto front), bars, tables, evidence, and recommendations | omitted → no corresponding report-level tab |
 
 ## Output
 

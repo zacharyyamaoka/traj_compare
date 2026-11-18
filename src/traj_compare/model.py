@@ -13,8 +13,10 @@ degrees-by-default toggle) is a viewer concern, never a storage concern.
 
 from __future__ import annotations
 
+import math
 import re
-from collections.abc import Callable, Mapping, Sequence
+import warnings
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -44,6 +46,10 @@ _SECTION_IDS = {
 }
 _ROW_TONES = {"", "highlight", "positive", "warning", "danger", "muted"}
 _CARD_TONES = {"", "neutral", "positive", "warning", "danger", "action"}
+_PARETO_MODES = {"", "max_x_min_y"}
+# A URL scheme ("http:", "javascript:"); anything without one is a relative link.
+_URL_SCHEME = re.compile(r"^([A-Za-z][A-Za-z0-9+.\-]*):")
+_URL_TRIM = "".join(chr(code) for code in range(0x21))  # C0 controls and space, as the URL parser trims
 
 
 def _slug(text: str) -> str:
@@ -222,6 +228,192 @@ class ReportImage:
         return {"title": self.title, "src": self.src, "caption": self.caption, "width_px": self.width_px}
 
 
+def _finite_float(value: Any, what: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{what} must be finite, got {value!r}")
+    return number
+
+
+def safe_href(href: str) -> str:
+    """``href`` if it is an http(s) or relative link, else ``""``.
+
+    WHY: a scatter point's link lands in a report people open and click; ``javascript:`` or
+    ``data:`` would run in the report's origin. Browsers drop tabs/newlines inside a URL and trim
+    control characters around it, so those are stripped before the scheme is read
+    (``"java<TAB>script:"`` is ``javascript:`` to a browser). plots.js applies the same rule.
+    """
+
+    cleaned = re.sub(r"[\t\n\r]", "", str(href)).strip(_URL_TRIM)
+    if not cleaned:
+        return ""
+    scheme = _URL_SCHEME.match(cleaned)
+    if scheme and scheme.group(1).lower() not in ("http", "https"):
+        return ""
+    return cleaned
+
+
+def pareto_front(
+    points: Iterable[tuple[float, float]], mode: str = "max_x_min_y"
+) -> list[tuple[float, float]]:
+    """The non-dominated points, in ascending x.
+
+    ``"max_x_min_y"``: higher x and lower y are better (speed vs tracking error). A point is on
+    the front when its y is strictly lower than that of every other point with a higher-or-equal
+    x (an exact duplicate counts once). plots.js draws the same front over the visible points.
+    """
+
+    if mode != "max_x_min_y":
+        raise ValueError(f"unknown pareto mode {mode!r}; known: ['max_x_min_y']")
+    ordered = sorted(((float(x), float(y)) for x, y in points), key=lambda point: (-point[0], point[1]))
+    front: list[tuple[float, float]] = []
+    best = math.inf
+    for x, y in ordered:
+        if y < best:
+            front.append((x, y))
+            best = y
+    return front[::-1]
+
+
+@dataclass(frozen=True)
+class ScatterPoint:
+    """One point of a ``ScatterChart``; with ``href`` it is a link that opens in a new tab."""
+
+    x: float
+    y: float
+    label: str = ""  # hover tooltip text (multi-line allowed with \n)
+    # WHY a new-tab anchor: the local Rerun launcher (127.0.0.1:8771) only launches on a top-level,
+    # user-activated navigation; a target=_blank <a> passes, fetch() and iframes do not.
+    href: str = ""
+    size: float | None = None  # radius in px; None = the chart default (4)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "x", _finite_float(self.x, "scatter point x"))
+        object.__setattr__(self, "y", _finite_float(self.y, "scatter point y"))
+        object.__setattr__(self, "label", str(self.label))
+        object.__setattr__(self, "href", str(self.href))
+        if self.size is not None:
+            size = _finite_float(self.size, "scatter point size")
+            if size <= 0.0:
+                raise ValueError(f"scatter point size must be positive, got {size}")
+            object.__setattr__(self, "size", size)
+
+    def to_payload(self) -> dict[str, Any]:
+        href = safe_href(self.href)
+        if self.href.strip() and not href:
+            warnings.warn(
+                f"scatter point {self.label or (self.x, self.y)!r}: dropped the link {self.href!r} "
+                "(only http(s) or relative links are kept)",
+                stacklevel=3,
+            )
+        return {"x": self.x, "y": self.y, "label": self.label, "href": href, "size": self.size}
+
+
+@dataclass(frozen=True)
+class ScatterSeries:
+    """A named set of points, with an optional line (e.g. the median per x) and band (e.g. p25..p75)."""
+
+    name: str
+    points: Sequence[ScatterPoint]
+    color: str = ""  # "" = the report's palette by series index
+    line: Sequence[tuple[float, float]] | None = None  # drawn under the points
+    band: Sequence[tuple[float, float, float]] | None = None  # (x, low, high), shaded under the line
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "name", str(self.name))
+        object.__setattr__(self, "color", str(self.color))
+        points = tuple(self.points)
+        for point in points:
+            if not isinstance(point, ScatterPoint):
+                raise TypeError(f"scatter series {self.name!r}: points must be ScatterPoint, got {point!r}")
+        object.__setattr__(self, "points", points)
+        if self.line is not None:
+            line = []
+            for vertex in self.line:
+                x, y = vertex
+                line.append((_finite_float(x, f"{self.name!r} line x"), _finite_float(y, f"{self.name!r} line y")))
+            object.__setattr__(self, "line", tuple(line))
+        if self.band is not None:
+            band = []
+            for row in self.band:
+                x, low, high = row
+                x = _finite_float(x, f"{self.name!r} band x")
+                low = _finite_float(low, f"{self.name!r} band low")
+                high = _finite_float(high, f"{self.name!r} band high")
+                if low > high:
+                    raise ValueError(f"scatter series {self.name!r}: band low {low} > high {high} at x={x}")
+                band.append((x, low, high))
+            object.__setattr__(self, "band", tuple(band))
+
+    def ys(self) -> list[float]:
+        values = [point.y for point in self.points]
+        values += [y for _, y in self.line or ()]
+        values += [v for _, low, high in self.band or () for v in (low, high)]
+        return values
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "color": self.color,
+            "points": [point.to_payload() for point in self.points],
+            "line": None if self.line is None else [list(vertex) for vertex in self.line],
+            "band": None if self.band is None else [list(row) for row in self.band],
+        }
+
+
+@dataclass(frozen=True)
+class ScatterChart:
+    """A clickable x/y scatter on a report page, optionally with its Pareto front.
+
+    Drawn as inline SVG by plots.js (no chart library: the report stays one self-contained file).
+    Clicking a legend entry toggles that series; the front is recomputed over the visible points.
+    """
+
+    title: str
+    x_label: str
+    y_label: str
+    series: Sequence[ScatterSeries]
+    description: str = ""
+    # "" = none; "max_x_min_y" = the non-dominated front over all visible points (higher x and
+    # lower y are better), a dashed step line labelled "Pareto front".
+    pareto: str = ""
+    log_y: bool = False
+    x_unit: str = ""
+    y_unit: str = ""
+
+    def __post_init__(self) -> None:
+        series = tuple(self.series)
+        if not series:
+            raise ValueError("scatter chart needs at least one series")
+        for entry in series:
+            if not isinstance(entry, ScatterSeries):
+                raise TypeError(f"scatter chart {self.title!r}: series must be ScatterSeries, got {entry!r}")
+        object.__setattr__(self, "series", series)
+        if self.pareto not in _PARETO_MODES:
+            raise ValueError(f"unknown pareto mode {self.pareto!r}; known: {sorted(_PARETO_MODES)}")
+        object.__setattr__(self, "log_y", bool(self.log_y))
+        if self.log_y:
+            for entry in series:
+                bad = [y for y in entry.ys() if y <= 0.0]
+                if bad:
+                    raise ValueError(
+                        f"scatter chart {self.title!r}: log_y needs every y > 0; series {entry.name!r} has {bad[0]}"
+                    )
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "title": self.title,
+            "description": self.description,
+            "x_label": self.x_label,
+            "y_label": self.y_label,
+            "x_unit": self.x_unit,
+            "y_unit": self.y_unit,
+            "series": [entry.to_payload() for entry in self.series],
+            "pareto": self.pareto,
+            "log_y": self.log_y,
+        }
+
+
 @dataclass
 class ReportPage:
     """A non-trajectory page such as Summary or Insights."""
@@ -234,10 +426,13 @@ class ReportPage:
     tables: Sequence[ReportTable] = field(default_factory=list)
     insights: Sequence[Insight] = field(default_factory=list)
     images: Sequence[ReportImage] = field(default_factory=list)
+    # Drawn right after the metric cards, before the bar charts.
+    scatters: Sequence[ScatterChart] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not self.name:
             self.name = _slug(self.title)
+        self.scatters = list(self.scatters)
         self.metrics = list(self.metrics)
         self.charts = list(self.charts)
         self.tables = list(self.tables)
@@ -254,6 +449,7 @@ class ReportPage:
             "tables": [table.to_payload() for table in self.tables],
             "insights": [insight.to_payload() for insight in self.insights],
             "images": [image.to_payload() for image in self.images],
+            "scatters": [scatter.to_payload() for scatter in self.scatters],
         }
 
 

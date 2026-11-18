@@ -17,8 +17,12 @@ from .model import (
     ReportPage,
     ReportTable,
     RobotDisplay,
+    ScatterChart,
+    ScatterPoint,
+    ScatterSeries,
     Situation,
     TableRow,
+    pareto_front,
 )
 from .report import write_comparison_report
 
@@ -47,11 +51,15 @@ __all__ = [
     "ReportPage",
     "ReportTable",
     "RobotDisplay",
+    "ScatterChart",
+    "ScatterPoint",
+    "ScatterSeries",
     "Situation",
     "TableRow",
     "analyze_comparison",
     "build_drill_down",
     "default_pairs",
+    "pareto_front",
     "write_comparison_report",
     "write_dataset_report",
 ]

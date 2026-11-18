@@ -1431,6 +1431,305 @@ var TrajCompare = (function () {
     });
   }
 
+  /* ---- Scatter chart (model.ScatterChart) ---------------------------------------------------
+     Plain inline SVG, no chart library: the report stays one file that opens from file://.
+     The axes cover every series (shown or not), so toggling a series in the legend never moves
+     them; the Pareto front is recomputed over the points that are visible.
+     WHY a point with an href is a real <a target="_blank" rel="noopener">: the local Rerun
+     launcher (127.0.0.1:8771) only launches on a top-level, user-activated navigation; a new-tab
+     anchor passes, fetch() and iframes do not. */
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+  // report.py's SITUATION_PALETTE, so a series and a situation of the same index share a colour.
+  var SCATTER_PALETTE = ['#2a78d6', '#eb6834', '#2f9e44', '#8e5bd1', '#c22f6e', '#17a2b8', '#a67c00', '#6b7a8f'];
+  var SCATTER_HEIGHT = 380;
+  var SCATTER_RADIUS = 4;
+
+  function svgEl(tag, attrs, parent) {
+    var node = document.createElementNS(SVG_NS, tag);
+    Object.keys(attrs || {}).forEach(function (key) { node.setAttribute(key, String(attrs[key])); });
+    if (parent) parent.appendChild(node);
+    return node;
+  }
+
+  /* Mirrors model.safe_href: only an http(s) or relative link survives (never javascript:/data:).
+     Tabs/newlines inside and control characters around a URL are dropped by the browser's URL
+     parser, so they are dropped here before the scheme is read. */
+  function safeHref(href) {
+    var cleaned = String(href || '').replace(/[\t\n\r]/g, '').replace(/^[\x00-\x20]+|[\x00-\x20]+$/g, '');
+    if (!cleaned) return '';
+    var scheme = /^([A-Za-z][A-Za-z0-9+.\-]*):/.exec(cleaned);
+    if (scheme && ['http', 'https'].indexOf(scheme[1].toLowerCase()) === -1) return '';
+    return cleaned;
+  }
+
+  /* "max_x_min_y" (model.pareto_front): a point is on the front when its y is below that of every
+     other point at a higher-or-equal x. Returned in ascending x. */
+  function paretoFront(points) {
+    var ordered = points.slice().sort(function (a, b) { return (b.x - a.x) || (a.y - b.y); });
+    var front = [];
+    var best = Infinity;
+    ordered.forEach(function (point) {
+      if (point.y < best) { front.push(point); best = point.y; }
+    });
+    return front.reverse();
+  }
+
+  function formatNumber(value, digits) {
+    if (value === 0) return '0';
+    var magnitude = Math.abs(value);
+    var rounded = Number(value.toPrecision(digits));
+    if (magnitude >= 1e5 || magnitude < 1e-3) return rounded.toExponential().replace('e+', 'e');
+    return String(rounded);
+  }
+
+  function linearTicks(lo, hi, count) {
+    var raw = (hi - lo) / Math.max(1, count);
+    var power = Math.pow(10, Math.floor(Math.log10(raw)));
+    var unit = raw / power;
+    var step = (unit < 1.5 ? 1 : unit < 3 ? 2 : unit < 7 ? 5 : 10) * power;
+    var ticks = [];
+    for (var i = Math.ceil(lo / step - 1e-9); i * step <= hi + step * 1e-9; i++) ticks.push(i * step);
+    return ticks;
+  }
+
+  function logTicks(lo, hi) {
+    var first = Math.floor(Math.log10(lo));
+    var last = Math.ceil(Math.log10(hi));
+    var decades = [];
+    for (var d = first; d <= last; d++) {
+      var v = Math.pow(10, d);
+      if (v >= lo * (1 - 1e-9) && v <= hi * (1 + 1e-9)) decades.push(v);
+    }
+    if (decades.length >= 3) {
+      var stride = Math.ceil(decades.length / 7);
+      return decades.filter(function (value, index) { return index % stride === 0; });
+    }
+    var ticks = [];
+    for (var e = first; e <= last; e++) {
+      [1, 2, 5].forEach(function (mantissa) {
+        var tick = mantissa * Math.pow(10, e);
+        if (tick >= lo * (1 - 1e-9) && tick <= hi * (1 + 1e-9)) ticks.push(tick);
+      });
+    }
+    return ticks.length >= 2 ? ticks : linearTicks(lo, hi, 4);
+  }
+
+  /* Data extent plus a margin; a linear axis whose data are all >= 0 never dips below 0. */
+  function paddedDomain(values, log) {
+    if (!values.length) return log ? [1, 10] : [0, 1];
+    var lo = Math.min.apply(null, values);
+    var hi = Math.max.apply(null, values);
+    if (log) {
+      var a = Math.log10(lo), b = Math.log10(hi);
+      var logPad = a === b ? 0.5 : (b - a) * 0.06;
+      return [Math.pow(10, a - logPad), Math.pow(10, b + logPad)];
+    }
+    var pad = lo === hi ? (Math.abs(lo) * 0.1 || 1) : (hi - lo) * 0.06;
+    return [lo >= 0 && lo - pad < 0 ? 0 : lo - pad, hi + pad];
+  }
+
+  function axisTitle(label, unit) {
+    return unit ? label + ' (' + unit + ')' : label;
+  }
+
+  function buildScatterChart(parent, chart) {
+    var section = el('section', 'tc-summary-chart tc-scatter', parent);
+    el('h3', '', section, chart.title);
+    if (chart.description) el('p', 'tc-table-desc', section, chart.description);
+    var legend = el('div', 'tc-scatter-legend', section);
+    var box = el('div', 'tc-scatter-box', section);
+    var svg = svgEl('svg', { 'class': 'tc-scatter-svg', role: 'img', 'aria-label': chart.title }, box);
+    var tip = el('div', 'tc-scatter-tip', box);
+    tip.hidden = true;
+
+    var logY = !!chart.log_y;
+    var series = chart.series.map(function (entry, index) {
+      return { data: entry, color: entry.color || SCATTER_PALETTE[index % SCATTER_PALETTE.length], visible: true };
+    });
+    var front = { on: !!chart.pareto };
+
+    var xs = [], ys = [];
+    chart.series.forEach(function (entry) {
+      entry.points.forEach(function (point) { xs.push(point.x); ys.push(point.y); });
+      (entry.line || []).forEach(function (vertex) { xs.push(vertex[0]); ys.push(vertex[1]); });
+      (entry.band || []).forEach(function (row) { xs.push(row[0]); ys.push(row[1], row[2]); });
+    });
+    if (logY) ys = ys.filter(function (y) { return y > 0; });
+    var xDomain = paddedDomain(xs, false);
+    var yDomain = paddedDomain(ys, logY);
+
+    function chip(label, swatchClass, color, count) {
+      var button = el('button', 'chip on', legend);
+      button.type = 'button';
+      button.setAttribute('aria-pressed', 'true');
+      var swatch = el('span', 'swatch ' + swatchClass, button);
+      swatch.style.color = color;
+      if (swatchClass === 'dot') swatch.style.background = color;
+      el('span', '', button, label);
+      if (count !== undefined) el('span', 'tc-scatter-count', button, String(count));
+      return button;
+    }
+    function paintChip(button, on) {
+      button.classList.toggle('on', on);
+      button.classList.toggle('off', !on);
+      button.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+    series.forEach(function (entry) {
+      entry.chip = chip(entry.data.name, 'dot', entry.color, entry.data.points.length);
+      if (!entry.data.points.length) entry.chip.classList.add('nodata');
+      entry.chip.onclick = function () {
+        entry.visible = !entry.visible;
+        paintChip(entry.chip, entry.visible);
+        render();
+      };
+    });
+    if (chart.pareto) {
+      front.chip = chip('Pareto front', 'dashed', '#52514e', '');
+      front.chip.title = 'Higher ' + chart.x_label + ' and lower ' + chart.y_label + ' are better';
+      front.chip.onclick = function () {
+        front.on = !front.on;
+        paintChip(front.chip, front.on);
+        render();
+      };
+    }
+
+    function showTip(entry, point, cx, cy, href) {
+      tip.textContent = '';
+      var head = el('div', 'tc-scatter-tip-head', tip);
+      var swatch = el('span', 'swatch', head);
+      swatch.style.background = entry.color;
+      head.appendChild(document.createTextNode(entry.data.name));
+      if (point.label) el('div', 'tc-scatter-tip-label', tip, point.label);
+      el('div', 'tc-scatter-tip-xy', tip,
+        chart.x_label + ' ' + formatNumber(point.x, 4) + (chart.x_unit ? ' ' + chart.x_unit : '') + ' · ' +
+        chart.y_label + ' ' + formatNumber(point.y, 4) + (chart.y_unit ? ' ' + chart.y_unit : ''));
+      if (href) el('div', 'tc-scatter-tip-open', tip, 'Click to open in a new tab ↗');
+      tip.hidden = false;
+      var scale = box.clientWidth / (svg.viewBox.baseVal.width || box.clientWidth || 1);
+      var left = cx * scale + 12;
+      if (left + tip.offsetWidth > box.clientWidth - 4) left = Math.max(0, cx * scale - 12 - tip.offsetWidth);
+      tip.style.left = left + 'px';
+      tip.style.top = Math.max(0, cy * scale - tip.offsetHeight - 8) + 'px';
+    }
+    function hideTip() { tip.hidden = true; }
+
+    var lastWidth = 0;
+    function render() {
+      var width = Math.max(320, Math.round(box.clientWidth || 960));
+      var height = SCATTER_HEIGHT;
+      lastWidth = Math.round(box.clientWidth || 0);
+      while (svg.firstChild) svg.removeChild(svg.firstChild);
+      svg.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
+      hideTip();
+
+      var plot = { left: 66, right: width - 18, top: 12, bottom: height - 46 };
+      var yLo = logY ? Math.log10(yDomain[0]) : yDomain[0];
+      var yHi = logY ? Math.log10(yDomain[1]) : yDomain[1];
+      function sx(x) { return plot.left + (x - xDomain[0]) / (xDomain[1] - xDomain[0]) * (plot.right - plot.left); }
+      function sy(y) {
+        var value = logY ? Math.log10(y) : y;
+        return plot.bottom - (value - yLo) / (yHi - yLo) * (plot.bottom - plot.top);
+      }
+
+      var axes = svgEl('g', { 'class': 'tc-sc-axes' }, svg);
+      linearTicks(xDomain[0], xDomain[1], Math.max(3, Math.floor((plot.right - plot.left) / 90))).forEach(function (tick) {
+        var x = sx(tick);
+        svgEl('line', { 'class': 'tc-sc-grid', x1: x, x2: x, y1: plot.top, y2: plot.bottom }, axes);
+        svgEl('text', { 'class': 'tc-sc-tick', x: x, y: plot.bottom + 16, 'text-anchor': 'middle' }, axes)
+          .textContent = formatNumber(tick, 6);
+      });
+      (logY ? logTicks(yDomain[0], yDomain[1]) : linearTicks(yDomain[0], yDomain[1], 6)).forEach(function (tick) {
+        var y = sy(tick);
+        svgEl('line', { 'class': 'tc-sc-grid', x1: plot.left, x2: plot.right, y1: y, y2: y }, axes);
+        svgEl('text', { 'class': 'tc-sc-tick', x: plot.left - 7, y: y + 3.5, 'text-anchor': 'end' }, axes)
+          .textContent = formatNumber(tick, 6);
+      });
+      svgEl('line', { 'class': 'tc-sc-axis', x1: plot.left, x2: plot.right, y1: plot.bottom, y2: plot.bottom }, axes);
+      svgEl('line', { 'class': 'tc-sc-axis', x1: plot.left, x2: plot.left, y1: plot.top, y2: plot.bottom }, axes);
+      svgEl('text', { 'class': 'tc-sc-label', x: (plot.left + plot.right) / 2, y: height - 8, 'text-anchor': 'middle' }, axes)
+        .textContent = axisTitle(chart.x_label, chart.x_unit);
+      var yMid = (plot.top + plot.bottom) / 2;
+      svgEl('text', { 'class': 'tc-sc-label', x: 14, y: yMid, 'text-anchor': 'middle', transform: 'rotate(-90 14 ' + yMid + ')' }, axes)
+        .textContent = axisTitle(chart.y_label, chart.y_unit) + (logY ? ' · log' : '');
+
+      var shown = series.filter(function (entry) { return entry.visible; });
+      shown.forEach(function (entry) {
+        var band = (entry.data.band || []).filter(function (row) { return !logY || row[1] > 0; });
+        if (band.length < 2) return;
+        var outline = band.map(function (row) { return sx(row[0]) + ',' + sy(row[1]); })
+          .concat(band.slice().reverse().map(function (row) { return sx(row[0]) + ',' + sy(row[2]); }));
+        svgEl('polygon', { 'class': 'tc-sc-band', points: outline.join(' '), fill: entry.color }, svg);
+      });
+      shown.forEach(function (entry) {
+        var line = (entry.data.line || []).filter(function (vertex) { return !logY || vertex[1] > 0; });
+        if (line.length < 2) return;
+        svgEl('polyline', {
+          'class': 'tc-sc-line', stroke: entry.color,
+          points: line.map(function (vertex) { return sx(vertex[0]) + ',' + sy(vertex[1]); }).join(' '),
+        }, svg);
+      });
+
+      var visiblePoints = [];
+      shown.forEach(function (entry) {
+        entry.data.points.forEach(function (point) {
+          if (!logY || point.y > 0) visiblePoints.push(point);
+        });
+      });
+      var onFront = [];
+      if (front.on && visiblePoints.length) {
+        var frontPoints = paretoFront(visiblePoints);
+        onFront = frontPoints;
+        if (frontPoints.length > 1) {
+          var path = 'M' + sx(frontPoints[0].x) + ' ' + sy(frontPoints[0].y);
+          frontPoints.slice(1).forEach(function (point) {
+            path += ' V' + sy(point.y) + ' H' + sx(point.x);
+          });
+          svgEl('path', { 'class': 'tc-sc-front', d: path }, svg);
+        }
+      }
+      if (front.chip) front.chip.querySelector('.tc-scatter-count').textContent = front.on ? String(onFront.length) : '';
+      var frontSet = new Set(onFront);
+
+      shown.forEach(function (entry) {
+        var group = svgEl('g', { 'class': 'tc-sc-series' }, svg);
+        entry.data.points.forEach(function (point) {
+          if (logY && !(point.y > 0)) return;
+          var cx = sx(point.x), cy = sy(point.y);
+          var radius = point.size || SCATTER_RADIUS;
+          var href = safeHref(point.href);
+          var holder = href
+            ? svgEl('a', { 'class': 'tc-sc-pt tc-sc-link', href: href, target: '_blank', rel: 'noopener' }, group)
+            : svgEl('g', { 'class': 'tc-sc-pt' }, group);
+          holder.setAttribute('aria-label', (point.label || entry.data.name).replace(/\s*\n\s*/g, ' · '));
+          // WHY no enlarged invisible hit ring: in a dense cloud it made the point on top steal the
+          // hover from a neighbour you could see under the cursor; the hit area is the visible dot.
+          svgEl('circle', {
+            'class': 'tc-sc-dot' + (frontSet.has(point) ? ' on-front' : ''),
+            cx: cx, cy: cy, r: radius, fill: entry.color,
+          }, holder);
+          var enter = function () { showTip(entry, point, cx, cy, href); };
+          holder.addEventListener('mouseenter', enter);
+          holder.addEventListener('focus', enter);
+          holder.addEventListener('mouseleave', hideTip);
+          holder.addEventListener('blur', hideTip);
+        });
+      });
+
+      if (!visiblePoints.length) {
+        svgEl('text', { 'class': 'tc-sc-empty', x: (plot.left + plot.right) / 2, y: yMid, 'text-anchor': 'middle' }, svg)
+          .textContent = xs.length ? 'every series is hidden' : 'no data';
+      }
+    }
+
+    render();
+    if (window.ResizeObserver) {
+      new ResizeObserver(function () {
+        var now = Math.round(box.clientWidth);
+        if (now > 0 && now !== lastWidth) render();
+      }).observe(box);
+    }
+  }
+
   function buildInsightCards(parent, insights) {
     if (!insights || !insights.length) return;
     var grid = el('div', 'tc-insights', parent);
@@ -1455,6 +1754,7 @@ var TrajCompare = (function () {
     el('h2', 'tc-page-title', page.el, data.title);
     if (data.description) el('p', 'tc-report-desc', page.el, data.description);
     buildMetricCards(page.el, data.metrics);
+    (data.scatters || []).forEach(function (chart) { buildScatterChart(page.el, chart); });
     data.charts.forEach(function (chart) { buildBarChart(page.el, chart); });
     data.tables.forEach(function (table) { buildTable(page.el, table, false); });
     (data.images || []).forEach(function (image) { buildFigure(page.el, image); });
@@ -2666,6 +2966,7 @@ var TrajCompare = (function () {
   return {
     boot: boot,
     renderReportPage: renderReportPage,
+    scatter: { paretoFront: paretoFront, safeHref: safeHref },
     state: state,
     buildTransportBar: buildTransportBar,
     prefs: function () { return state.prefs; },
