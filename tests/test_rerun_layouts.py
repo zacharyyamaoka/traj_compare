@@ -43,7 +43,10 @@ from traj_compare.rerun_export import (  # noqa: E402
 from test_report import extract_payload  # noqa: E402
 from test_rerun_export import rrd_print, three_way  # noqa: E402
 
-QUESTIONS_TABS = ["Is it good?", "Where?", "Which joint?", "Timing or shape?", "Signals"]
+# The shared question-tab titles (docs/NAVIGATION.md Part B, 2026-11-19: "super descriptive"); the old ones still
+# open a tab by name (tab="Which joint?" below).
+QUESTIONS_TABS = ["Did it track the target?", "Where is the error?", "Which joint has the error?",
+                  "Is it late or off the path?", "Raw signals per joint"]
 
 
 def _scalars(path: Path, entity: str) -> np.ndarray:
@@ -118,7 +121,7 @@ def test_questions_layout_pins_the_stage_and_names_its_tabs_by_question():
     assert any(type(view).__name__ == "Spatial3DView" for view in stage.contents)
     assert _names(questions) == QUESTIONS_TABS
     nested = _find_tabs(questions)[1]
-    assert _names(nested) == ["Position", "Velocity", "Torque"]  # the sim carries torque in three_way
+    assert _names(nested) == ["Angle [°]", "Speed [°/s]", "Applied torque [N·m]"]  # the sim carries torque in three_way
 
 
 def test_evo_layout_follows_evo_and_drops_tabs_with_nothing_to_show():

@@ -67,6 +67,7 @@ from .rotations import (
     successive_rotation_angles,
     unwrap_rpy,
 )
+from .tabs import normalize_parts, tabs_for
 
 MAX_PLOT_POINTS = 5000
 MAX_ROBOT_TRACK_POINTS = 2000
@@ -1028,7 +1029,7 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
             entry["error_metrics"] = {}  # measured, but nothing to measure against
     statistics = comparison.statistics or _automatic_statistics(comparison, automatic_metrics)
     aggregates = _aggregates(comparison, target_joints, target_pose_track)
-    return {
+    payload = {
         "name": comparison.name,
         "title": comparison.title,
         "group": comparison.group,
@@ -1059,4 +1060,9 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
         "robots": registry.payloads,
         "situations": payload_situations,
         "statistics": statistics.to_payload(),
+        # WHY here (Zach 2026-11-19, traj compare view feedback: the standalone and the Rerun run viewer "should be
+        # the exact same thing"): both read the parts and the already-dropped question tabs from this one payload.
+        "parts": normalize_parts(comparison.joint_names, comparison.parts),
     }
+    payload["tabs"] = tabs_for(payload)
+    return payload

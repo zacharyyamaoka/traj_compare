@@ -1,0 +1,232 @@
+"""The run view's question tabs and the arm / hand parts, shared by the HTML report and Rerun.
+
+One set of tabs for both viewers (docs/NAVIGATION.md, Part B, frozen 2026-11-19). WHY one module (Zach
+2026-11-19, traj compare view feedback: "designing a different run viewer for standalone and rerun is a
+bit silly ... they should be the exact same thing"): the titles, the headings and the rule that drops a
+tab with nothing to show live here once, so the two viewers cannot drift apart.
+
+- ``TABS``: every tab in the contract's order, with its exact title and heading.
+- ``tabs_for(payload)``: the tabs an ``analyze_comparison`` payload can fill (``payload["tabs"]``).
+- ``normalize_parts(joint_names, parts)``: ``Comparison.parts`` as the payload's ``payload["parts"]``.
+- ``resolve_tab(name)``: a tab by id, by title, or by a pre-2026-11-19 title.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any
+
+# The part every joint falls into when ``Comparison.parts`` is None (no part selector is drawn).
+IMPLICIT_PART = "All joints"
+# The trailing part holding the joints ``Comparison.parts`` does not name.
+OTHER_PART = "Other joints"
+
+
+@dataclass(frozen=True)
+class Tab:
+    """One question tab: its id, the exact title on the tab, the exact heading inside it, and its HTML sections.
+
+    ``html_sections`` are the report's section ids (``model._SECTION_IDS``) the tab holds. ``track`` holds
+    none: it carries the page-level blocks (statistics table, verdicts, aggregate cards, Summary / Insights
+    pages, worst moment) instead. ``legacy_titles`` are the pre-2026-11-19 Rerun tab names that still open it.
+    """
+
+    id: str
+    title: str
+    heading: str
+    html_sections: tuple[str, ...] = ()
+    legacy_titles: tuple[str, ...] = ()
+
+
+# WHY these titles (Zach 2026-11-19, traj compare view feedback): tab titles "super descriptive" —
+# "Where?" → "Where is the error?" is better. The order is the order a reviewer asks the questions in.
+TABS: tuple[Tab, ...] = (
+    Tab(
+        id="track",
+        title="Did it track the target?",
+        heading="How well did each run follow the target, and when was it worst?",
+        legacy_titles=("Is it good?",),
+    ),
+    Tab(
+        id="where",
+        title="Where is the error?",
+        heading="Where along the path is the tool off the target, and in which direction?",
+        html_sections=("tcp-err", "tcp-pose"),
+        legacy_titles=("Where?",),
+    ),
+    Tab(
+        id="joints",
+        title="Which joint has the error?",
+        heading="Which joint contributes the most tracking error?",
+        html_sections=("joint-err",),
+        legacy_titles=("Which joint?",),
+    ),
+    Tab(
+        id="timing",
+        title="Is it late or off the path?",
+        heading="Is the tool behind schedule (timing) or off the path (shape)?",
+        html_sections=("path",),
+        legacy_titles=("Timing or shape?",),
+    ),
+    Tab(
+        id="torque",
+        title="Feedforward or feedback?",
+        heading="How much of the commanded torque comes from the feedforward model, and how much from feedback?",
+        html_sections=("joint-torque",),
+        legacy_titles=("Feedforward or feedback?",),
+    ),
+    Tab(
+        id="signals",
+        title="Raw signals per joint",
+        heading="Every measured joint signal: angle, speed, acceleration, torque, current",
+        html_sections=("joint-q", "joint-qd", "joint-qdd", "joint-tau", "joint-current"),
+        legacy_titles=("Signals",),
+    ),
+)
+
+_BY_ID = {tab.id: tab for tab in TABS}
+
+
+def _runs_with(payload: Mapping[str, Any], key: str) -> bool:
+    return any(
+        entry.get("role") != "target" and entry.get("plot") and entry["plot"].get(key) is not None
+        for entry in payload["situations"]
+    )
+
+
+def _available_sections(payload: Mapping[str, Any]) -> set[str]:
+    """The section ids this payload can draw — the same conditions as ``sectionDefs`` in ``assets/plots.js``."""
+
+    sections = {"joint-q", "joint-qd", "joint-qdd"}
+    if payload.get("has_tau"):
+        sections.add("joint-tau")
+    if payload.get("has_current"):
+        sections.add("joint-current")
+    if payload.get("has_torque_breakdown"):
+        sections.add("joint-torque")
+    if _runs_with(payload, "err_q"):
+        sections.add("joint-err")
+    if payload.get("has_cartesian"):
+        sections.update({"tcp-pose", "path"})
+        if _runs_with(payload, "xyz_mag"):
+            sections.add("tcp-err")
+    return sections
+
+
+def _shown(tab: Tab, payload: Mapping[str, Any], sections: list[str]) -> bool:
+    """The contract's "Shown when" column, plus: a tab whose sections are all absent has nothing to show."""
+
+    if tab.id in ("where", "timing"):
+        shown = bool(payload.get("has_cartesian"))  # a tool frame exists (fk or poses)
+    elif tab.id == "joints":
+        shown = len(payload["joint_names"]) >= 2  # one joint has nothing to rank
+    elif tab.id == "torque":
+        shown = bool(payload.get("has_torque_breakdown"))
+    else:  # track, signals: always
+        shown = True
+    return shown and (not tab.html_sections or bool(sections))
+
+
+def tabs_for(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """The tabs an ``analyze_comparison`` payload fills, in order: ``[{"id", "title", "heading", "sections"}]``.
+
+    A tab with nothing to show is dropped, in both viewers, by this one rule (NAVIGATION.md Part B):
+    ``where`` and ``timing`` need a tool frame, ``joints`` at least two joints (and a joint error to rank),
+    ``torque`` a torque breakdown; ``track`` and ``signals`` are always there. ``sections`` lists only the
+    tab's sections this payload can draw (``joint-tau`` only with ``tau``, and so on).
+    """
+
+    available = _available_sections(payload)
+    shown: list[dict[str, Any]] = []
+    for tab in TABS:
+        sections = [section for section in tab.html_sections if section in available]
+        if _shown(tab, payload, sections):
+            shown.append({"id": tab.id, "title": tab.title, "heading": tab.heading, "sections": sections})
+    return shown
+
+
+def resolve_tab(name_or_id: str) -> Tab:
+    """The tab named ``name_or_id``: its id (``"joints"``), its title, or a pre-2026-11-19 title (``"Which joint?"``).
+
+    An unknown name raises ``ValueError`` listing the ids and titles that exist.
+    """
+
+    name = str(name_or_id)
+    if name in _BY_ID:
+        return _BY_ID[name]
+    for tab in TABS:
+        if name == tab.title or name in tab.legacy_titles:
+            return tab
+    known = ", ".join(f"{tab.id} ({tab.title!r})" for tab in TABS)
+    raise ValueError(f"no question tab {name!r}; tabs: {known}")
+
+
+def _joint_list(part: str, finger: str | None, joints: Any) -> list[str]:
+    where = f"part {part!r}" + (f", finger {finger!r}" if finger is not None else "")
+    # WHY a bare string is refused: "shoulder" is a Sequence of letters, never a list of one joint
+    if isinstance(joints, (str, bytes)) or not isinstance(joints, Sequence):
+        raise ValueError(f"{where}: expected a list of joint names, got {joints!r}")
+    names = [str(joint) for joint in joints]
+    if not names:
+        raise ValueError(f"{where} names no joints")
+    return names
+
+
+def normalize_parts(
+    joint_names: Sequence[str],
+    parts: Mapping[str, Sequence[str] | Mapping[str, Sequence[str]]] | None,
+) -> list[dict[str, Any]]:
+    """``Comparison.parts`` as ``[{"name", "groups": [{"name", "joints"}]}]``, in the caller's order.
+
+    A part's value is a list of joint names (an **arm**, one group named ``""``) or ``{finger: [joints]}``
+    (a **hand**, one group per finger). Every named joint must exist and appear once (else ``ValueError``);
+    joints not named fall into a trailing part ``"Other joints"``, in ``joint_names`` order. ``None`` (or an
+    empty mapping) is one implicit part ``"All joints"`` holding every joint: the viewers draw no part selector.
+
+    WHY explicit (Zach 2026-11-19, traj compare view feedback: "split the arm and the hand into separate
+    concerns, and each arm separately"): the viewer never guesses arm / hand membership from joint names.
+    """
+
+    joint_names = [str(joint) for joint in joint_names]
+    if not parts:
+        return [{"name": IMPLICIT_PART, "groups": [{"name": "", "joints": list(joint_names)}]}]
+    if not isinstance(parts, Mapping):
+        raise ValueError(f"parts must map a part name to its joints, got {type(parts).__name__}")
+    known = set(joint_names)
+    owner: dict[str, str] = {}
+    normalized: list[dict[str, Any]] = []
+    for part_name, value in parts.items():
+        part = str(part_name)
+        if not part.strip():
+            raise ValueError("a part needs a non-empty name")
+        if isinstance(value, Mapping):
+            if not value:
+                raise ValueError(f"part {part!r} names no fingers")
+            groups = []
+            for finger_name, joints in value.items():
+                finger = str(finger_name)
+                if not finger.strip():
+                    raise ValueError(f"part {part!r}: a finger needs a non-empty name")
+                groups.append({"name": finger, "joints": _joint_list(part, finger, joints)})
+        else:
+            groups = [{"name": "", "joints": _joint_list(part, None, value)}]
+        for group in groups:
+            for joint in group["joints"]:
+                if joint not in known:
+                    raise ValueError(f"part {part!r} names unknown joint {joint!r}; joints: {joint_names}")
+                if joint in owner:
+                    raise ValueError(
+                        f"joint {joint!r} appears twice (in part {owner[joint]!r} and part {part!r}); "
+                        "each joint belongs to one part"
+                    )
+                owner[joint] = part
+        normalized.append({"name": part, "groups": groups})
+    unnamed = [joint for joint in joint_names if joint not in owner]
+    if unnamed:
+        if any(part["name"] == OTHER_PART for part in normalized):
+            raise ValueError(
+                f"joints {unnamed} are in no part, and {OTHER_PART!r} is already a part name; name them explicitly"
+            )
+        normalized.append({"name": OTHER_PART, "groups": [{"name": "", "joints": unnamed}]})
+    return normalized

@@ -21,6 +21,8 @@ from typing import Any
 import numpy as np
 from robot_msgs.compare import Tolerances
 
+from .tabs import normalize_parts
+
 # (N, DOF) joint configurations in → (N, 4, 4) TCP poses out.
 FkFunction = Callable[[np.ndarray], np.ndarray]
 
@@ -502,6 +504,11 @@ class Comparison:
     # group name -> situation names that are repeats of one run: ISO 9283 accuracy vs
     # repeatability (robot_msgs.compare.aggregate) against the reference.
     repeat_groups: Mapping[str, Sequence[str]] = field(default_factory=dict)
+    # Ordered part name -> its joints: a list (an arm, 1-7 motors) or {finger: [joints]} (a hand). Joints not
+    # named fall into a trailing "Other joints"; None is one implicit part (no part selector). WHY explicit
+    # (Zach 2026-11-19, traj compare view feedback: "split the arm and the hand into separate concerns, and
+    # each arm separately"): the viewers never guess arm / hand membership from joint names (tabs.py).
+    parts: Mapping[str, Sequence[str] | Mapping[str, Sequence[str]]] | None = None
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -571,3 +578,14 @@ class Comparison:
                 raise ValueError(f"repeat group '{group}' needs at least 2 runs")
             groups[str(group)] = run_names
         self.repeat_groups = groups
+        if self.parts is not None:
+            normalize_parts(self.joint_names, self.parts)  # raises on an unknown or a repeated joint
+            # an owned, ordered copy, so a caller mutating its dict later cannot desync the validated parts
+            self.parts = {
+                str(name): (
+                    {str(finger): [str(joint) for joint in joints] for finger, joints in value.items()}
+                    if isinstance(value, Mapping)
+                    else [str(joint) for joint in value]
+                )
+                for name, value in self.parts.items()
+            }
