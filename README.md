@@ -12,6 +12,20 @@ directive in [`traj_integration_tests/Logs.md`](../traj_integration_tests/Logs.m
 
 ## What the report shows
 
+A run report puts a **stage** on the left: the 3D view (robot + tool paths, the scrubber
+under it) over the camera overlay / videos. Drag its edge, fold it with ‹ (both remembered);
+below 900 px it stacks above the tabs. Beside it, the **question tabs** shared with Rerun
+(`traj_compare.tabs`, contract `docs/NAVIGATION.md` Part B):
+*Did it track the target?* · *Where is the error?* · *Which joint has the error?* ·
+*Is it late or off the path?* · *Feedforward or feedback?* · *Raw signals per joint*.
+A tab with nothing to show is dropped; the last tab is remembered and `#tab=<id>` opens one.
+With `Comparison.parts` (`{"Left arm": [joints], "Left hand": {"Thumb": [joints], ...}}`), the per-joint tabs
+rank every joint worst first (`<part> · <joint>`, click to jump), offer a part selector (`Left hand · 16 joints`),
+and draw an arm one row per joint, a hand one row per finger. Every title names signal, joint, sign and unit
+(`shoulder: joint error, Target − run [°]`). Situation chips, Δ-vs-target, rad/**deg**, the
+zoom and the time cursor span every tab. `breadcrumb=[(label, href), …]` adds the links back
+to the dataset and target.
+
 Everything is show/hide-able per section (chips), per situation (legend
 chips), with a rad/**deg (default)** angle toggle. All time plots share one
 synchronized x zoom (drag to zoom any plot, all follow; the **Reset zoom**
@@ -224,12 +238,18 @@ reference path coloured by the worst run's tool error (`/heat_worst`, and `/trai
 
 | Name | What it is | Tabs |
 | --- | --- | --- |
-| `questions` (default) | the 3D robot over the camera overlay pinned on the left; tabs named by the question | Is it good? · Where? · Which joint? · Timing or shape? · Feedforward or feedback? · Signals |
+| `questions` (default) | the 3D robot over the camera overlay pinned on the left; the HTML run view's own question tabs (`traj_compare.tabs`: same titles, same drop rule) | Did it track the target? · Where is the error? · Which joint has the error? · Is it late or off the path? · Feedforward or feedback? · Raw signals per joint |
 | `evo` | evo's own Rerun layout (`evo_ape --rerun`) plus one full-screen tab per analysis | Visualization · Trajectories · Joint error · Along / across · Torque · Video · Stats · Raw data |
+
+With `Comparison.parts`, the `questions` layout's per-joint tabs (joints, torque, signals) nest one tab per part,
+`<part> · <n> joints`: an arm is a two-column grid, a hand one row per finger. The joints tab ranks first: each part's bars
+(`/stats/joint_rms/<part>`, every joint's worst-run RMS error in °; the title names the worst joint, then the bar
+order) and, with two or more parts, one line listing every joint worst first (`/stats/joint_ranking`).
+`layout_blueprint(..., tab=)` takes a tab id, its title, a pre-2026-11-19 title ("Which joint?") or a check tab's name.
 
 The torque tab (**Feedforward or feedback?** / **Torque**) shows, per joint, the worst scorecard run's full breakdown, every
 run's feedback and the FB-share bars. Tabs with nothing to show are dropped (no video → no Video tab; no tool frame → no
-Where? / Timing; no torque breakdown → no torque tab). Pick one per
+*Where is the error?* / *Is it late or off the path?*; one joint → no *Which joint has the error?*; no torque breakdown → no torque tab). Pick one per
 call (`write_comparison_report(..., rerun=True, rerun_layout="evo")`, `write_rrd(..., layout="evo")`) or set your
 preference once, for every call that does not name one:
 
@@ -239,7 +259,7 @@ export TRAJ_COMPARE_RERUN_LAYOUT=evo
 
 or `rerun_layout = "evo"` in `~/.config/traj_compare/config.toml` (the env var wins). The chosen layout is embedded in
 the `.rrd`; every layout is also written beside it as `<name>.<layout>.rbl`, so the report's **Layout** menu (and
-`viewer_command(rrd, layout="evo")`) opens either. `layout_blueprint(name, payload, videos, tab="Which joint?")` opens on
+`viewer_command(rrd, layout="evo")`) opens either. `layout_blueprint(name, payload, videos, tab="joints")` opens on
 a named tab.
 
 **Check tabs in Rerun.** A measurement that checks the others (a camera's ArUco angle checking the encoder) is not a run to
@@ -282,6 +302,18 @@ write_dataset_report(runs, "out/", title="Wrist coverage", group_by=("tape",), t
                      primary={"sim": "sim_it5"}, drill_down="lazy")
 ```
 
+- **Three levels** (`docs/NAVIGATION.md` Part A). `index.html` opens on the **Dataset**: your `summary`, a band across every
+  target (targets, lines sim/real, configs, dates; per config the median RMS error and "better than <baseline> on X of Y
+  targets"), then the targets as **Cards** ⇄ **Table** (one row per target × config: lines, RMS error per line, median,
+  Δ vs baseline, ISO 9283 RT, error over time) ⇄ **Runs** (the table, heatmap, peak strip and ISO cards below).
+  `#/target/<slug>` is one **Target**: a draggable, foldable line list (regex filter, tag chips, group by config / date /
+  sim-real), a verdict, and two tabs: *How repeatable is each config on this target?* (joint error per joint; lines up to
+  N, then a median · IQR · p5–p95 · min–max fan of the real lines, sims dashed, never pooled) and *Has tracking improved
+  across configs over time?* (an I-MR control chart per config phase, in date order). A line's ↗ opens its run report,
+  whose breadcrumb links back.
+- `target_by` (default: the `"target"` tag, else the first `group_by` tag, else a hash of the reference), `config_by`
+  (default: the first `group_by` tag that isn't the target, else the series name); a `"date"` tag orders the history;
+  `display_hz` (default 50) sets the rate of the embedded error series (about 4.5 MB of page at 387 two-joint runs).
 - `Run(name, reference, measured, tags, pairs, time_offset_s, title, media, media_start_s)`: `measured` holds any number
   of series (`"reference"` is the target's reserved name). `pairs=None` is `default_pairs(series)`: the target to each series,
   then every series to every later one. A pair (a, b) is taken with `time_offset_s[b] - time_offset_s[a]`.
