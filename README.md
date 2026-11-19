@@ -39,6 +39,7 @@ players.
 | Section | Channels | Default |
 | --- | --- | --- |
 | Joint q / qd / qdd / τ / i | per joint, target + every situation overlaid; i is motor current in A (`Situation.current`, offered only when a run has it) | q on, rest off |
+| Torque breakdown | the **Torque budget** table (per measured run × joint: FB share, commanded / FF / FB RMS, target − commanded RMS, commanded − applied RMS, peak \|commanded\|), then one card per joint × run with five torques: target (grey, dashed), **commanded** (run colour, thickest), **feedforward** (blue), **feedback** (orange, filled to zero), **applied** (run colour, thin). One component legend toggles a torque on every card; situation chips hide a run's cards; a derived component says so in the card title. Offered when a run has `tau_cmd`, `tau_ff` or `tau_fb` | on |
 | Joint error | per joint, `target(t) − q` | off |
 | TCP pose | x, y, z [m], rx, ry, rz [deg] (extrinsic xyz, unwrapped) of the `tcp_frame` | off |
 | TCP error | vs target (error = target − run) at the run's own samples: \|Δp\| [mm] and rotation angle [deg]; **cross-track** (off the path) and signed **lag** along it (+ when the run is behind the target) [mm]; per-axis x/y/z [mm] and rx/ry/rz [deg] as a world-axis rotation vector | on |
@@ -122,6 +123,26 @@ write_comparison_report([comparison], out_dir, insights=insights)
 - Arrays are SI (s, rad, m, Nm); the deg default is a viewer toggle only.
 - `qd`/`qdd` fall back to `np.gradient` when omitted (flagged in the report);
   `tau` stays absent if absent.
+- **The five torques** (N·m, (N, DOF) on the situation's own grid; Zach 2026-11-19, contract in
+  `docs/layout_proposals_2026-11-19/CONTRACT.md`):
+
+  | Name | `Situation` field | What it is | moteus |
+  | --- | --- | --- | --- |
+  | target | `target.tau` | the torque the reference needs (inverse dynamics of the target) | planner |
+  | commanded | `tau_cmd` | what the controller asks the FOC current loop for | reply `control_torque` |
+  | feedforward | `tau_ff` | the model-based part of the command | cmd `feedforward_torque` |
+  | feedback | `tau_fb` | the error-correcting part (kp·e + kd·ė + ki∫e) | `control_torque − feedforward_torque` |
+  | applied | `tau` | the torque actually delivered at that instant | reply `torque` |
+
+  `tau` keeps its meaning (applied on a run, target on the target), so older reports are unchanged. **Two of
+  three derive the third** (`tau_cmd = tau_ff + tau_fb`), listed in `entry["derived"]` and labelled "derived" on
+  the page; all three given are kept as given (a drive clamp can break the sum, and the page shows it); one alone
+  derives nothing. Payload: `plot["tau_cmd" | "tau_ff" | "tau_fb"]`, `payload["has_torque_breakdown"]`, and per
+  measured run with a breakdown `entry["torque_budget"][joint]` = `cmd_rms`, `ff_rms`, `fb_rms`, `applied_rms`,
+  `cmd_peak` (`error_stats` rms / max_abs on the run's own samples), `fb_share` = Σ\|fb\| / (Σ\|ff\| + Σ\|fb\|)
+  (how much of the command the feedback supplied), `target_minus_cmd_rms` (`compare` with effort = commanded:
+  time offset honoured, never extrapolated) and `cmd_minus_applied_rms` (the drive gap); `None` where a series is
+  missing. `examples/torque_breakdown_demo.py` writes one (a feedforward that underestimates gravity vs a calibrated one).
 - Situations may live on different time grids; display channels are
   resampled onto the target's grid (nulls outside a run's own span, so a
   short run ends in a visible gap, not a fabricated plateau). Error channels
@@ -194,16 +215,21 @@ traj_compare recording and a `msg.show()` recording share one entity layout; the
 Parquet, MCAP) stays SI; the `.rrd` is a viewer. On top of that every recording carries what the layouts read:
 shaded tolerance bands (`.../tolerance`, Rerun `Measurements`), `/worst/joint_deg/<run>`, `/tcp/{x,y,z}_mm`, the
 reference path coloured by the worst run's tool error (`/heat_worst`, and `/trail_worst` on the clock), a worst-first
-`/scorecard`, tolerance `/events` and per-run RMS bars (`/stats/...`).
+`/scorecard`, tolerance `/events` and per-run RMS bars (`/stats/...`). With a torque breakdown it also carries
+`/torque/<joint>/target` and `/torque/<joint>/<run>/{commanded,feedforward,feedback,applied}` (N·m; feedforward
+`#3b82f6`, feedback `#f97316`, commanded and applied in the run's colour, applied thin, target grey), the
+`/stats/fb_share/<joint>` bars (feedback share of the command per run, %) and a Torque budget table in `/notes`.
 
 **Two named layouts** (`rerun_export.LAYOUTS`, Zach's pick from five, 2026-11-11):
 
 | Name | What it is | Tabs |
 | --- | --- | --- |
-| `questions` (default) | the 3D robot over the camera overlay pinned on the left; tabs named by the question | Is it good? · Where? · Which joint? · Timing or shape? · Signals |
-| `evo` | evo's own Rerun layout (`evo_ape --rerun`) plus one full-screen tab per analysis | Visualization · Trajectories · Joint error · Along / across · Video · Stats · Raw data |
+| `questions` (default) | the 3D robot over the camera overlay pinned on the left; tabs named by the question | Is it good? · Where? · Which joint? · Timing or shape? · Feedforward or feedback? · Signals |
+| `evo` | evo's own Rerun layout (`evo_ape --rerun`) plus one full-screen tab per analysis | Visualization · Trajectories · Joint error · Along / across · Torque · Video · Stats · Raw data |
 
-Tabs with nothing to show are dropped (no video → no Video tab; no tool frame → no Where? / Timing). Pick one per
+The torque tab (**Feedforward or feedback?** / **Torque**) shows, per joint, the worst scorecard run's full breakdown, every
+run's feedback and the FB-share bars. Tabs with nothing to show are dropped (no video → no Video tab; no tool frame → no
+Where? / Timing; no torque breakdown → no torque tab). Pick one per
 call (`write_comparison_report(..., rerun=True, rerun_layout="evo")`, `write_rrd(..., layout="evo")`) or set your
 preference once, for every call that does not name one:
 
@@ -321,7 +347,7 @@ same payload as the HTML and the .rrd, so no metric is recomputed; install the e
 `write_mcap(comparison, path)` (`traj_compare.export`) write one file directly.
 
 - **Parquet** — tidy long rows `comparison, situation, reference, channel, column, t, value`. `channel` is the payload's
-  plot key (`q`, `qd`, `qdd`, `tau`, `err_q`, `err_x`.., `lag`, `cross_track`, `contour`, `lag_time`, `vec0_d`,
+  plot key (`q`, `qd`, `qdd`, `tau`, `tau_cmd`, `tau_ff`, `tau_fb`, `err_q`, `err_x`.., `lag`, `cross_track`, `contour`, `lag_time`, `vec0_d`,
   `err_axes`, ...), `column` the joint name / `error_axes` label or `""` for a scalar channel, `t` seconds from the
   reference's first sample on the plot grid, `value` NaN where the payload has null. The target's rows carry its own name
   as `reference`.

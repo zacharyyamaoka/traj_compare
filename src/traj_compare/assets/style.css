@@ -169,6 +169,19 @@ table.tc-metrics tr.tone-muted { color: #8a8983; }
 .tc-plotcard .ptitle { font-size: 11.5px; color: #52514e; margin: 0 0 2px;
                        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tc-plotcard .ptitle .unit { color: #8a8983; }
+.tc-plotcard .ptitle .pnote { color: #8a8983; font-style: italic; }
+
+/* torque breakdown: the budget table sits inside the section, the component legend keys every card */
+.tc-tableblock.embedded { border: 0; background: transparent; padding: 0; margin: 0 0 12px; }
+.tc-torque-budget table.tc-metrics td:nth-child(2) { text-align: left; }
+.tc-torque-legend { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 10px; }
+.tc-torque-legend .grouplabel { font-size: 11px; color: #8a8983; text-transform: uppercase;
+                                letter-spacing: 0.04em; margin-right: 2px; }
+.tc-torque-legend .tc-torque-note { font-size: 11.5px; color: #8a8983; margin-left: 4px; }
+.chip .swatch.torque-commanded { height: 4px; }
+.chip .swatch.torque-applied { height: 1.5px; }
+.chip .swatch.torque-feedback { height: 9px; border-radius: 1px;
+                                background: linear-gradient(currentColor 0 2px, rgba(249, 115, 22, 0.18) 2px); }
 .tc-empty { color: #8a8983; border: 1px dashed #cfcec8; border-radius: 6px;
             padding: 16px; text-align: center; font-size: 12.5px; }
 

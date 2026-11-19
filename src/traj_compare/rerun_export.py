@@ -19,6 +19,9 @@ Entity layout (situations are the last path part so a plot view can overlay them
     /heat_worst, /trail_worst           the reference path coloured by the worst run's tool error (static / on the clock)
     /video/overlay-<name>               a CameraOverlay baked into one MP4 (real camera + sim renders)
     /scorecard, /events, /stats/...     the worst-first summary table, tolerance events, RMS bars
+    /torque/<joint>/target              the target torque, N·m (only when a run has a torque breakdown)
+    /torque/<joint>/<run>/{commanded,feedforward,feedback,applied}   the run's torque breakdown, N·m
+    /stats/fb_share/<joint>             the feedback share of the command, one bar per run, %
     /error/axes/<label>_mm/<situation>  the position error projected on each ``error_axes`` direction
     /vec/<label>/<situation>            signed speed along a ``vec_dirs`` direction (belt matching)
     /video/<situation>                  AssetVideo + VideoFrameReference (MP4 only)
@@ -88,6 +91,20 @@ _TOOL_ERROR_CHANNELS = (
     ("contour", "contour_mm", 1000.0),
     ("lag_time", "lag_time_ms", 1000.0),
 )
+
+# The torque breakdown (CONTRACT.md, 2026-11-19): (payload plot key, entity leaf). WHY fixed component
+# colours (Zach 2026-11-19, torque breakdown): feedforward and feedback read the same on every run and
+# in the HTML page; commanded and applied wear the run's colour, applied thin.
+_TORQUE_COMPONENTS = (
+    ("tau_cmd", "commanded"),
+    ("tau_ff", "feedforward"),
+    ("tau_fb", "feedback"),
+    ("tau", "applied"),
+)
+FEEDFORWARD_COLOR = "#3b82f6"
+FEEDBACK_COLOR = "#f97316"
+TARGET_TORQUE_COLOR = "#8a8983"
+_TORQUE_WIDTHS = {"commanded": 2.5, "feedforward": 1.5, "feedback": 1.5, "applied": 0.75, "target": 1.5}
 
 
 def viewer_argv(rrd_path: Path | str, layout: str | None = None) -> list[str]:
@@ -164,8 +181,41 @@ def _notes_markdown(payload: dict[str, Any]) -> str:
         + _latency_lines(payload)
         + _goal_lines(payload)
         + _aggregate_lines(payload)
+        + _torque_budget_lines(payload)
     )
     return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def _nm(value: float | None) -> str:
+    return "—" if value is None else f"{value:.3g} N·m"
+
+
+def _torque_budget_lines(payload: dict[str, Any]) -> list[str]:
+    """The HTML page's Torque budget table: per run × joint, how much of the command the feedback supplied."""
+
+    rows = []
+    for entry in payload["situations"]:
+        for joint, row in (entry.get("torque_budget") or {}).items():
+            share = "—" if row["fb_share"] is None else f"{row['fb_share'] * 100.0:.1f} %"
+            rows.append(
+                f"| {_markdown_cell(entry['title'])} | {_markdown_cell(joint)} | {share} | {_nm(row['cmd_rms'])} | "
+                f"{_nm(row['ff_rms'])} | {_nm(row['fb_rms'])} | {_nm(row['target_minus_cmd_rms'])} | "
+                f"{_nm(row['cmd_minus_applied_rms'])} | {_nm(row['cmd_peak'])} |"
+            )
+    if not rows:
+        return []
+    return [
+        "## Torque budget",
+        "",
+        "FB share = Σ|feedback| / (Σ|feedforward| + Σ|feedback|): how much of the command the feedback had to supply. "
+        f"RMS over each run's own samples; {payload['reference_title']} − commanded is lined up as every other error.",
+        "",
+        f"| Run | Joint | FB share | Commanded RMS | FF RMS | FB RMS | {_markdown_cell(payload['reference_title'])} − commanded RMS "
+        "| Commanded − applied RMS | Peak \\|commanded\\| |",
+        "|---|---|---|---|---|---|---|---|---|",
+        *rows,
+        "",
+    ]
 
 
 def _deg(value: float | None) -> str:
@@ -326,8 +376,9 @@ class _Writer:
         self.recording = recording
         self.t0 = t0
 
-    def series(self, entity: str, time_s: np.ndarray, values: np.ndarray, color, label: str) -> None:
-        self.recording.log(entity, rr.SeriesLines(colors=color, names=label), static=True)
+    def series(self, entity: str, time_s: np.ndarray, values: np.ndarray, color, label: str,
+               width: float | None = None) -> None:
+        self.recording.log(entity, rr.SeriesLines(colors=color, names=label, widths=width), static=True)
         self.recording.send_columns(
             entity,
             indexes=[rr.TimeColumn(TIMELINE, duration=time_s)],
@@ -394,6 +445,34 @@ def _short_run(entry: dict[str, Any]) -> str:
     return entry["title"].replace(" (stand-in)", "")
 
 
+def _has_breakdown(entry: dict[str, Any]) -> bool:
+    return entry["has_data"] and entry["plot"] is not None and any(entry["plot"].get(key) is not None
+                                                                   for key in ("tau_cmd", "tau_ff", "tau_fb"))
+
+
+def _torque_runs(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """The measured situations with a torque breakdown, in payload order."""
+
+    return [entry for entry in payload["situations"] if entry["role"] != "target" and _has_breakdown(entry)]
+
+
+def _worst_torque_run(payload: dict[str, Any]) -> dict[str, Any] | None:
+    """The run whose full breakdown the torque tab shows: the worst on the scorecard that has one (else the first)."""
+
+    runs = _torque_runs(payload)
+    names = {entry["name"]: entry for entry in runs}
+    _, rows = _scorecard(payload)
+    ranked = [names[row["name"]] for row in rows if row["name"] in names]
+    return ranked[0] if ranked else (runs[0] if runs else None)
+
+
+def _fb_share_runs(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """The runs with a feedback share: one bar each in ``/stats/fb_share/<joint>``, in this order."""
+
+    return [entry for entry in _torque_runs(payload)
+            if any(row["fb_share"] is not None for row in (entry["torque_budget"] or {}).values())]
+
+
 def _scorecard(payload: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
     rows = []
     for entry in _runs(payload):
@@ -403,6 +482,7 @@ def _scorecard(payload: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
         verdict = entry.get("verdict") or {}
         latency = (entry.get("latency") or {}).get("offset_s")
         rows.append({
+            "name": entry["name"],
             "run": entry["title"],
             "joints": (verdict.get("joint") or {}).get("code_name", "—"),
             "tcp": (verdict.get("tcp") or {}).get("code_name", "—"),
@@ -547,6 +627,14 @@ def _log_review_entities(recording: Any, writer: "_Writer", comparison: Comparis
     if bar_values:
         recording.log("/stats/tool_rms_mm" if tool_errors else "/stats/joint_rms_deg",
                       rr.BarChart(np.array(bar_values), color=[90, 90, 90]), static=True)
+    # How much of the command the feedback supplied, per joint, one bar per run (check runs stay out, as above).
+    share_runs = _fb_share_runs(_without_checks(payload, groups))
+    if share_runs:
+        for joint in payload["joint_names"]:
+            shares = [(entry["torque_budget"].get(joint) or {}).get("fb_share") for entry in share_runs]
+            percent = np.array([np.nan if share is None else share * 100.0 for share in shares])
+            recording.log(f"/stats/fb_share/{_part(joint)}",
+                          rr.BarChart(percent, color=_hex_to_rgb(FEEDBACK_COLOR)), static=True)
 
     # The reference path coloured by the WORST run's tool error at each instant: where on the path,
     # across every run, the error is highest (Nov 11: "across a bunch of runs where was the error highest").
@@ -734,6 +822,35 @@ def _check_tab(full: dict[str, Any], group: str, title: str, members: list[dict[
     return rrb.Vertical(*rows, row_shares=[3] + [2] * (len(rows) - 1), name=title)
 
 
+def _torque_tab(payload: dict[str, Any], name: str) -> Any:
+    """Per joint: the worst run's full breakdown, every run's feedback, and the FB-share bars; None without a breakdown.
+
+    WHY these three (Zach 2026-11-19, torque breakdown: "of the command torque some portion of that is coming from
+    Feedforward, and some portion of that is coming from feedback"): one run shows how the command splits and how
+    much of it arrived; the feedback of every run and its share say whether the feedforward model is doing the work."""
+
+    worst = _worst_torque_run(payload)
+    if worst is None:
+        return None
+    runs = [_part(entry["name"]) for entry in _torque_runs(payload)]
+    share_runs = _fb_share_runs(payload)
+    order = " · ".join(f"{index} {_short_run(entry)}" for index, entry in enumerate(share_runs))
+    rows = []
+    for joint in payload["joint_names"]:
+        j = _part(joint)
+        views = [
+            _ts(f"/torque/{j}", f"{_short(joint)}: {_short_run(worst)} — target, commanded, feedforward, feedback, applied [N·m]",
+                legend=True, contents=["+ $origin/target", f"+ $origin/{_part(worst['name'])}/**"]),
+            _ts(f"/torque/{j}", f"{_short(joint)}: feedback, every run [N·m]", legend=True,
+                contents=[f"+ $origin/{run}/feedback" for run in runs]),
+        ]
+        if share_runs:
+            views.append(rrb.BarChartView(origin=f"/stats/fb_share/{j}", name=f"{_short(joint)}: feedback share of the command [%] — {order}",
+                                          plot_legend=_legend(False)))
+        rows.append(rrb.Horizontal(*views, column_shares=[3, 3, 2][: len(views)]))
+    return rrb.Vertical(*rows, name=name)
+
+
 def _layout_questions(payload: dict[str, Any], videos: dict[str, Path], overlays: list[str], tab: str | None = None,
                       checks: Checks = ()) -> Any:
     """'questions': a pinned stage (3D over the camera) on the left; tabs named by the question you are asking.
@@ -760,6 +877,9 @@ def _layout_questions(payload: dict[str, Any], videos: dict[str, Path], overlays
                   _ts("/error/tool/contour_mm", "Contour error [mm] (off the path)")]
         timing += [_ts(f"/vec/{_part(label)}", f"Speed along {label} [m/s]") for label in payload["vec_labels"]]
         tabs.append(rrb.Vertical(*timing, name="Timing or shape?"))
+    torque = _torque_tab(payload, "Feedforward or feedback?")
+    if torque is not None:
+        tabs.append(torque)
     signals = [rrb.Grid(*[_ts(f"/positions/{j}", f"{_short(j)} [°]") for j in joints], grid_columns=min(2, len(joints)), name="Position"),
                rrb.Grid(*[_ts(f"/velocities/{j}", f"{_short(j)} [°/s]") for j in joints], grid_columns=min(2, len(joints)), name="Velocity")]
     if payload["has_tau"]:
@@ -827,6 +947,9 @@ def _layout_evo(payload: dict[str, Any], videos: dict[str, Path], overlays: list
                                          _ts("/error/tool/lag_time_ms", "lag time [ms]")]
         along += [_ts(f"/vec/{_part(label)}", f"speed along {label} [m/s]") for label in payload["vec_labels"]]
         tabs.append(rrb.Grid(*along, grid_columns=3, name="Along / across"))
+    torque = _torque_tab(payload, "Torque")
+    if torque is not None:
+        tabs.append(torque)
     if videos or overlays:
         big = _camera_origin(videos, overlays)
         small = [rrb.Spatial2DView(origin=f"/video/{_part(name)}", name=name) for name in videos]
@@ -1037,6 +1160,24 @@ def write_rrd(
         for index, vec_label in enumerate(payload["vec_labels"]):
             if f"vec{index}_d" in plot:
                 writer.series(f"/vec/{_part(vec_label)}/{name}", plot_t, _array(plot[f"vec{index}_d"]), color, label)
+        if payload.get("has_torque_breakdown"):
+            # /torque/<joint>/target and /torque/<joint>/<run>/<component> (CONTRACT.md, 2026-11-19), N·m
+            for column, joint in enumerate(joints):
+                torque = f"/torque/{_part(joint)}"
+                if entry["role"] == "target":
+                    if plot["tau"] is not None:
+                        writer.series(f"{torque}/target", plot_t, _array(plot["tau"][column]),
+                                      _hex_to_rgb(TARGET_TORQUE_COLOR), f"{label} · target", _TORQUE_WIDTHS["target"])
+                    continue
+                if not _has_breakdown(entry):
+                    continue
+                for key, leaf in _TORQUE_COMPONENTS:
+                    if plot[key] is None:
+                        continue
+                    tone = {"feedforward": _hex_to_rgb(FEEDFORWARD_COLOR), "feedback": _hex_to_rgb(FEEDBACK_COLOR)}.get(leaf, color)
+                    derived = " (derived)" if key in entry["derived"] else ""  # the other two gave it
+                    writer.series(f"{torque}/{name}/{leaf}", plot_t, _array(plot[key][column]), tone,
+                                  f"{label} · {leaf}{derived}", _TORQUE_WIDTHS[leaf])
 
         if entry["three"] is not None:
             writer.tcp(f"/world/{name}/tcp", entry["three"], color)

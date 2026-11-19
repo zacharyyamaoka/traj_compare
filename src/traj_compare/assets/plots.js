@@ -423,9 +423,33 @@ var TrajCompare = (function () {
       page: page, card: card, spec: spec, titleEl: titleEl, chartEl: chartEl, u: null,
     };
 
+    // A series is drawn while its situation is on and, on a torque card, while its component is on too.
+    function seriesShown(entry) {
+      if (page.visible[entry.sit.name] === false) return false;
+      return !entry.component || page.torqueOn[entry.component] !== false;
+    }
+
     function seriesOpts() {
       var opts = [{}];
       spec.series.forEach(function (entry) {
+        if (entry.style) {
+          // a torque-breakdown trace: its component decides colour, width, dash and fill
+          var styled = {
+            label: entry.style.label,
+            stroke: entry.style.stroke,
+            width: entry.style.width,
+            dash: entry.style.dash,
+            points: { show: false },
+            show: seriesShown(entry),
+          };
+          if (entry.style.fill) {
+            styled.fill = entry.style.fill;
+            // WHY a function: uPlot reads ``fillTo || default``, so a literal 0 would fall back to the default
+            styled.fillTo = function () { return 0; };
+          }
+          opts.push(styled);
+          return;
+        }
         if (entry.error) {
           opts.push({
             label: 'Δ ' + entry.sit.title,
@@ -461,10 +485,17 @@ var TrajCompare = (function () {
       return Math.max(220, card.clientWidth - 18);
     }
 
-    chart.build = function () {
+    function paintTitle() {
       titleEl.innerHTML = '';
       titleEl.appendChild(document.createTextNode(spec.title + ' '));
       el('span', 'unit', titleEl, '[' + unitLabel(spec.kind) + ']');
+      if (spec.note) el('span', 'pnote', titleEl, ' · ' + spec.note);
+      if (spec.note) titleEl.title = spec.title + ' · ' + spec.note;
+    }
+
+    chart.build = function () {
+      paintTitle();
+      if (spec.situation && page.visible[spec.situation] === false) card.style.display = 'none';
       var opts = {
         width: width(),
         height: PLOT_HEIGHT,
@@ -511,18 +542,30 @@ var TrajCompare = (function () {
       chart.u.setData(data(), true);
       if (keep) chart.u.setScale('x', keep);
       chart.u._tcReady = true;
-      titleEl.innerHTML = '';
-      titleEl.appendChild(document.createTextNode(spec.title + ' '));
-      el('span', 'unit', titleEl, '[' + unitLabel(spec.kind) + ']');
+      paintTitle();
     };
 
     // A run's own trace and its Δ curve toggle independently — that is what
     // lets you hide target + measured and read the error off a y axis that
-    // has rescaled to the error alone.
+    // has rescaled to the error alone. A card that belongs to one run (the
+    // torque breakdown: ``spec.situation``) is hidden whole with its run.
     chart.setSituation = function (name, show) {
       if (!chart.u) return;
+      if (spec.situation === name) {
+        var wasHidden = card.style.display === 'none';
+        card.style.display = show ? '' : 'none';
+        if (show && wasHidden) chart.resize();  // built or last sized while hidden
+      }
       spec.series.forEach(function (entry, index) {
-        if (entry.sit.name === name && !entry.error) chart.u.setSeries(index + 1, { show: show });
+        if (entry.sit.name === name && !entry.error) chart.u.setSeries(index + 1, { show: show && seriesShown(entry) });
+      });
+    };
+
+    // One torque component (target, commanded, feedforward, feedback, applied) on or off on this card.
+    chart.setComponent = function (component) {
+      if (!chart.u) return;
+      spec.series.forEach(function (entry, index) {
+        if (entry.component === component) chart.u.setSeries(index + 1, { show: seriesShown(entry) });
       });
     };
 
@@ -619,6 +662,171 @@ var TrajCompare = (function () {
       });
       observeGrid(page, grid);
     };
+  }
+
+  /* ---------------- torque breakdown ----------------
+     Zach, 2026-11-19: "target torque, the commanded torque (what you send to the FOC controller) and the
+     actual torque ... of the command torque some portion of that is coming from Feedforward, and some
+     portion of that is coming from feedback." One card per joint × run with all five torques, one
+     component legend for the whole section, and the Torque budget table first (CONTRACT.md). */
+
+  // WHY fixed component colours (Zach 2026-11-19, torque breakdown): feedforward and feedback read the same on
+  // every card and in Rerun (rerun_export FEEDFORWARD_COLOR / FEEDBACK_COLOR); commanded and applied wear the run's
+  // colour (commanded thickest, applied thin), the target is grey and dashed like every target trace.
+  var TORQUE_FEEDFORWARD = '#3b82f6';
+  var TORQUE_FEEDBACK = '#f97316';
+  var TORQUE_FEEDBACK_FILL = 'rgba(249, 115, 22, 0.12)';
+  var TORQUE_TARGET = '#8a8983';
+
+  // Legend order. ``key`` is the payload plot key (the target's τ is its own ``tau``; a run's ``tau`` is applied).
+  var TORQUE_COMPONENTS = [
+    { id: 'target', key: 'tau', label: 'Target', hint: 'the torque the reference needs (inverse dynamics of the target)' },
+    { id: 'commanded', key: 'tau_cmd', label: 'Commanded', hint: 'what the controller sends to the FOC current loop (moteus control_torque) = feedforward + feedback; run colour, thickest' },
+    { id: 'feedforward', key: 'tau_ff', label: 'Feedforward', hint: 'the model-based part of the command' },
+    { id: 'feedback', key: 'tau_fb', label: 'Feedback', hint: 'the error-correcting part of the command (kp·e + kd·ė + ki∫e), filled to zero' },
+    { id: 'applied', key: 'tau', label: 'Applied', hint: 'the torque actually delivered at that instant (moteus reply torque); run colour, thin' },
+  ];
+  // Draw order on a card: the filled feedback underneath, the target's dashes on top of the thick command.
+  var TORQUE_DRAW_ORDER = ['feedback', 'feedforward', 'applied', 'commanded', 'target'];
+  var TORQUE_DERIVED = {
+    tau_cmd: 'commanded = FF + FB (derived)',
+    tau_ff: 'feedforward = commanded − FB (derived)',
+    tau_fb: 'feedback = commanded − FF (derived)',
+  };
+
+  function hasTorqueBreakdown(sit) {
+    return !!(sit.has_data && sit.plot && sit.role !== 'target' &&
+      (sit.plot.tau_cmd || sit.plot.tau_ff || sit.plot.tau_fb));
+  }
+
+  function withAlpha(color, alphaHex) {
+    return /^#[0-9a-f]{6}$/i.test(color) ? color + alphaHex : color;
+  }
+
+  function torqueStyle(component, sit) {
+    var name = component.charAt(0).toUpperCase() + component.slice(1);
+    if (component === 'target') return { label: sit.title + ' τ', stroke: TORQUE_TARGET, width: 1.3, dash: [7, 4] };
+    if (component === 'commanded') return { label: name, stroke: sit.color, width: 2.4 };
+    if (component === 'feedforward') return { label: name, stroke: TORQUE_FEEDFORWARD, width: 1.4 };
+    if (component === 'feedback') return { label: name, stroke: TORQUE_FEEDBACK, width: 1.2, fill: TORQUE_FEEDBACK_FILL };
+    return { label: name, stroke: withAlpha(sit.color, 'bf'), width: 0.9 };
+  }
+
+  function torqueBudgetTable(data) {
+    function nm(value) { return value === null || value === undefined ? '—' : value.toFixed(3); }
+    function percent(value) { return value === null || value === undefined ? '—' : (value * 100).toFixed(1) + ' %'; }
+    var reference = referenceTitle(data);
+    var columns = [
+      ['FB share', 'fb_share', percent], ['Commanded RMS', 'cmd_rms', nm], ['FF RMS', 'ff_rms', nm],
+      ['FB RMS', 'fb_rms', nm], ['Applied RMS', 'applied_rms', nm], [reference + ' − commanded RMS', 'target_minus_cmd_rms', nm],
+      ['Commanded − applied RMS', 'cmd_minus_applied_rms', nm], ['Peak |commanded|', 'cmd_peak', nm],
+    ];
+    var budgets = [];
+    data.situations.forEach(function (sit) {
+      if (!sit.torque_budget) return;
+      data.joint_names.forEach(function (jointName) {
+        if (sit.torque_budget[jointName]) budgets.push([sit, jointName, sit.torque_budget[jointName]]);
+      });
+    });
+    // WHY drop all-empty columns (Zach 2026-11-19, torque breakdown): a rig that logs only feedforward + applied
+    // (no control_torque) would otherwise show a table of dashes; what was not recorded is said once, not per cell.
+    columns = columns.filter(function (column) {
+      return budgets.some(function (budget) { return budget[2][column[1]] !== null && budget[2][column[1]] !== undefined; });
+    });
+    var rows = budgets.map(function (budget) {
+      return {
+        cells: [budget[0].title, budget[1]].concat(columns.map(function (column) { return column[2](budget[2][column[1]]); })),
+        tone: '',
+      };
+    });
+    var missing = ['commanded', 'feedforward', 'feedback'].filter(function (name, index) {
+      var key = ['cmd_rms', 'ff_rms', 'fb_rms'][index];
+      return !budgets.some(function (budget) { return budget[2][key] !== null && budget[2][key] !== undefined; });
+    });
+    return {
+      title: 'Torque budget',
+      description: 'FB share = Σ|feedback| / (Σ|feedforward| + Σ|feedback|) over the run\'s own samples: how much of the ' +
+        'command the feedback had to supply (0 % = the feedforward did all of it). RMS values use each run\'s own samples. ' +
+        reference + ' − commanded is lined up like every other error (time offset honoured, never extrapolated); ' +
+        'commanded − applied is the drive gap (saturation, current-loop lag, torque-constant error). Torques in N·m.' +
+        (missing.length ? ' Not recorded by any run: ' + missing.join(', ') + ' torque.' : ''),
+      columns: ['Run', 'Joint'].concat(columns.map(function (column) { return column[0]; })),
+      rows: rows,
+    };
+  }
+
+  /* One chip per component present on the page; a chip toggles that component on every card (report-level pref). */
+  function torqueLegend(page, body, runs, present) {
+    var legend = el('div', 'tc-torque-legend', body);
+    el('span', 'grouplabel', legend, 'Components');
+    var runColors = runs.map(function (sit) { return sit.color; });
+    var runPaint = runColors.length > 1 ? 'linear-gradient(90deg, ' + runColors.join(', ') + ')' : (runColors[0] || '#52514e');
+    TORQUE_COMPONENTS.forEach(function (component) {
+      if (!present[component.id]) return;
+      var chip = el('button', 'chip', legend);
+      var swatch = el('span', 'swatch torque-' + component.id, chip);
+      if (component.id === 'target') { swatch.className += ' dashed'; swatch.style.color = TORQUE_TARGET; }
+      else if (component.id === 'feedforward') swatch.style.background = TORQUE_FEEDFORWARD;
+      else if (component.id === 'feedback') swatch.style.color = TORQUE_FEEDBACK;
+      else swatch.style.background = runPaint;
+      chip.appendChild(document.createTextNode(component.label));
+      chip.title = component.hint;
+      function apply(show, remember) {
+        page.torqueOn[component.id] = show;
+        chip.className = 'chip ' + (show ? 'on' : 'off');
+        if (remember) state.prefs.set('torque:' + component.id, show);
+        page.charts.forEach(function (chart) { if (chart.setComponent) chart.setComponent(component.id); });
+      }
+      page.torqueChips.push({ id: component.id, apply: apply });
+      chip.onclick = function () { apply(page.torqueOn[component.id] === false, true); };
+      apply(state.prefs.get('torque:' + component.id, true), false);
+    });
+    el('span', 'tc-torque-note', legend, 'commanded and applied wear the run\'s colour');
+  }
+
+  function torqueBreakdownBuilder(page, body) {
+    var data = page.data;
+    var budget = buildTable(body, torqueBudgetTable(data), true);
+    budget.classList.add('embedded', 'tc-torque-budget');
+
+    var runs = data.situations.filter(hasTorqueBreakdown);
+    if (!runs.length) {
+      el('div', 'tc-empty', body, 'No measured run has a commanded, feedforward or feedback torque.');
+      return;
+    }
+    var target = data.situations.filter(function (sit) {
+      return sit.role === 'target' && sit.has_data && sit.plot && sit.plot.tau;
+    })[0] || null;
+    var present = { target: !!target };
+    runs.forEach(function (sit) {
+      TORQUE_COMPONENTS.forEach(function (component) {
+        if (component.id !== 'target' && sit.plot[component.key]) present[component.id] = true;
+      });
+    });
+    torqueLegend(page, body, runs, present);
+
+    var grid = el('div', 'tc-grid', body);
+    data.joint_names.forEach(function (jointName, dof) {
+      runs.forEach(function (sit) {
+        var series = [];
+        TORQUE_DRAW_ORDER.forEach(function (id) {
+          var owner = id === 'target' ? target : sit;
+          var key = TORQUE_COMPONENTS.filter(function (component) { return component.id === id; })[0].key;
+          if (!owner || !owner.plot[key]) return;
+          series.push({ sit: owner, component: id, values: owner.plot[key][dof], style: torqueStyle(id, owner) });
+        });
+        // WHY say "derived" on the card (CONTRACT.md): a component computed from the other two is not a recording
+        var derived = (sit.derived || []).filter(function (key) { return TORQUE_DERIVED[key]; })
+          .map(function (key) { return TORQUE_DERIVED[key]; });
+        var card = el('div', 'tc-plotcard', grid);
+        card.dataset.situation = sit.name;
+        makeChart(page, card, {
+          title: jointName + ' — ' + sit.title, kind: 'Nm', series: series,
+          situation: sit.name, note: derived.join(' · '),
+        });
+      });
+    });
+    observeGrid(page, grid);
   }
 
   // The frame fk / poses describe (Comparison.tcp_frame): "TCP", "L2 tip", ...
@@ -979,6 +1187,10 @@ var TrajCompare = (function () {
     if (data.has_current) {
       defs.push({ id: 'joint-current', label: 'Motor current i', on: sectionStartsOn(data, 'joint-current', false), build: jointSectionBuilder('current', 'A', 'i') });
     }
+    if (data.has_torque_breakdown) {
+      // on by default (CONTRACT.md): the split of the command is the question a breakdown is recorded to answer
+      defs.push({ id: 'joint-torque', label: 'Torque breakdown', on: sectionStartsOn(data, 'joint-torque', true), build: torqueBreakdownBuilder });
+    }
     var anyErr = data.situations.some(function (sit) { return sit.plot && sit.plot.err_q; });
     if (anyErr) {
       defs.push({ id: 'joint-err', label: 'Joint error', on: sectionStartsOn(data, 'joint-err', false), build: jointErrBuilder });
@@ -1019,6 +1231,10 @@ var TrajCompare = (function () {
           ? '; error · <axis> is the position error projected on ' + data.error_axes.join(' / ') : '');
     }
     if (id === 'tcp-pose') hint = (data.tcp_frame || 'TCP') + ' frame';
+    if (id === 'joint-torque') {
+      hint = 'commanded = feedforward + feedback is what goes to the FOC current loop; applied is what the drive delivered; ' +
+        'the component chips toggle a torque on every card';
+    }
     if (id === 'videos') hint = 'always played together, seeked by the scrubber';
     if (id === 'camera') hint = 'real video under the sim render; both follow the scrubber';
     if (id === 'viewer3d') hint = 'hover any plot to preview that instant; scrub below the canvas';
@@ -1586,13 +1802,23 @@ var TrajCompare = (function () {
       return section;
     });
 
-    // derived-channel footnote
-    var derivedBits = data.situations
-      .filter(function (sit) { return sit.derived && sit.derived.length; })
-      .map(function (sit) { return sit.title + ': ' + sit.derived.join(', '); });
-    if (derivedBits.length) {
+    // derived-channel footnote: qd / qdd by finite differences; a torque from the other two of commanded /
+    // feedforward / feedback (TORQUE_DERIVED), which is arithmetic, not a finite difference
+    function derivedNote(test) {
+      return data.situations
+        .map(function (sit) {
+          var keys = (sit.derived || []).filter(test);
+          return keys.length ? sit.title + ': ' + keys.join(', ') : null;
+        })
+        .filter(function (bit) { return bit; });
+    }
+    var derivedBits = derivedNote(function (key) { return !TORQUE_DERIVED[key]; });
+    var torqueBits = derivedNote(function (key) { return !!TORQUE_DERIVED[key]; });
+    if (derivedBits.length || torqueBits.length) {
       el('div', 'tc-derived', root,
-        'Finite-difference derived — ' + derivedBits.join(' · '));
+        (derivedBits.length ? 'Finite-difference derived — ' + derivedBits.join(' · ') : '') +
+        (derivedBits.length && torqueBits.length ? ' · ' : '') +
+        (torqueBits.length ? 'Derived from the other two (tau_cmd = tau_ff + tau_fb) — ' + torqueBits.join(' · ') : ''));
     }
 
     var sectionHost = el('div', '', root);
@@ -1641,6 +1867,10 @@ var TrajCompare = (function () {
       page.errChips.forEach(function (entry) {
         var want = state.prefs.get('err:' + entry.sit.name, false);
         if (want !== !!page.errorOn[entry.sit.name]) entry.apply(want, false);
+      });
+      page.torqueChips.forEach(function (entry) {
+        var want = state.prefs.get('torque:' + entry.id, true);
+        if (want !== (page.torqueOn[entry.id] !== false)) entry.apply(want, false);
       });
       page.overlayCards.forEach(function (card) { card.applyShared(); });
       if (page.viewer3d && page.viewer3d.applyShared) page.viewer3d.applyShared();
@@ -1759,6 +1989,8 @@ var TrajCompare = (function () {
         sitChips: [],
         errChips: [],
         errorOn: {},   // situation name -> its Δ-to-target curve is drawn
+        torqueChips: [],
+        torqueOn: {},  // torque component (target, commanded, ...) -> drawn on every breakdown card
         videos: [],
         overlayCards: [],
         visible: {},

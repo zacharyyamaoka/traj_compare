@@ -5,6 +5,11 @@ Per situation, computed on that situation's own time grid:
 - joint space: ``q``, ``qd``, ``qdd``, ``tau``, ``current`` (velocity/
   acceleration fall back to ``np.gradient`` when not recorded; ``tau`` and
   ``current`` stay absent if absent — a missing channel is never invented);
+- the torque breakdown: ``tau_cmd`` (commanded, to the FOC current loop), ``tau_ff``
+  (feedforward) and ``tau_fb`` (feedback). Two of the three derive the third (``tau_cmd =
+  tau_ff + tau_fb``, listed in ``entry["derived"]``); all three given are kept as given (a drive
+  clamp can break the sum); one alone derives nothing. A measured run with a breakdown gets
+  ``entry["torque_budget"]`` per joint;
 - TCP pose: ``x, y, z`` and unwrapped extrinsic-xyz ``rx, ry, rz``;
 - path progress and its two derivatives for four channel families:
   ``pct`` (percent of the reference path length completed — the end-effector
@@ -43,7 +48,15 @@ import dataclasses
 from typing import Any
 
 import numpy as np
-from robot_msgs.compare import aggregate, align, check, compare, estimate_time_offset, goal
+from robot_msgs.compare import (
+    aggregate,
+    align,
+    check,
+    compare,
+    error_stats,
+    estimate_time_offset,
+    goal,
+)
 from robot_msgs.trajectory import JointTrajectory, PoseTrajectory
 
 from .model import Comparison, ReportTable, RobotDisplay, Situation, TableRow
@@ -295,8 +308,14 @@ def _onto_plot_grid(t_native: np.ndarray, series: np.ndarray, plot_t: np.ndarray
     return np.interp(plot_t, t_native, series, left=np.nan, right=np.nan)
 
 
-def _joint_trajectory(situation: Situation, joint_names: list[str]) -> JointTrajectory:
-    """The situation as a robot_msgs trajectory; only the channels it recorded are passed."""
+def _joint_trajectory(
+    situation: Situation, joint_names: list[str], effort: np.ndarray | None = None
+) -> JointTrajectory:
+    """The situation as a robot_msgs trajectory; only the channels it recorded are passed.
+
+    ``effort`` replaces the applied ``tau``: the commanded torque, so ``compare`` scores
+    target − commanded.
+    """
 
     return JointTrajectory(
         t=situation.t,
@@ -304,8 +323,97 @@ def _joint_trajectory(situation: Situation, joint_names: list[str]) -> JointTraj
         positions=situation.q,
         velocities=situation.qd,
         accelerations=situation.qdd,
-        effort=situation.tau,
+        effort=situation.tau if effort is None else effort,
     )
+
+
+_BREAKDOWN_KEYS = ("tau_cmd", "tau_ff", "tau_fb")
+
+
+def _torque_breakdown(situation: Situation) -> tuple[dict[str, np.ndarray | None], list[str]]:
+    """Commanded, feedforward and feedback torque, the missing third derived from the other two.
+
+    WHY derive only from two (Zach 2026-11-19, torque breakdown; CONTRACT.md): ``tau_cmd =
+    tau_ff + tau_fb`` is the controller's own identity, so two given pin the third. All three
+    given are kept as given (a drive clamp makes the sum differ, and the page must not hide
+    that); one alone derives nothing, so nothing is invented. Returns the three (None when
+    absent) and the names of the derived ones.
+    """
+
+    command, feedforward, feedback = situation.tau_cmd, situation.tau_ff, situation.tau_fb
+    derived: list[str] = []
+    if command is None and feedforward is not None and feedback is not None:
+        command = feedforward + feedback
+        derived.append("tau_cmd")
+    elif feedback is None and command is not None and feedforward is not None:
+        feedback = command - feedforward
+        derived.append("tau_fb")
+    elif feedforward is None and command is not None and feedback is not None:
+        feedforward = command - feedback
+        derived.append("tau_ff")
+    return {"tau_cmd": command, "tau_ff": feedforward, "tau_fb": feedback}, derived
+
+
+def _finite_or_none(value: float) -> float | None:
+    return float(value) if np.isfinite(value) else None
+
+
+def _torque_budget(
+    situation: Situation,
+    breakdown: dict[str, np.ndarray | None],
+    joint_names: list[str],
+    target_joints: JointTrajectory | None,
+) -> dict[str, dict[str, float | None]]:
+    """Per joint: each torque's size, the feedback's share of the command, and the two gaps.
+
+    Every statistic is ``robot_msgs.compare``'s ``error_stats`` on the run's own samples;
+    target − commanded is ``compare`` itself (effort = the commanded torque), so the target is
+    lined up exactly as for every other error: ``time_offset_s`` honoured, never extrapolated.
+    """
+
+    t = situation.t
+    command, feedforward, feedback = (breakdown[key] for key in _BREAKDOWN_KEYS)
+    applied = situation.tau
+
+    def stat(series: np.ndarray | None, column: int, field: str) -> float | None:
+        if series is None:
+            return None
+        return _finite_or_none(getattr(error_stats(series[:, column], t), field))
+
+    target_minus_command = None
+    if command is not None and target_joints is not None and target_joints.effort is not None:
+        command_joints = _joint_trajectory(situation, joint_names, effort=command)
+        result = _compare_or_none(target_joints, command_joints, situation.time_offset_s)
+        if result is not None:
+            target_minus_command = result.metrics
+
+    budget: dict[str, dict[str, float | None]] = {}
+    for column, joint in enumerate(joint_names):
+        fb_share = None
+        if feedforward is not None and feedback is not None:
+            ff_column, fb_column = feedforward[:, column], feedback[:, column]
+            both = np.isfinite(ff_column) & np.isfinite(fb_column)
+            # a plain sum, not an error statistic: the share of |command| the feedback had to supply
+            fb_sum = float(np.sum(np.abs(fb_column[both])))
+            total = float(np.sum(np.abs(ff_column[both]))) + fb_sum
+            fb_share = fb_sum / total if total > 0.0 else None
+        gap = None
+        if target_minus_command is not None and f"effort/{joint}" in target_minus_command:
+            gap = _finite_or_none(target_minus_command[f"effort/{joint}"].rms)
+        drive_gap = None
+        if command is not None and applied is not None:
+            drive_gap = _finite_or_none(error_stats(command[:, column] - applied[:, column], t).rms)
+        budget[joint] = {
+            "cmd_rms": stat(command, column, "rms"),
+            "ff_rms": stat(feedforward, column, "rms"),
+            "fb_rms": stat(feedback, column, "rms"),
+            "applied_rms": stat(applied, column, "rms"),
+            "cmd_peak": stat(command, column, "max_abs"),
+            "fb_share": fb_share,
+            "target_minus_cmd_rms": gap,
+            "cmd_minus_applied_rms": drive_gap,
+        }
+    return budget
 
 
 def _pose_trajectory(situation: Situation, poses: np.ndarray, frame: str) -> PoseTrajectory:
@@ -695,6 +803,7 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
     any_cartesian = False
     any_tau = False
     any_current = False
+    any_breakdown = False
 
     for situation, role in ordered:
         entry: dict[str, Any] = {
@@ -714,6 +823,7 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
             "three": None,
             "robot_track": None,
             "error_metrics": None,
+            "torque_budget": None,
         }
         payload_situations.append(entry)
         if role != "target":
@@ -761,6 +871,7 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
             "qdd": [_clean(on_grid(qdd[:, col])) for col in range(qdd.shape[1])],
             "tau": None,
             "current": None,
+            **{key: None for key in _BREAKDOWN_KEYS},
         }
         if situation.tau is not None:
             any_tau = True
@@ -774,6 +885,17 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
                 _clean(on_grid(situation.current[:, col]))
                 for col in range(situation.current.shape[1])
             ]
+
+        breakdown, derived_torques = _torque_breakdown(situation)
+        entry["derived"].extend(derived_torques)
+        for key, series in breakdown.items():
+            if series is not None:
+                any_breakdown = True
+                plot[key] = [_clean(on_grid(series[:, col])) for col in range(series.shape[1])]
+        if role != "target" and any(series is not None for series in breakdown.values()):
+            entry["torque_budget"] = _json_clean(
+                _torque_budget(situation, breakdown, comparison.joint_names, target_joints)
+            )
 
         poses = target_poses if role == "target" else _situation_poses(situation, comparison)
         if poses is not None:
@@ -924,6 +1046,7 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
         "has_cartesian": any_cartesian,
         "has_tau": any_tau,
         "has_current": any_current,
+        "has_torque_breakdown": any_breakdown,
         "has_video": any(entry["video"] for entry in payload_situations),
         "overlays": [overlay.to_payload() for overlay in comparison.overlays],
         "has_overlay": bool(comparison.overlays),

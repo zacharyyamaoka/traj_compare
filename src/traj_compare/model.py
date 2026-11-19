@@ -24,13 +24,14 @@ from robot_msgs.compare import Tolerances
 # (N, DOF) joint configurations in → (N, 4, 4) TCP poses out.
 FkFunction = Callable[[np.ndarray], np.ndarray]
 
-_TIME_SERIES_FIELDS = ("q", "qd", "qdd", "tau", "current")
+_TIME_SERIES_FIELDS = ("q", "qd", "qdd", "tau", "current", "tau_cmd", "tau_ff", "tau_fb")
 _SECTION_IDS = {
     "joint-q",
     "joint-qd",
     "joint-qdd",
     "joint-tau",
     "joint-current",
+    "joint-torque",
     "joint-err",
     "tcp-pose",
     "tcp-err",
@@ -350,8 +351,15 @@ class Situation:
     q: np.ndarray | None = None
     qd: np.ndarray | None = None
     qdd: np.ndarray | None = None
+    # (N, DOF) N·m. ``tau`` is the torque actually applied on a run (moteus reply ``torque``)
+    # and the torque the reference needs on the target. The command breakdown sits beside it
+    # (Zach 2026-11-19, torque breakdown: how much of the command came from feedforward, how
+    # much from feedback). Two of tau_cmd / tau_ff / tau_fb derive the third.
     tau: np.ndarray | None = None
     current: np.ndarray | None = None  # (N, DOF) motor current, amperes
+    tau_cmd: np.ndarray | None = None  # commanded, to the FOC current loop (moteus control_torque)
+    tau_ff: np.ndarray | None = None  # feedforward: the model-based part of the command
+    tau_fb: np.ndarray | None = None  # feedback: the error-correcting part (kp·e + kd·ė + ki∫e)
     poses: np.ndarray | None = None  # optional precomputed (N, 4, 4) TCP poses
     video: str = ""  # video file path relative to the report's directory
     note: str = ""  # shown in the legend when there is no data
@@ -399,7 +407,7 @@ class Situation:
         self.q = np.asarray(self.q, dtype=float)
         if self.q.ndim == 1:
             self.q = self.q[:, None]
-        for name in ("qd", "qdd", "tau", "current"):
+        for name in _TIME_SERIES_FIELDS[1:]:
             value = getattr(self, name)
             if value is None:
                 continue
