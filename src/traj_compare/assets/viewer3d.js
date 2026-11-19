@@ -700,7 +700,17 @@ var Viewer3D = (function () {
       paintButton();
       paintVisibility(state);
     });
-    document.addEventListener('click', function () {
+    // WHY: Zach flips several layers on/off in a row to compare them, so a click
+    // inside an open menu (its checkboxes, labels, padding) must NOT close it;
+    // only a click elsewhere on the page, or Escape, does.
+    document.addEventListener('keydown', function (event) {
+      if (event.key !== 'Escape') return;
+      document.querySelectorAll('.tc-ddmenu.open').forEach(function (menu) {
+        menu.classList.remove('open');
+      });
+    });
+    document.addEventListener('click', function (event) {
+      if (event.target.closest && event.target.closest('.tc-ddmenu')) return;
       document.querySelectorAll('.tc-ddmenu.open').forEach(function (menu) {
         menu.classList.remove('open');
       });
