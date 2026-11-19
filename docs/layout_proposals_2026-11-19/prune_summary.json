@@ -1,0 +1,64 @@
+{
+ "round": "Standalone summary view",
+ "scoredBy": "dispatcher (Claude Opus 5.5), from the lane's headless-Chrome shots and state checks, after all five existed; criteria frozen in CRITERIA.md",
+ "defaultId": "v1",
+ "defaultWhy": "Scalars board scores 95/100: it is the TensorBoard layout you described — runs on the left grouped by target with tag and regex filters — and it opens on one verdict card per target (ff v2 −43 % RMS error, FB share 23 % → 6 %, high confidence), then a chart per metric × target where each config group is a percentile fan once it has more than N runs (slider) and plain lines below that. Closest alternative: Target cards (90), the calmer page with the torque budget per group on every card.",
+ "decisionHinge": "How much the summary is for picking runs versus reading the torque budget. Move 10 points from 'runs grouped by target' (A2) to 'torque budget at summary level' (A4) and Target cards edges ahead, 94 to 93. The splice that removes the hinge: Scalars board's run sidebar and metric × target grid, with Target cards' verdict and per-group FF | FB budget bar heading each target column, and League table's sortable row (ISO 9283 RT, drive gap, saturation) as a second tab.",
+ "variants": {
+  "v1": {
+   "scores": {
+    "a1": [5, "Three verdict cards above the fold: per target the winner, the margin (−43 %, −52 %), FB share 23 % → 6 %, and a confidence line (47/48 run pairs); 'nothing to compare' on pick-swing.", "high"],
+    "a2": [5, "TensorBoard-style sidebar: runs under their target with counts, select-all per group, regex filter, ff model / date / kind tag chips, colour key.", "high"],
+    "a3": [5, "Every chart draws each config group as lines up to N runs (slider) and as a median · IQR · p5–p95 · min–max fan past it; Lines / Bands override; pin a run over its fan.", "high"],
+    "a4": [4, "Feedback-torque and FB-share-over-time rows per target and a saturation badge; no per-run budget bar.", "high"],
+    "a5": [5, "'run view ↗' on every chart and a click on any line or band opens that run.", "high"],
+    "a6": [4, "Runs aggregate into fans and groups collapse; the grid grows one column per target, which gets wide past ~5 targets.", "medium"]
+   },
+   "gates": {"g1": [true, "v1/index.html opens from file:// (fixture.js + vendored uPlot)."], "g2": [true, "°, N·m, %."], "g3": [true, "SIMULATED FIXTURE badge."]}
+  },
+  "v2": {
+   "scores": {
+    "a1": [5, "Each target header states the winner, margin, FB share change and confidence before the rows.", "high"],
+    "a2": [3, "Rows are target × config and expand into runs, with date chips; no run sidebar or regex.", "high"],
+    "a3": [4, "Box (or dots under 5 runs) per row for the chosen metric plus a sparkline; the over-time fan only in the detail panel.", "high"],
+    "a4": [5, "FB share, drive gap and saturation columns, and per-run FF | FB | gap bars in the detail panel.", "high"],
+    "a5": [5, "Every row has ↗, and the detail panel an 'Open run view'.", "high"],
+    "a6": [5, "A table with collapsible groups and a League mode is the form that scales furthest.", "medium"]
+   },
+   "gates": {"g1": [true, "v2/index.html from file://."], "g2": [true, "°, N·m, mm for ISO 9283 RT."], "g3": [true, "SIMULATED FIXTURE badge."]}
+  },
+  "v3": {
+   "scores": {
+    "a1": [5, "Each card opens with a large verdict: −43 % / −52 %, the medians, FB share, confidence and n.", "high"],
+    "a2": [3, "Cards are per target and a focused card lists its runs; date chips, no run sidebar.", "high"],
+    "a3": [5, "A fan per config group on each card (error, feedback torque or FB share), lines under the threshold, a dot strip of every run's RMS.", "high"],
+    "a4": [5, "A torque budget bar per config group (FF | FB | drive gap) with whiskers across runs, saturation flagged.", "high"],
+    "a5": [5, "Open run view per card; hover a run dot to draw it on the fan, click to open.", "high"],
+    "a6": [4, "Cards wrap with more targets and runs aggregate; very many targets becomes a long grid.", "medium"]
+   },
+   "gates": {"g1": [true, "v3/index.html from file://."], "g2": [true, "°, N·m."], "g3": [true, "SIMULATED FIXTURE badge."]}
+  },
+  "v4": {
+   "scores": {
+    "a1": [4, "The answer cards state the torque result ('feedback supplies 23 % with ff v1 → 6 % with ff v2') with the error change secondary.", "high"],
+    "a2": [3, "Targets as columns, runs under their config; no sidebar, filter or regex.", "high"],
+    "a3": [3, "A beeswarm of FB share per config (one scalar); spread over time only in the drawer.", "high"],
+    "a4": [5, "Stacked FF | FB | drive-gap bar per run, sorted, drive-limit marks, % ↔ N·m; the drawer plots the five torques.", "high"],
+    "a5": [5, "Click a run for its drawer, then Open run view.", "high"],
+    "a6": [3, "One bar per run gets long at 100+ runs; Per group mode helps.", "medium"]
+   },
+   "gates": {"g1": [true, "v4/index.html from file://."], "g2": [true, "N·m, %, °."], "g3": [true, "SIMULATED FIXTURE badge."]}
+  },
+  "v5": {
+   "scores": {
+    "a1": [4, "A 'what changed' banner: ff v2 calibrated from 11-19, −51 % / −46 % mean RMS, FB share drops; confidence only implicit in the limits.", "high"],
+    "a2": [3, "A ledger of every run in date order; no grouping control or filter.", "high"],
+    "a3": [4, "Control-chart lanes show run-to-run spread with per-phase limits; a percentile fan in the phase drawer.", "high"],
+    "a4": [3, "FB share as small bars under each lane and as a selectable metric; no FF | FB split.", "high"],
+    "a5": [4, "'run view ↗' per lane and ledger selection; no per-point drill.", "medium"],
+    "a6": [4, "Control charts take many points; the ledger list grows linearly.", "medium"]
+   },
+   "gates": {"g1": [true, "v5/index.html from file://."], "g2": [true, "°, %."], "g3": [true, "SIMULATED FIXTURE badge."]}
+  }
+ }
+}

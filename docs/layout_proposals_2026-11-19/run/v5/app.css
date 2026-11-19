@@ -1,0 +1,29 @@
+/* V5 The moment */
+.v5-main { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
+.v5-top { flex: 1 1 auto; display: flex; min-height: 0; }
+.v5-stagewrap { flex: 1 1 auto; position: relative; min-width: 0; background: #fcfcfb; }
+.v5-stagewrap .rv-3d { position: absolute; inset: 0; }
+.v5-stagewrap .rv-3d canvas { border-radius: 0; }
+.v5-stagewrap .rv-3dhud { left: 14px; top: 10px; pointer-events: none; }
+.v5-hud-t { font-size: 30px; font-weight: 650; color: #0b0b0b; line-height: 1.1; }
+.v5-hud-s { font-size: 12px; color: #52514e; line-height: 1.5; margin-top: 2px; }
+.v5-hud-sw { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: 3px; margin-right: 6px; }
+.v5-moments { position: absolute; left: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 5px; max-width: 360px; }
+.v5-moments-h { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; color: #8a8983; }
+.v5-moment { display: flex; gap: 8px; align-items: baseline; text-align: left; border: 1px solid #ecd98f; background: rgba(253, 248, 232, 0.95);
+             border-radius: 6px; padding: 4px 9px; font: inherit; font-size: 12px; color: #22211f; cursor: pointer; }
+.v5-moment:hover { border-color: #d79818; }
+.v5-moment b { color: #6b5a10; white-space: nowrap; }
+.v5-falls { padding: 0 12px 10px; overflow: auto; background: #fcfcfb; }
+.v5-falls-head { display: flex; align-items: center; padding: 10px 0 4px; }
+.v5-fall { border-bottom: 1px solid #e6e5e0; padding: 6px 0 6px; }
+.v5-fall svg { display: block; }
+.v5-fall-note { font-size: 10.5px; color: #8a8983; margin-top: 2px; }
+.v5-fall-legend { display: flex; flex-wrap: wrap; gap: 3px 10px; font-size: 10.5px; color: #52514e; padding-top: 8px; }
+.v5-lg { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.v5-lg i { width: 10px; height: 10px; border-radius: 2px; }
+.v5-bottom { flex: 0 0 auto; border-top: 1px solid #dddcd6; background: #f7f7f5; padding: 6px 14px 8px; }
+.v5-strip { display: flex; align-items: center; gap: 8px; }
+.v5-strip-l { flex: 0 0 132px; font-size: 11.5px; color: #22211f; text-align: right; }
+.v5-strip-c { flex: 1 1 auto; min-width: 0; }
+.v5-foot { padding-top: 6px; }

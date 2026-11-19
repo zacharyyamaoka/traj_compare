@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>V1 Sidebar + sections — run view</title>
+<link rel="stylesheet" href="../vendor/uplot.min.css">
+<link rel="stylesheet" href="../vendor/tc-style.css">
+<link rel="stylesheet" href="../common/common.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body class="rv">
+<div class="rv-app">
+  <header class="rv-head">
+    <div>
+      <h1 id="title"></h1>
+      <div class="rv-sub" id="desc"></div>
+    </div>
+    <span class="rv-spacer"></span>
+    <span id="badge"></span>
+  </header>
+  <nav class="tc-tabs v1-tabs" id="tabs"></nav>
+  <div class="rv-body">
+    <aside class="rv-side" id="side"></aside>
+    <main class="rv-main" id="main">
+      <div class="tc-controls v1-controls" id="controls"></div>
+      <div id="sections"></div>
+      <footer class="tc">SIMULATED fixture · traj_compare run-view layout round 2026-11-19 · V1 Sidebar + sections</footer>
+    </main>
+  </div>
+</div>
+<script src="../vendor/uplot.iife.min.js"></script>
+<script src="../vendor/three.min.js"></script>
+<script src="../fixture.js"></script>
+<script src="../common/common.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

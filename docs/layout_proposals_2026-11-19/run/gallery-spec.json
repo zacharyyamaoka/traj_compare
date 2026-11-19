@@ -1,0 +1,560 @@
+{
+ "schemaVersion": 3,
+ "title": "Run view — five layouts",
+ "kicker": "traj_compare · Round B · /babble 5 · SIMULATED fixture",
+ "brief": "Five layouts for traj_compare's standalone RUN view — one target and all its runs (sim + 14 real repeats) — with a TensorBoard-style run list on the left, repeats as lines for a few and percentile bands for many, and the torque breakdown (target, commanded, feedforward, feedback, applied) first class.",
+ "count": 5,
+ "defaultId": "",
+ "defaultWhy": "",
+ "decisionHinge": "",
+ "invariants": [
+  "Same SIMULATED fixture (fixture.py) and hero target: full-circle-slow, sim + 14 real repeats (8 × ff v1, 6 × ff v2).",
+  "1440 × 900 hero; traj_compare's own style.css, uPlot and three.js, loaded by <script src> from file://.",
+  "Fixed component colours: feedforward #3b82f6, feedback #f97316, target grey dashed, commanded = run colour, applied thin.",
+  "Degrees for angles, N·m for torque; FB share = Σ|fb| / (Σ|ff| + Σ|fb|); error = target − run.",
+  "Run colours keyed by config (sim grey, ff v1 violet, ff v2 green), never blue/orange; amber only for problems.",
+  "Every side panel drags (width remembered) and folds; time cursor and x zoom shared by every plot on the page."
+ ],
+ "boundary": "Standalone front-end prototypes over the SIMULATED shared fixture (fixture.py); run/build.py re-grids each run onto its target's time grid and computes the per-run torque budget, the page computes bands over the runs you select. Not wired into traj_compare's report.py / plots.js; no real rig data.",
+ "axes": [
+  {
+   "name": "Organising principle",
+   "values": [
+    "signal sections, today's order (V1)",
+    "torque per joint (V2)",
+    "four question tabs (V3)",
+    "joint × signal spreadsheet (V4)",
+    "the instant at the cursor (V5)"
+   ]
+  },
+  {
+   "name": "Torque encoding",
+   "values": [
+    "contract's five lines, feedback filled to zero (V1)",
+    "feedforward area + feedback wedge up to commanded (V2)",
+    "feedback share over time + 100% budget bars (V3)",
+    "one column per component, one y scale per row (V4)",
+    "waterfall target → FF → +FB → commanded → applied (V5)"
+   ]
+  },
+  {
+   "name": "Repeat encoding",
+   "values": [
+    "lines ≤ 5 per group, bands past that (V1)",
+    "one run against its group's band (V2)",
+    "dot strips + run × time heat strip (V3)",
+    "bands in every cell (V4)",
+    "spread at the instant: whiskers + stick ghosts (V5)"
+   ]
+  },
+  {
+   "name": "Locating the bad moment",
+   "values": [
+    "Worst-moment button + 3D section below the fold (V1)",
+    "Worst-moment button + 3D thumbnail (V2)",
+    "heat strip + worst-moment list + 3D (V3)",
+    "Worst-moment button + corner 3D (V4)",
+    "opens on the worst moment; three one-click chips (V5)"
+   ]
+  }
+ ],
+ "requirements": [
+  {
+   "id": "b1",
+   "name": "Torque breakdown readable",
+   "weight": 25,
+   "why": "Zach does not see the FF/FB split as first class today; it is the headline of this round (CONTRACT.md).",
+   "passCondition": "For a joint and run: target, commanded, feedforward, feedback, applied; how much is feedback is evident.",
+   "anchors": {
+    "1": "five lines in a tangle",
+    "3": "readable with effort",
+    "5": "the split reads at a glance and at any instant"
+   }
+  },
+  {
+   "id": "b2",
+   "name": "Repeat distribution",
+   "weight": 20,
+   "why": "real vs real × N: a few repeats as lines, many as median + percentile fans (TensorBoard histogram style).",
+   "passCondition": "N repeats of the target as lines or percentile bands, automatic or switchable.",
+   "anchors": {
+    "1": "overplotted lines only",
+    "3": "bands for one channel",
+    "5": "bands everywhere, lines on demand, one run highlightable against the band"
+   }
+  },
+  {
+   "id": "b3",
+   "name": "Where / when",
+   "weight": 20,
+   "why": "The bad moment has to be located in time and in the robot's pose, not just reported as an RMS.",
+   "passCondition": "Error, torque and 3D share the time cursor and zoom, so the bad moment is located.",
+   "anchors": {
+    "1": "separate, unsynced",
+    "3": "synced cursor",
+    "5": "cursor + zoom + an explicit \"worst moment\" jump"
+   }
+  },
+  {
+   "id": "b4",
+   "name": "Runs on the left",
+   "weight": 15,
+   "why": "\"Take a bit of the TensorBoard layout, with the runs on the left\"; runs grouped by target.",
+   "passCondition": "TensorBoard-like run list: toggle, solo, group by tag.",
+   "anchors": {
+    "1": "chips only",
+    "3": "list with toggles",
+    "5": "list with groups, solo, colour key, tag filter"
+   }
+  },
+  {
+   "id": "b5",
+   "name": "Calm density",
+   "weight": 10,
+   "why": "One calm answer first, detail on demand (Zach's UI rule); today's view opens on a wall of tables.",
+   "passCondition": "Progressive disclosure, not a wall of 40 plots.",
+   "anchors": {
+    "1": "wall",
+    "3": "sections",
+    "5": "one calm answer, detail on demand"
+   }
+  },
+  {
+   "id": "b6",
+   "name": "Fits traj_compare",
+   "weight": 10,
+   "why": "The winner has to land in the existing stack, not as a rewrite.",
+   "passCondition": "Buildable in the existing stack (vanilla JS, uPlot, three.js, sections, transport).",
+   "anchors": {
+    "1": "rewrite",
+    "3": "partial reuse",
+    "5": "reuses sections + transport as-is"
+   }
+  }
+ ],
+ "hardGates": [
+  {
+   "id": "g1",
+   "name": "Self-contained",
+   "why": "Standalone pages open from file:// with no server and no CDN (traj_compare's contract)."
+  },
+  {
+   "id": "g2",
+   "name": "Units",
+   "why": "Angles in degrees, tool in mm, torque in N·m; SI stays in the stored data."
+  },
+  {
+   "id": "g3",
+   "name": "Honest data",
+   "why": "Everything shown comes from the shared fixture; every page says SIMULATED."
+  },
+  {
+   "id": "g4",
+   "name": "Robot model",
+   "why": "A run view with 3D keeps the robot model available (skill contract)."
+  }
+ ],
+ "variants": [
+  {
+   "id": "v1",
+   "name": "Sidebar + sections",
+   "thesis": "Today's run view, TensorBoard-ified: a run tree on the left and traj_compare's own section stack on the right, with a new Torque breakdown section; repeats collapse into percentile bands past five per group.",
+   "accent": "#2a78d6",
+   "bestWhen": "You want the smallest step from today's viewer: same sections, same chips, same transport, now with runs on the left and the torque split as a section.",
+   "losesWhen": "You need error, torque and 3D on one screen — the 3D and error sections sit below the fold, so locating a moment means scrolling.",
+   "decisions": [
+    {
+     "label": "Organisation",
+     "value": "Sections as today (Answer · Torque breakdown · Joint error · Joint q · 3D paths), toggled by chips in the sticky control bar."
+    },
+    {
+     "label": "Torque encoding",
+     "value": "The contract's five traces for the highlighted run, beside every visible run's feedback as bands."
+    },
+    {
+     "label": "Repeats",
+     "value": "Auto: ≤ 5 runs in a config → lines, more → median + IQR + p5–p95 + min–max; Lines/Bands force it."
+    },
+    {
+     "label": "Answer first",
+     "value": "An Answer section on top: which feedforward model tracks better and by how much, error and FB share."
+    }
+   ],
+   "keepParts": [
+    "run tree with group-by + solo",
+    "Answer section facts",
+    "torque budget table in a disclosure",
+    "auto lines → bands threshold"
+   ],
+   "proof": [
+    "Headless Chrome (Playwright, system Chrome) at 1440 × 900 on the SIMULATED fixture; 0 console errors on load and through the flow.",
+    "Clicked ⚠ Worst moment: every plot zoomed to ±0.6 s around Real #03's worst instant and the time was pinned (v1-worst).",
+    "Switched Repeats → Lines and clicked Real #12 in the run list: bands became per-run lines and the breakdown cards followed the new run (v1-lines).",
+    "Scrolled to 3D paths: the planar 2R arm posed at the pinned time with target ghost, stick ghosts and the five torques at the cursor (v1-3d).",
+    "Dragged the run-list edge +80 px (290 → 370 px, measured), reloaded (still 370), dragged back (290); double-click folded it to the rail, rail click restored it."
+   ],
+   "scores": {},
+   "gateResults": {},
+   "previewLabel": "hero · 1440 × 900",
+   "preview": "<style>.rvp{width:1440px}.rvp img{display:none!important;width:1440px!important;height:900px!important}.rvp img.st-hero{display:block!important}[data-story-state=\"worst\"] .rvp img.st-hero{display:none!important}[data-story-state=\"worst\"] .rvp img.st-worst{display:block!important}[data-story-state=\"lines\"] .rvp img.st-hero{display:none!important}[data-story-state=\"lines\"] .rvp img.st-lines{display:block!important}[data-story-state=\"3d\"] .rvp img.st-hero{display:none!important}[data-story-state=\"3d\"] .rvp img.st-3d{display:block!important}</style><div class=\"rvp\"><img class=\"st-hero\" src=\"shots/v1-hero.png\" width=\"1440\" height=\"900\" alt=\"Sidebar + sections: Answer + torque breakdown\"><img class=\"st-worst\" src=\"shots/v1-worst.png\" width=\"1440\" height=\"900\" alt=\"Sidebar + sections: Worst moment, zoomed\"><img class=\"st-lines\" src=\"shots/v1-lines.png\" width=\"1440\" height=\"900\" alt=\"Sidebar + sections: Lines on demand, another run\"><img class=\"st-3d\" src=\"shots/v1-3d.png\" width=\"1440\" height=\"900\" alt=\"Sidebar + sections: 3D at the pinned time\"></div>",
+   "story": {
+    "title": "Sidebar + sections — walkthrough",
+    "steps": [
+     {
+      "label": "Answer + torque breakdown",
+      "caption": "Opens on one sentence (ff v2 −43 % shoulder error, FB share 23 % → 6 %) and the five-trace breakdown of the worst run next to every run's feedback band.",
+      "state": "hero"
+     },
+     {
+      "label": "Worst moment, zoomed",
+      "caption": "⚠ Worst moment zooms every plot to ±0.6 s around Real #03's worst instant and pins the time.",
+      "state": "worst"
+     },
+     {
+      "label": "Lines on demand, another run",
+      "caption": "Repeats switched to Lines; Real #12 · ff v2 highlighted — the breakdown cards follow it.",
+      "state": "lines"
+     },
+     {
+      "label": "3D at the pinned time",
+      "caption": "Below the fold: the arm at the pinned time, target ghost grey, other runs as sticks, and the five torques at the cursor.",
+      "state": "3d"
+     }
+    ]
+   },
+   "media": [
+    {
+     "label": "Worst moment, zoomed",
+     "caption": "⚠ Worst moment zooms every plot to ±0.6 s around Real #03's worst instant and pins the time.",
+     "html": "<img src=\"shots/v1-worst.png\" width=\"1440\" height=\"900\" alt=\"Worst moment, zoomed\">"
+    },
+    {
+     "label": "Lines on demand, another run",
+     "caption": "Repeats switched to Lines; Real #12 · ff v2 highlighted — the breakdown cards follow it.",
+     "html": "<img src=\"shots/v1-lines.png\" width=\"1440\" height=\"900\" alt=\"Lines on demand, another run\">"
+    },
+    {
+     "label": "Live",
+     "caption": "The running prototype on the shared fixture — drive it: click runs, Lines/Bands, ⚠ Worst moment, drag the panel edges.",
+     "html": "<iframe src=\"v1/index.html\" style=\"width:1440px;height:900px;border:0\" title=\"Sidebar + sections live\"></iframe>"
+    }
+   ]
+  },
+  {
+   "id": "v2",
+   "name": "Torque cockpit",
+   "thesis": "The torque is the page: per joint the command is drawn as what it is made of — feedforward as a blue area, feedback as the orange wedge between feedforward and commanded — one run at a time against its group's band, with the budget beside it.",
+   "accent": "#f97316",
+   "bestWhen": "The question is \"how much of the command is feedback, when, and is this run typical?\" — the wedge thickness is the feedback at every instant.",
+   "losesWhen": "You want to see many runs' breakdowns at once, or signals other than torque and error; it is deliberately one run at a time.",
+   "decisions": [
+    {
+     "label": "Torque encoding",
+     "value": "Stacked: feedforward area from zero, feedback wedge from feedforward to commanded (correct through sign changes), target dashed, applied thin."
+    },
+    {
+     "label": "Repeats",
+     "value": "The highlighted run against the p5–p95 / IQR band of its own config (or of all real runs) for commanded torque and error."
+    },
+    {
+     "label": "Budget column",
+     "value": "FB share as a big number + FF|FB bar, where this run sits among every run (dot strip), drive gap, peak vs limit."
+    },
+    {
+     "label": "Run stepping",
+     "value": "◀ ▶ (or [ ]) walks the visible runs; the run list shows each run's FB share as a bar."
+    }
+   ],
+   "keepParts": [
+    "feedforward area + feedback wedge plot",
+    "instant readout target · FF + FB = commanded → applied",
+    "FB-share dot strip per config",
+    "run stepper ◀ ▶"
+   ],
+   "proof": [
+    "Headless Chrome at 1440 × 900; 0 console errors on load and through the flow.",
+    "Clicked Real #12 · ff v2: both cockpits, the band (its own config), the budget column and the 3D thumbnail switched; FB share 24 % → 5 % (v2-v2run).",
+    "Clicked ⚠ Worst moment: both cockpits zoomed to that run's worst instant; the readout gives target · FF + FB = commanded → applied at the sample (v2-worst).",
+    "Dragged the run-list edge +80 px (280 → 360 px, measured), persisted across reload, dragged back; folded to the rail and restored."
+   ],
+   "scores": {},
+   "gateResults": {},
+   "previewLabel": "hero · 1440 × 900",
+   "preview": "<style>.rvp{width:1440px}.rvp img{display:none!important;width:1440px!important;height:900px!important}.rvp img.st-hero{display:block!important}[data-story-state=\"v2run\"] .rvp img.st-hero{display:none!important}[data-story-state=\"v2run\"] .rvp img.st-v2run{display:block!important}[data-story-state=\"worst\"] .rvp img.st-hero{display:none!important}[data-story-state=\"worst\"] .rvp img.st-worst{display:block!important}</style><div class=\"rvp\"><img class=\"st-hero\" src=\"shots/v2-hero.png\" width=\"1440\" height=\"900\" alt=\"Torque cockpit: Worst run's cockpit\"><img class=\"st-v2run\" src=\"shots/v2-v2run.png\" width=\"1440\" height=\"900\" alt=\"Torque cockpit: A ff v2 run\"><img class=\"st-worst\" src=\"shots/v2-worst.png\" width=\"1440\" height=\"900\" alt=\"Torque cockpit: Worst moment, zoomed\"></div>",
+   "story": {
+    "title": "Torque cockpit — walkthrough",
+    "steps": [
+     {
+      "label": "Worst run's cockpit",
+      "caption": "Real #03 · ff v1: the orange wedge is the feedback — 24 % of the command — riding on a blue feedforward that under-models gravity.",
+      "state": "hero"
+     },
+     {
+      "label": "A ff v2 run",
+      "caption": "Click Real #12 · ff v2: the wedge nearly vanishes (FB 5 %) and the budget dot moves to the v2 lane.",
+      "state": "v2run"
+     },
+     {
+      "label": "Worst moment, zoomed",
+      "caption": "⚠ Worst moment zooms both cockpits to Real #12's worst instant; the readout gives the split at that sample.",
+      "state": "worst"
+     }
+    ]
+   },
+   "media": [
+    {
+     "label": "A ff v2 run",
+     "caption": "Click Real #12 · ff v2: the wedge nearly vanishes (FB 5 %) and the budget dot moves to the v2 lane.",
+     "html": "<img src=\"shots/v2-v2run.png\" width=\"1440\" height=\"900\" alt=\"A ff v2 run\">"
+    },
+    {
+     "label": "Worst moment, zoomed",
+     "caption": "⚠ Worst moment zooms both cockpits to Real #12's worst instant; the readout gives the split at that sample.",
+     "html": "<img src=\"shots/v2-worst.png\" width=\"1440\" height=\"900\" alt=\"Worst moment, zoomed\">"
+    },
+    {
+     "label": "Live",
+     "caption": "The running prototype on the shared fixture — drive it: click runs, Lines/Bands, ⚠ Worst moment, drag the panel edges.",
+     "html": "<iframe src=\"v2/index.html\" style=\"width:1440px;height:900px;border:0\" title=\"Torque cockpit live\"></iframe>"
+    }
+   ]
+  },
+  {
+   "id": "v3",
+   "name": "Question tabs",
+   "thesis": "The run view as the four questions you bring to it — Is it good? · Where does the torque come from? · When did it go wrong? · Which joint? — each one composed screen, each tab label carrying its own short answer.",
+   "accent": "#8e5bd1",
+   "bestWhen": "Someone new to the data, or a review: the tab strip alone answers the four questions before a tab is opened.",
+   "losesWhen": "You want to cross-read two answers at once (torque split at the worst moment) — that means switching tabs.",
+   "decisions": [
+    {
+     "label": "Organisation",
+     "value": "Four tabs mirroring Rerun's questions layout; the run list, cursor and zoom persist across tabs."
+    },
+    {
+     "label": "Torque encoding",
+     "value": "Feedback share of the command over time (0–100 %) as config bands, the highlighted run's five traces beside, and a 100 % FF|FB bar per run."
+    },
+    {
+     "label": "Repeats",
+     "value": "Dot strips (one dot per run per joint) on 'Is it good?', a run × time |error| heat strip on 'When did it go wrong?'."
+    },
+    {
+     "label": "Answers in the tabs",
+     "value": "Each tab button shows its answer: v2 −43 % error · FB 23 % → 6 % · 2.33 s Real #03 · shoulder."
+    }
+   ],
+   "keepParts": [
+    "tab labels that carry the answer",
+    "run × time |error| heat strip",
+    "FB share over time bands",
+    "per-run 100 % FF|FB bars"
+   ],
+   "proof": [
+    "Headless Chrome at 1440 × 900; 0 console errors on load and through all four tabs.",
+    "Opened 'Where does the torque come from?': FB share over time per config + Real #03's five traces + per-run 100 % FF|FB bars (v3-torque).",
+    "Opened 'When did it go wrong?' and clicked ⚠ Worst moment: focus moved to Real #03, plots and the heat strip zoomed to ±0.7 s, the 3D arm posed at 2.33 s (v3-when).",
+    "Dragged the run-list edge +80 px (280 → 360 px, measured), persisted across reload, dragged back; folded to the rail and restored."
+   ],
+   "scores": {},
+   "gateResults": {},
+   "previewLabel": "hero · 1440 × 900",
+   "preview": "<style>.rvp{width:1440px}.rvp img{display:none!important;width:1440px!important;height:900px!important}.rvp img.st-hero{display:block!important}[data-story-state=\"torque\"] .rvp img.st-hero{display:none!important}[data-story-state=\"torque\"] .rvp img.st-torque{display:block!important}[data-story-state=\"when\"] .rvp img.st-hero{display:none!important}[data-story-state=\"when\"] .rvp img.st-when{display:block!important}</style><div class=\"rvp\"><img class=\"st-hero\" src=\"shots/v3-hero.png\" width=\"1440\" height=\"900\" alt=\"Question tabs: Is it good?\"><img class=\"st-torque\" src=\"shots/v3-torque.png\" width=\"1440\" height=\"900\" alt=\"Question tabs: Where does the torque come from?\"><img class=\"st-when\" src=\"shots/v3-when.png\" width=\"1440\" height=\"900\" alt=\"Question tabs: When did it go wrong?\"></div>",
+   "story": {
+    "title": "Question tabs — walkthrough",
+    "steps": [
+     {
+      "label": "Is it good?",
+      "caption": "Verdict sentence, three answer tiles that link to the other tabs, one dot per run, error bands over time.",
+      "state": "hero"
+     },
+     {
+      "label": "Where does the torque come from?",
+      "caption": "Feedback share over time per config (it peaks where gravity load is highest) beside the worst run's five traces; budget bars per run below.",
+      "state": "torque"
+     },
+     {
+      "label": "When did it go wrong?",
+      "caption": "Run × time heat strip of |error|, worst moments outlined amber; ⚠ jumps to the worst and poses the 3D arm there.",
+      "state": "when"
+     }
+    ]
+   },
+   "media": [
+    {
+     "label": "Where does the torque come from?",
+     "caption": "Feedback share over time per config (it peaks where gravity load is highest) beside the worst run's five traces; budget bars per run below.",
+     "html": "<img src=\"shots/v3-torque.png\" width=\"1440\" height=\"900\" alt=\"Where does the torque come from?\">"
+    },
+    {
+     "label": "When did it go wrong?",
+     "caption": "Run × time heat strip of |error|, worst moments outlined amber; ⚠ jumps to the worst and poses the 3D arm there.",
+     "html": "<img src=\"shots/v3-when.png\" width=\"1440\" height=\"900\" alt=\"When did it go wrong?\">"
+    },
+    {
+     "label": "Live",
+     "caption": "The running prototype on the shared fixture — drive it: click runs, Lines/Bands, ⚠ Worst moment, drag the panel edges.",
+     "html": "<iframe src=\"v3/index.html\" style=\"width:1440px;height:900px;border:0\" title=\"Question tabs live\"></iframe>"
+    }
+   ]
+  },
+  {
+   "id": "v4",
+   "name": "Joint × signal grid",
+   "thesis": "A spreadsheet of small multiples: rows are joints, columns are signals (error, commanded, feedforward, feedback, FB share, …), every cell carries each config's repeat band with the highlighted run on top; torque columns share one y scale per row so feedforward and feedback compare by size.",
+   "accent": "#2f9e44",
+   "bestWhen": "Scanning for which joint × signal is off, across many repeats — every cell has the same encoding, so the eye compares cells, not legends.",
+   "losesWhen": "You need the composition at one instant (FF + FB = commanded) — the components live in separate cells.",
+   "decisions": [
+    {
+     "label": "Organisation",
+     "value": "Fixed grid: joints × signal columns, columns added or removed with chips (drive gap, applied, q on demand)."
+    },
+    {
+     "label": "Torque encoding",
+     "value": "One column per component, one shared torque scale per row, so the feedback cell is visibly smaller than the feedforward cell."
+    },
+    {
+     "label": "Repeats",
+     "value": "Bands in every cell (per config), lines on demand; each cell header gives the per-config median."
+    },
+    {
+     "label": "Drill-down",
+     "value": "⤢ or double-click expands a cell over the grid, with tabs to the neighbouring signals and the other joint; Esc returns."
+    }
+   ],
+   "keepParts": [
+    "one torque scale per row",
+    "cell header with per-config medians",
+    "expand-a-cell overlay with signal tabs",
+    "column chips"
+   ],
+   "proof": [
+    "Headless Chrome at 1440 × 900; 0 console errors on load and through the flow.",
+    "Clicked ⤢ on shoulder × Feedback: the cell expanded over the grid with signal/joint chips; Esc closed it (v4-expanded).",
+    "Switched Repeats → Lines: every cell redrew with one line per run (v4-lines).",
+    "Dragged the run-list edge +80 px (260 → 340 px, measured), persisted across reload, dragged back; folded to the rail and restored."
+   ],
+   "scores": {},
+   "gateResults": {},
+   "previewLabel": "hero · 1440 × 900",
+   "preview": "<style>.rvp{width:1440px}.rvp img{display:none!important;width:1440px!important;height:900px!important}.rvp img.st-hero{display:block!important}[data-story-state=\"expanded\"] .rvp img.st-hero{display:none!important}[data-story-state=\"expanded\"] .rvp img.st-expanded{display:block!important}[data-story-state=\"lines\"] .rvp img.st-hero{display:none!important}[data-story-state=\"lines\"] .rvp img.st-lines{display:block!important}</style><div class=\"rvp\"><img class=\"st-hero\" src=\"shots/v4-hero.png\" width=\"1440\" height=\"900\" alt=\"Joint × signal grid: The grid\"><img class=\"st-expanded\" src=\"shots/v4-expanded.png\" width=\"1440\" height=\"900\" alt=\"Joint × signal grid: Feedback cell expanded\"><img class=\"st-lines\" src=\"shots/v4-lines.png\" width=\"1440\" height=\"900\" alt=\"Joint × signal grid: Lines on demand\"></div>",
+   "story": {
+    "title": "Joint × signal grid — walkthrough",
+    "steps": [
+     {
+      "label": "The grid",
+      "caption": "Two joints × five signals; ff v1 violet and ff v2 green bands in every cell, Real #03 on top; the corner holds the arm at the cursor.",
+      "state": "hero"
+     },
+     {
+      "label": "Feedback cell expanded",
+      "caption": "⤢ on shoulder × Feedback: the cell fills the grid; chips switch to the other signals or joint.",
+      "state": "expanded"
+     },
+     {
+      "label": "Lines on demand",
+      "caption": "Repeats → Lines: every run as its own line in every cell.",
+      "state": "lines"
+     }
+    ]
+   },
+   "media": [
+    {
+     "label": "Feedback cell expanded",
+     "caption": "⤢ on shoulder × Feedback: the cell fills the grid; chips switch to the other signals or joint.",
+     "html": "<img src=\"shots/v4-expanded.png\" width=\"1440\" height=\"900\" alt=\"Feedback cell expanded\">"
+    },
+    {
+     "label": "Lines on demand",
+     "caption": "Repeats → Lines: every run as its own line in every cell.",
+     "html": "<img src=\"shots/v4-lines.png\" width=\"1440\" height=\"900\" alt=\"Lines on demand\">"
+    },
+    {
+     "label": "Live",
+     "caption": "The running prototype on the shared fixture — drive it: click runs, Lines/Bands, ⚠ Worst moment, drag the panel edges.",
+     "html": "<iframe src=\"v4/index.html\" style=\"width:1440px;height:900px;border:0\" title=\"Joint × signal grid live\"></iframe>"
+    }
+   ]
+  },
+  {
+   "id": "v5",
+   "name": "The moment",
+   "thesis": "One scrubbable stage: a big 3D arm and, at the cursor, a torque waterfall per joint (target → Δ model → feedforward → + feedback → commanded → Δ drive → applied) with every run's spread at that instant; time plots sit small underneath.",
+   "accent": "#d79818",
+   "bestWhen": "Diagnosing why a particular instant went wrong — pose, gravity load and the torque chain are read together at one time.",
+   "losesWhen": "You want the whole-run picture or run-to-run statistics first; the overview is the thin strip of time plots.",
+   "decisions": [
+    {
+     "label": "Organisation",
+     "value": "Stage-first: 3D on the left, the torque at the cursor on the right, three small time strips + transport underneath."
+    },
+    {
+     "label": "Torque encoding",
+     "value": "A waterfall per joint at the cursor, a clamp bar when the drive clipped (never hidden), limit lines when near saturation."
+    },
+    {
+     "label": "Repeats",
+     "value": "Whiskers (min–max, p5–p95, IQR) of every visible real run on each total at the same instant; other runs as stick ghosts in 3D."
+    },
+    {
+     "label": "Entry point",
+     "value": "Opens on the highlighted run's worst moment; three worst-moment chips jump between the top three."
+    }
+   ],
+   "keepParts": [
+    "torque waterfall at the cursor",
+    "worst-moment chips on the stage",
+    "stick ghosts of other runs in 3D",
+    "clamp bar when the drive clips"
+   ],
+   "proof": [
+    "Headless Chrome at 1440 × 900; 0 console errors on load and through the flow; opens at the highlighted run's worst instant.",
+    "Clicked the second worst-moment chip (Real #01 at 3.56 s): focus, cursor, 3D pose, waterfalls and strips jumped there, zoomed ±0.8 s (v5-worst).",
+    "Switched the target to Full-circle fast and clicked its top chip: the shoulder command hits the 7 N·m limit, a clamp bar and the limit line appear (v5-fast).",
+    "Dragged the run-list edge +80 px (260 → 340 px, measured), persisted across reload, dragged back; folded to the rail and restored."
+   ],
+   "scores": {},
+   "gateResults": {},
+   "previewLabel": "hero · 1440 × 900",
+   "preview": "<style>.rvp{width:1440px}.rvp img{display:none!important;width:1440px!important;height:900px!important}.rvp img.st-hero{display:block!important}[data-story-state=\"worst\"] .rvp img.st-hero{display:none!important}[data-story-state=\"worst\"] .rvp img.st-worst{display:block!important}[data-story-state=\"fast\"] .rvp img.st-hero{display:none!important}[data-story-state=\"fast\"] .rvp img.st-fast{display:block!important}</style><div class=\"rvp\"><img class=\"st-hero\" src=\"shots/v5-hero.png\" width=\"1440\" height=\"900\" alt=\"The moment: Opens on the worst moment\"><img class=\"st-worst\" src=\"shots/v5-worst.png\" width=\"1440\" height=\"900\" alt=\"The moment: Worst-moment chip\"><img class=\"st-fast\" src=\"shots/v5-fast.png\" width=\"1440\" height=\"900\" alt=\"The moment: Fast target: saturation\"></div>",
+   "story": {
+    "title": "The moment — walkthrough",
+    "steps": [
+     {
+      "label": "Opens on the worst moment",
+      "caption": "Real #03 at its worst instant: arm pose, gravity load, and the waterfall showing feedback supplying a large part of the command.",
+      "state": "hero"
+     },
+     {
+      "label": "Worst-moment chip",
+      "caption": "Click the second chip (Real #01 at 3.56 s): focus, cursor, 3D pose, waterfalls and strips jump there, zoomed ±0.8 s.",
+      "state": "worst"
+     },
+     {
+      "label": "Fast target: saturation",
+      "caption": "Full-circle fast: the commanded torque hits the 7 N·m limit — a clamp bar and amber limit line appear.",
+      "state": "fast"
+     }
+    ]
+   },
+   "media": [
+    {
+     "label": "Worst-moment chip",
+     "caption": "Click the second chip (Real #01 at 3.56 s): focus, cursor, 3D pose, waterfalls and strips jump there, zoomed ±0.8 s.",
+     "html": "<img src=\"shots/v5-worst.png\" width=\"1440\" height=\"900\" alt=\"Worst-moment chip\">"
+    },
+    {
+     "label": "Fast target: saturation",
+     "caption": "Full-circle fast: the commanded torque hits the 7 N·m limit — a clamp bar and amber limit line appear.",
+     "html": "<img src=\"shots/v5-fast.png\" width=\"1440\" height=\"900\" alt=\"Fast target: saturation\">"
+    },
+    {
+     "label": "Live",
+     "caption": "The running prototype on the shared fixture — drive it: click runs, Lines/Bands, ⚠ Worst moment, drag the panel edges.",
+     "html": "<iframe src=\"v5/index.html\" style=\"width:1440px;height:900px;border:0\" title=\"The moment live\"></iframe>"
+    }
+   ]
+  }
+ ]
+}

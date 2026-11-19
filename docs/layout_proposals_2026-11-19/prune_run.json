@@ -1,0 +1,269 @@
+{
+ "round": "Standalone run view",
+ "scoredBy": "dispatcher (Claude Opus 5.5), from the lane's headless-Chrome shots and flows, after all five existed; criteria frozen in CRITERIA.md",
+ "defaultId": "v2",
+ "defaultWhy": "Fragile co-leaders at 92: Torque cockpit and Question tabs tie; Torque cockpit is listed first because it alone puts the split, the 3D and the worst moment on one screen (stacked FF + FB area up to commanded, a live 'target · FF + FB = commanded → applied' readout, FB 24 % in big type). Question tabs is the equal alternative: it opens on one calm answer ('ff v2: 43 % less shoulder error, FB share 23 % → 6 %'), shows the whole group's feedback share over time as bands, and mirrors the Rerun 'questions' layout you already picked. Sidebar + sections (89) is the cheapest to ship: today's viewer plus a run list.",
+ "decisionHinge": "Does the run view open on one run or on the group? On one run, Torque cockpit; on the group, Question tabs (it wins on repeats as bands everywhere, loses on where/when because error, torque and 3D are on different tabs). If shipping cost matters more (move 10 points to B6), Sidebar + sections wins. The splice that removes the hinge: Question tabs' answer cards and tab names, Torque cockpit as the 'Where does the torque come from?' tab's right half, and the shared run sidebar (all five already have it).",
+ "variants": {
+  "v1": {
+   "scores": {
+    "b1": [
+     4,
+     "Five-trace card per joint for the highlighted run beside every run's feedback band; FB share and drive gap in the card header.",
+     "high"
+    ],
+    "b2": [
+     5,
+     "Repeats Auto / Lines / Bands: a group draws as lines up to 5 runs and as median · IQR · p5–p95 · min–max past that; click a run to highlight it against its band.",
+     "high"
+    ],
+    "b3": [
+     4,
+     "Shared cursor and zoom, a Worst moment button; the 3D sits in its own section below, not beside the plots.",
+     "high"
+    ],
+    "b4": [
+     5,
+     "Run tree grouped by config / date / kind, regex filter, per-run shoulder RMS, colour key; drag-resize and fold tested.",
+     "high"
+    ],
+    "b5": [
+     4,
+     "An answer card first (ff v2 0.83° → 0.48°, FB 23 % → 6 %), the budget table collapsed; still a long page of sections.",
+     "high"
+    ],
+    "b6": [
+     5,
+     "It is today's section stack plus a sidebar and band mode; sections and transport reused as they are.",
+     "high"
+    ]
+   },
+   "gates": {
+    "g1": [
+     true,
+     "v1/index.html opens from file:// (shared fixture.js and vendored uPlot / three.js)."
+    ],
+    "g2": [
+     true,
+     "° and N·m; units toggle shown."
+    ],
+    "g3": [
+     true,
+     "SIMULATED fixture badge."
+    ],
+    "g4": [
+     true,
+     "3D paths section poses the arm (v1-3d shot)."
+    ]
+   }
+  },
+  "v2": {
+   "scores": {
+    "b1": [
+     5,
+     "Feedforward as a blue area, feedback as the orange wedge up to commanded, applied thin, target dashed; a cursor readout '0.24 target · 0.24 FF + 0.08 FB = 0.31 commanded → 0.32 applied'; FB 24 % in big type.",
+     "high"
+    ],
+    "b2": [
+     4,
+     "The run's commanded and error sit over its group's band; FB share of every run as dots per group; bands are not in every view.",
+     "high"
+    ],
+    "b3": [
+     5,
+     "Transport, worst-moment jump and a 3D thumbnail on the same screen as both joints' torque and error.",
+     "high"
+    ],
+    "b4": [
+     5,
+     "Run list with an FB-share bar per run, group by, filter; drag and fold tested.",
+     "high"
+    ],
+    "b5": [
+     5,
+     "One run, two joints, one budget column: calm.",
+     "high"
+    ],
+    "b6": [
+     3,
+     "A new page layout; uPlot and the transport carry over, the stacked-area cockpit and budget column are new.",
+     "medium"
+    ]
+   },
+   "gates": {
+    "g1": [
+     true,
+     "v2/index.html from file://."
+    ],
+    "g2": [
+     true,
+     "° and N·m."
+    ],
+    "g3": [
+     true,
+     "SIMULATED badge."
+    ],
+    "g4": [
+     true,
+     "3D thumbnail with the arm and tip path."
+    ]
+   }
+  },
+  "v3": {
+   "scores": {
+    "b1": [
+     5,
+     "'Where does the torque come from?': FB share of the command over time as group bands, the highlighted run's five traces, and a per-run FF | FB split bar for all 15 runs.",
+     "high"
+    ],
+    "b2": [
+     5,
+     "Error over time and FB share over time as median · IQR · p5–p95 · min–max per config; a dot per run on the RMS strip; Lines on demand.",
+     "high"
+    ],
+    "b3": [
+     4,
+     "'When did it go wrong?' is a run × time heat strip with a worst-moment jump and a shared cursor; error, torque and 3D are on different tabs.",
+     "high"
+    ],
+    "b4": [
+     5,
+     "Same run sidebar as the others (group by, filter, highlight).",
+     "high"
+    ],
+    "b5": [
+     5,
+     "Opens on one sentence and three answer cards, each linking to its tab; each tab label carries its own answer.",
+     "high"
+    ],
+    "b6": [
+     3,
+     "Tabs are a new page structure over plots the existing builders can draw; the answer cards are new.",
+     "medium"
+    ]
+   },
+   "gates": {
+    "g1": [
+     true,
+     "v3/index.html from file://."
+    ],
+    "g2": [
+     true,
+     "°, mm, N·m."
+    ],
+    "g3": [
+     true,
+     "SIMULATED badge."
+    ],
+    "g4": [
+     true,
+     "3D thumbnail present (lane check on every page)."
+    ]
+   }
+  },
+  "v4": {
+   "scores": {
+    "b1": [
+     3,
+     "Commanded, feedforward, feedback and FB share are separate cells, so one run's split is read across a row.",
+     "high"
+    ],
+    "b2": [
+     5,
+     "Every cell carries the per-config band, with Lines on demand and a cell expand.",
+     "high"
+    ],
+    "b3": [
+     4,
+     "Shared cursor and worst-moment jump across all cells; 3D only as a corner thumbnail.",
+     "high"
+    ],
+    "b4": [
+     5,
+     "Same run sidebar.",
+     "high"
+    ],
+    "b5": [
+     3,
+     "Ten dense cells at once: organised, but a wall to a first-time reader.",
+     "medium"
+    ],
+    "b6": [
+     3,
+     "A grid of uPlot cells is new layout code; the cells themselves are standard charts.",
+     "medium"
+    ]
+   },
+   "gates": {
+    "g1": [
+     true,
+     "v4/index.html from file://."
+    ],
+    "g2": [
+     true,
+     "°, N·m, %."
+    ],
+    "g3": [
+     true,
+     "SIMULATED badge."
+    ],
+    "g4": [
+     true,
+     "3D thumbnail top-left."
+    ]
+   }
+  },
+  "v5": {
+   "scores": {
+    "b1": [
+     5,
+     "A waterfall at the cursor per joint: target → Δ model → feedforward → + feedback → commanded → Δ drive → applied, with 'feedback 1.30 of 4.70 N·m commanded, 28 %'.",
+     "high"
+    ],
+    "b2": [
+     3,
+     "The spread is whiskers on the waterfall totals and thin bands in the small time strips; no full band view.",
+     "high"
+    ],
+    "b3": [
+     5,
+     "Big 3D arm with the target ghost and gravity arrow, worst-moment chips, cursor-driven everything.",
+     "high"
+    ],
+    "b4": [
+     5,
+     "Same run sidebar.",
+     "high"
+    ],
+    "b5": [
+     4,
+     "One stage and one question at a time; the time context is reduced to three strips.",
+     "medium"
+    ],
+    "b6": [
+     2,
+     "A new stage plus a waterfall chart; little of today's section code applies.",
+     "medium"
+    ]
+   },
+   "gates": {
+    "g1": [
+     true,
+     "v5/index.html from file://."
+    ],
+    "g2": [
+     true,
+     "°, N·m."
+    ],
+    "g3": [
+     true,
+     "SIMULATED badge."
+    ],
+    "g4": [
+     true,
+     "The arm is the hero."
+    ]
+   }
+  }
+ }
+}

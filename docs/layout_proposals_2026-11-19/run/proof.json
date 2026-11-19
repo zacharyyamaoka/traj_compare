@@ -1,0 +1,33 @@
+{
+ "v1": [
+  "Headless Chrome (Playwright, system Chrome) at 1440 × 900 on the SIMULATED fixture; 0 console errors on load and through the flow.",
+  "Clicked ⚠ Worst moment: every plot zoomed to ±0.6 s around Real #03's worst instant and the time was pinned (v1-worst).",
+  "Switched Repeats → Lines and clicked Real #12 in the run list: bands became per-run lines and the breakdown cards followed the new run (v1-lines).",
+  "Scrolled to 3D paths: the planar 2R arm posed at the pinned time with target ghost, stick ghosts and the five torques at the cursor (v1-3d).",
+  "Dragged the run-list edge +80 px (290 → 370 px, measured), reloaded (still 370), dragged back (290); double-click folded it to the rail, rail click restored it."
+ ],
+ "v2": [
+  "Headless Chrome at 1440 × 900; 0 console errors on load and through the flow.",
+  "Clicked Real #12 · ff v2: both cockpits, the band (its own config), the budget column and the 3D thumbnail switched; FB share 24 % → 5 % (v2-v2run).",
+  "Clicked ⚠ Worst moment: both cockpits zoomed to that run's worst instant; the readout gives target · FF + FB = commanded → applied at the sample (v2-worst).",
+  "Dragged the run-list edge +80 px (280 → 360 px, measured), persisted across reload, dragged back; folded to the rail and restored."
+ ],
+ "v3": [
+  "Headless Chrome at 1440 × 900; 0 console errors on load and through all four tabs.",
+  "Opened 'Where does the torque come from?': FB share over time per config + Real #03's five traces + per-run 100 % FF|FB bars (v3-torque).",
+  "Opened 'When did it go wrong?' and clicked ⚠ Worst moment: focus moved to Real #03, plots and the heat strip zoomed to ±0.7 s, the 3D arm posed at 2.33 s (v3-when).",
+  "Dragged the run-list edge +80 px (280 → 360 px, measured), persisted across reload, dragged back; folded to the rail and restored."
+ ],
+ "v4": [
+  "Headless Chrome at 1440 × 900; 0 console errors on load and through the flow.",
+  "Clicked ⤢ on shoulder × Feedback: the cell expanded over the grid with signal/joint chips; Esc closed it (v4-expanded).",
+  "Switched Repeats → Lines: every cell redrew with one line per run (v4-lines).",
+  "Dragged the run-list edge +80 px (260 → 340 px, measured), persisted across reload, dragged back; folded to the rail and restored."
+ ],
+ "v5": [
+  "Headless Chrome at 1440 × 900; 0 console errors on load and through the flow; opens at the highlighted run's worst instant.",
+  "Clicked the second worst-moment chip (Real #01 at 3.56 s): focus, cursor, 3D pose, waterfalls and strips jumped there, zoomed ±0.8 s (v5-worst).",
+  "Switched the target to Full-circle fast and clicked its top chip: the shoulder command hits the 7 N·m limit, a clamp bar and the limit line appear (v5-fast).",
+  "Dragged the run-list edge +80 px (260 → 340 px, measured), persisted across reload, dragged back; folded to the rail and restored."
+ ]
+}

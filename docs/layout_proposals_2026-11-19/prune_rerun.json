@@ -1,0 +1,64 @@
+{
+ "round": "Rerun run view",
+ "scoredBy": "dispatcher (Claude Opus 5.5), from the real-viewer screenshots, after all five existed; criteria frozen in CRITERIA.md",
+ "defaultId": "v2",
+ "defaultWhy": "Solo Run Dashboard scores 95/100: it is the only layout where one view per joint answers Zach's question directly — feedforward (blue area) plus feedback (orange area) stacked into the commanded torque, with target grey and applied thin — while its config group's fan sits behind the run's feedback and error, and the 3D and run card stay on screen. Closest alternative: Distribution First (86), better when the question is the whole group rather than one run.",
+ "decisionHinge": "How often Zach reads one run versus the whole group. Switching runs in Solo Run means opening another .rbl (15 files); if 'see all 14 repeats at once' matters more (move 10 points from C1 to C4), Distribution First overtakes it. The splice that removes the hinge: Distribution First's group fans as the opening tab, Solo Run's stacked FF+FB view as the second tab driven by the worst run, Oscilloscope's single combined torque channel for the rest.",
+ "variants": {
+  "v1": {
+   "scores": {
+    "c1": [3, "The breakdown is split into four views per joint (cmd, FF, FB, applied) with every run in each; you assemble the split yourself.", "high"],
+    "c2": [2, "Every run is a line; the FB-share bars show the spread of one number, no bands over time.", "high"],
+    "c3": [4, "3D stage and every torque view share the playhead on one screen; no video in the fixture.", "medium"],
+    "c4": [4, "The grid is per component, so N only adds lines; 14 coloured lines per view already crowd.", "medium"],
+    "c5": [3, "Runs in run colour in every view, unlike the HTML's fixed component colours.", "high"],
+    "c6": [5, "Blueprint embedded; opens on the torque tab.", "high"]
+   },
+   "gates": {"g1": [true, "q1-torque-tab-grid.rrd opens in stock 0.40.0 with its blueprint (screenshots are that viewer)."], "g2": [true, "N·m on every torque view, degrees for error."], "g3": [true, "Stage title says SIMULATED fixture."]}
+  },
+  "v2": {
+   "scores": {
+    "c1": [5, "Per joint, one view: blue FF area + orange FB area = commanded (thick run colour), target grey, applied thin; FB share 24 % in the run card.", "high"],
+    "c2": [5, "The run's feedback, commanded and error each sit over its config group's min–max and p25–p75 fan.", "high"],
+    "c3": [5, "3D (run vs target), run card and all six views on one screen, one playhead at the worst moment.", "high"],
+    "c4": [4, "Structure never changes with N, but switching runs means opening another .rbl (one per run).", "high"],
+    "c5": [5, "Same component colours as the HTML (FF #3b82f6, FB #f97316, target grey, commanded = run colour).", "high"],
+    "c6": [4, "Embedded blueprint opens the worst run; any other run needs its .rbl beside the .rrd.", "high"]
+   },
+   "gates": {"g1": [true, "q2-solo-run.rrd opens in stock 0.40.0 on the worst run; the best-v2 shot is its .rbl."], "g2": [true, "N·m and degrees only."], "g3": [true, "3D title and run card say SIMULATED."]}
+  },
+  "v3": {
+   "scores": {
+    "c1": [3, "Feedback and commanded are separate rows and feedforward is not drawn, so one run's split has to be read across views.", "high"],
+    "c2": [5, "Fans per config group (min–max, p25–p75, median) for error, feedback and commanded; worst run bold on top; individual runs one eye-click away.", "high"],
+    "c3": [5, "3D, distribution card and all fans share the playhead on one screen.", "high"],
+    "c4": [5, "Grows by config group, not by run: 14 or 140 repeats draw the same.", "high"],
+    "c5": [3, "Group colours (brown v1, blue v2) are new; the HTML has no group colour yet.", "medium"],
+    "c6": [5, "Embedded.", "high"]
+   },
+   "gates": {"g1": [true, "q3-distribution-first.rrd, stock 0.40.0, embedded."], "g2": [true, "N·m, degrees, percent."], "g3": [true, "Card heading SIMULATED."]}
+  },
+  "v4": {
+   "scores": {
+    "c1": [3, "Each group tab has the components, but the 'v1 vs v2' tab shows feedback and commanded fans only, without feedforward or applied.", "medium"],
+    "c2": [4, "The v1-vs-v2 tab is two fans for error, feedback and commanded; no single run is drawn against them there.", "high"],
+    "c3": [3, "The comparison tab has no 3D; diagnosis means switching tabs.", "high"],
+    "c4": [4, "Tabs grow with config groups, not runs; inside a group tab every run is a line.", "medium"],
+    "c5": [3, "Group colours new; a blue commanded line (Real #08) reads as feedforward.", "high"],
+    "c6": [5, "Embedded; opening the .rrd alone was exercised.", "high"]
+   },
+   "gates": {"g1": [true, "q4-config-group-tabs.rrd alone (embedded-check shot)."], "g2": [true, "N·m, degrees."], "g3": [true, "Comparison card says SIMULATED."]}
+  },
+  "v5": {
+   "scores": {
+    "c1": [4, "CH2 puts target, commanded, FF and FB in one view per joint; legible for the bold worst run, busy with 14 faint runs behind.", "high"],
+    "c2": [3, "Every run faint with the worst bold shows the spread, but no bands.", "high"],
+    "c3": [5, "Oscilloscope stack on one clock: 3D, error, torque, applied, current; zoom exercised.", "high"],
+    "c4": [4, "Structure constant; faint lines grow with N.", "medium"],
+    "c5": [5, "Component colours match the HTML.", "high"],
+    "c6": [5, "Embedded.", "high"]
+   },
+   "gates": {"g1": [true, "q5-oscilloscope.rrd, stock 0.40.0."], "g2": [true, "N·m, degrees, amperes."], "g3": [true, "Stage title SIMULATED."]}
+  }
+ }
+}
