@@ -69,3 +69,23 @@ Entities (N·m):
 - Both named layouts get a torque tab when the payload has a breakdown: `questions` → **Feedforward or feedback?**,
   `evo` → **Torque**. Each shows, per joint, one run's full breakdown (the worst run on the scorecard), every run's
   feedback, and the FB-share bars. No breakdown → no tab (tabs with nothing to show are dropped, as today).
+
+## Addendum (frozen 2026-11-19, afternoon): the torque breakdown in the dataset view
+
+Both 2026-11-19 handoffs left this open: the target page draws no feedback torque or FB share because the dataset
+`Run` cannot carry the breakdown. docs/NAVIGATION.md already names where it shows (Dataset summary band: median
+feedback share; League table: FB share, drive gap; Target "How repeatable…" tab: feedback torque and FB share).
+
+- `Run.torques: Mapping[str, Mapping[str, np.ndarray]] = {}` — series name (a key of `measured`) → any of
+  `"tau_cmd"`, `"tau_ff"`, `"tau_fb"`, each (N, DOF) N·m on that series' own samples (`measured[name].t`). 1-D promotes
+  to one column. Unknown series, unknown keys or a shape that does not match the series' positions → `ValueError`.
+  Applied stays the series' `effort`; target stays the reference's `effort`. The two-of-three rule is the run view's
+  (`analysis._torque_breakdown`): reuse it, don't re-implement it.
+- Persisted: `runs/<slug>/<series>.torques.npz` (keys `tau_cmd` / `tau_ff` / `tau_fb`, only those given), listed in
+  `manifest.json` under `"torques": {"<series>": ["tau_ff", …]}`. `build_drill_down` reads them back into the
+  `Situation(tau_cmd=…, tau_ff=…, tau_fb=…)` it builds, so the run report's "Feedforward or feedback?" tab appears.
+- Per line (a run × series with a breakdown), in the levels payload: `fb_share` (overall, Σ|fb| / (Σ|ff| + Σ|fb|) over
+  every joint and sample) and per joint; `drive_gap_rms` per joint (commanded − applied, `robot_msgs.compare.error_stats`);
+  display series on the target's grid at `display_hz`: feedback torque per joint (N·m) and FB share over time per joint
+  (±150 ms window, denominator floored so zero crossings don't spike to 100 %; say so in the chart note).
+- A line, target or config without a breakdown shows nothing for it: no empty chart, no 0 %, the column says "—".
