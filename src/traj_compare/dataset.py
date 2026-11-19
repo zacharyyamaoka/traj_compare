@@ -10,9 +10,14 @@ domain package (sim2real) supplies the runs, their tags, tolerances and a ``summ
     write_dataset_report(runs, "out/", title="Wrist coverage", group_by=("tape",))
     # python -m traj_compare.serve out/      -> http://127.0.0.1:8767/
 
+Three levels, organised around the target trajectory (docs/NAVIGATION.md Part A; Zach 2026-11-19, traj compare view
+feedback: "the Target trajectory is kinda the primary thing we want to organize things around"): ``index.html`` opens on
+the Dataset (every target at once, as cards, a league table or today's runs table), ``index.html#/target/<slug>`` is one
+Target (its lines, repeatability per config, the control chart over dates), and ``runs/<slug>/report.html`` is one Run.
+
 Files (file-first, so a dataset can be re-read, re-sorted or opened in pandas without this package)::
 
-    out/index.html                  the at-a-glance page (self-contained)
+    out/index.html                  the at-a-glance page (self-contained, hash routes, works from file://)
     out/rows.json, rows.parquet     one row per run x pair x metric x stat, SI, every tag its own column
     out/runs/<slug>/manifest.json   what the drill-down needs to rebuild itself
     out/runs/<slug>/reference.npz   robot_msgs ``save_npz`` per series (``load_npz`` reads them back)
@@ -27,10 +32,12 @@ here re-implements a metric. Angles are SI in the data and degrees in the human 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import importlib
 import importlib.resources
 import importlib.util
+import inspect
 import json
 import math
 import re
@@ -292,12 +299,18 @@ _SUMMARY_STATS = ("rms", "max_abs", "p95_abs", "final")
 
 
 def _analyze_pair(
-    run: Run, first: str, second: str, options: _Analysis, poses: Mapping[str, PoseTrajectory]
+    run: Run, first: str, second: str, options: _Analysis, poses: Mapping[str, PoseTrajectory],
+    joint_errors: dict[tuple[str, str], Any] | None = None,
 ) -> tuple[dict[str, Any], list[tuple[str, Any]]]:
-    """The payload entry of one run x pair, and its (metric name, ErrorStats) list for rows.json."""
+    """The payload entry of one run x pair, and its (metric name, ErrorStats) list for rows.json.
+
+    ``joint_errors``, when given, keeps the joint comparison of a (reference, series) pair under (run, series), so the
+    target level draws compare's own error series instead of comparing the pair a second time."""
     series = run.series()
     offset = run.relative_offset_s(first, second)
     joint = compare(series[first], series[second], time_offset_s=offset)
+    if joint_errors is not None and first == REFERENCE:
+        joint_errors[(run.name, second)] = joint
     metrics: list[tuple[str, Any]] = list(joint.metrics.items())
     entry: dict[str, Any] = {
         "joints": {
@@ -395,6 +408,244 @@ def _visible(name: str, primary: Mapping[str, str]) -> bool:
     return name not in primary and not any(name.startswith(f"{alias}_") for alias in primary)
 
 
+# ── the three levels: targets, configs, lines (docs/NAVIGATION.md Part A) ────
+
+TARGET_TAG = "target"
+DATE_TAG = "date"
+# Config colours, fixed across every level (NAVIGATION.md): sim-only configs grey, the rest violet, green, ... WHY never
+# blue or orange: those are the feedforward / feedback torque colours of the run view (CONTRACT.md, the five torques).
+_SIM_COLOURS = ("#5f5e5a", "#8a8983", "#3f3e3b", "#a3a29c")
+_CONFIG_COLOURS = ("#7c5cc4", "#0f9d8a", "#c22f6e", "#a67c00", "#17a2b8", "#5c8a2e", "#b8457a", "#6b7a8f", "#8c6d46", "#2e7d6b")
+
+
+def _kind(series: str) -> str:
+    """``real`` when the series name starts with "real", else ``sim`` (data_ui's family rule, NAVIGATION.md)."""
+    return "real" if series.startswith("real") else "sim"
+
+
+def _reference_digest(reference: JointTrajectory) -> str:
+    """The content hash that names a target nothing else names: the reference's ``t`` and ``q`` bytes."""
+    digest = hashlib.sha1()
+    digest.update(np.ascontiguousarray(reference.t, dtype=np.float64).tobytes())
+    digest.update(np.ascontiguousarray(reference.positions, dtype=np.float64).tobytes())
+    return digest.hexdigest()[:12]
+
+
+@dataclass
+class _Target:
+    key: str
+    runs: list[Run]
+    named_by: str | None  # the tag whose value is the key, or None for a content hash
+    slug: str = ""
+
+    @property
+    def reference(self) -> JointTrajectory:
+        return self.runs[0].reference
+
+    @property
+    def title(self) -> str:
+        """A hashed target is titled by its first run; a tagged one by the title every run shares, else its key."""
+        if self.named_by is None:
+            return self.runs[0].title or self.runs[0].name
+        titles = {run.title for run in self.runs}
+        return titles.pop() if len(titles) == 1 and self.runs[0].title else self.key
+
+
+def _target_tag(runs: Sequence[Run], group_by: Sequence[str], target_by: str | None) -> str | None:
+    """NAVIGATION.md's precedence: ``target_by``; else the "target" tag when any run has it; else the first ``group_by`` tag."""
+    if target_by is not None:
+        if not any(target_by in run.tags for run in runs):
+            raise ValueError(f"target_by={target_by!r} is a tag no run has; tags are {sorted({k for r in runs for k in r.tags})}")
+        return target_by
+    if any(TARGET_TAG in run.tags for run in runs):
+        return TARGET_TAG
+    return group_by[0] if group_by else None
+
+
+def _resolve_targets(runs: Sequence[Run], tag: str | None, explicit: bool) -> list[_Target]:
+    """The runs grouped by the trajectory they follow, in order of first appearance.
+
+    A run without the tag is keyed by its reference's content hash. Two different references under one explicit
+    ``target_by`` value raise ``ValueError`` naming both runs. WHY only explicit: a defaulted tag (the first ``group_by``
+    tag, e.g. a tape that ran at two amplitudes) is a grouping the author asked for elsewhere, not a claim that its runs
+    follow one trajectory; such a value is split into one target per reference ("tape A", "tape A (2)") instead.
+    """
+    targets: dict[str, _Target] = {}
+    splits: dict[str, list[str]] = {}
+    for run in runs:
+        if tag is not None and tag in run.tags:
+            value = str(_tag_value(run.tags[tag]))
+            keys = splits.setdefault(value, [])
+            home = next((targets[key] for key in keys if _same_reference(targets[key].reference, run.reference)), None)
+            if home is not None:
+                home.runs.append(run)
+                continue
+            if keys and explicit:
+                first = targets[keys[0]].runs[0]
+                raise ValueError(
+                    f"target_by={tag!r}: {value!r} holds two different references, run {first.name!r} and run {run.name!r}; "
+                    "a target is one trajectory, so give them different values"
+                )
+            key = value if not keys else f"{value} ({len(keys) + 1})"
+            keys.append(key)
+            targets[key] = _Target(key, [run], tag)
+        else:
+            key = _reference_digest(run.reference)
+            if key in targets:
+                targets[key].runs.append(run)
+            else:
+                targets[key] = _Target(key, [run], None)
+    taken: set[str] = set()
+    for target in targets.values():
+        slug, count = _slug(target.key), 1
+        target.slug = slug
+        while target.slug in taken:
+            count += 1
+            target.slug = f"{slug}-{count}"
+        taken.add(target.slug)
+    return list(targets.values())
+
+
+def _config_tag(runs: Sequence[Run], group_by: Sequence[str], config_by: str | None, target_tag: str | None) -> str | None:
+    """``config_by``; else the first ``group_by`` tag that does not name the target (the second when the first does);
+    else None: a line's config is then its series name."""
+    if config_by is not None:
+        if not any(config_by in run.tags for run in runs):
+            raise ValueError(f"config_by={config_by!r} is a tag no run has; tags are {sorted({k for r in runs for k in r.tags})}")
+        return config_by
+    others = [key for key in group_by if key != target_tag]
+    return others[0] if others else None
+
+
+def _degrees_on(grid: np.ndarray, times: np.ndarray, values: np.ndarray) -> list[float | None]:
+    """``values`` (rad) at the grid's instants in degrees, 4 decimals; None outside the line's own samples.
+
+    WHY interpolate: every line of a target is drawn on that target's display grid (the reference's samples, picked at
+    ``display_hz``) so a percentile fan can be taken per instant; when a line was sampled on the reference's instants
+    (the usual case) this is exact picking, never averaging. Outside the line's span it is missing, never extrapolated.
+    """
+    if len(times) == 0:
+        return [None] * len(grid)
+    inside = (grid >= times[0] - 1e-9) & (grid <= times[-1] + 1e-9)
+    picked = np.interp(grid, times, values) * (180.0 / math.pi)
+    return [round(float(value), 4) if ok and math.isfinite(value) else None for value, ok in zip(picked, inside, strict=True)]
+
+
+def _levels_payload(
+    runs: Sequence[Run], targets: Sequence[_Target], slugs: Mapping[str, str], config_tag: str | None,
+    joint_errors: Mapping[tuple[str, str], Any], entries: Sequence[Mapping[str, Any]], options: _Analysis,
+    poses: Mapping[str, Mapping[str, PoseTrajectory]], display_hz: float, labels: Mapping[str, str],
+) -> dict[str, Any]:
+    """What the Dataset and Target levels draw: targets, configs and one line per measured series of every run.
+
+    Scalars stay SI (rad, like ``rows``); the drawn series ``e_deg`` is the joint error target − line in degrees on the
+    target's display grid (the display edge, like data_ui's tables). Every number is robot_msgs.compare's.
+    """
+    from .data_ui import _stride  # lazy: data_ui imports this module
+
+    analysed = {(entry["run"], entry["pair"][1]): entry for entry in entries if entry["pair"][0] == REFERENCE}
+    order = {run.name: index for index, run in enumerate(runs)}
+    configs: dict[str, dict[str, int]] = {}
+    lines: list[dict[str, Any]] = []
+    target_rows: list[dict[str, Any]] = []
+    for target in targets:
+        reference = target.reference
+        stride, _ = _stride(reference, display_hz)
+        grid = np.asarray(reference.t, dtype=float)[::stride]
+        joints = list(reference.joint_names)
+        members: dict[str, dict[str, list[tuple[Run, str]]]] = {}
+        for run in target.runs:
+            for series, measured in run.measured.items():
+                kind = _kind(series)
+                if config_tag is None:
+                    config = series
+                else:
+                    config = str(_tag_value(run.tags[config_tag])) if config_tag in run.tags else f"no {config_tag}"
+                configs.setdefault(config, {"sim": 0, "real": 0})[kind] += 1
+                members.setdefault(config, {"sim": [], "real": []})[kind].append((run, series))
+                line: dict[str, Any] = {
+                    "id": f"{run.name} · {series}",
+                    "run": run.name,
+                    "series": series,
+                    "label": labels.get(series, series),
+                    "target": target.slug,
+                    "config": config,
+                    "kind": kind,
+                    "date": str(_tag_value(run.tags[DATE_TAG])) if DATE_TAG in run.tags else "",
+                    "order": order[run.name],
+                    "report": f"runs/{slugs[run.name]}/report.html",
+                }
+                offset = run.relative_offset_s(REFERENCE, series)
+                try:
+                    joint = joint_errors.get((run.name, series)) or compare(reference, measured, time_offset_s=offset)
+                except ValueError as error:  # e.g. no overlap: the line is listed and says why, it draws nothing
+                    lines.append({**line, "error": str(error)})
+                    continue
+                entry = analysed.get((run.name, series))
+                rms = {name: _finite(joint.metrics[f"positions/{name}"].rms) for name in joint.error.joint_names}
+                worst = max((name for name in rms if rms[name] is not None), key=lambda name: rms[name], default=None)
+                times = joint.error.absolute_times - offset - float(reference.header.stamp)
+                columns = {name: index for index, name in enumerate(joint.error.joint_names)}
+                line.update(
+                    rms=rms,
+                    worst_rms=None if worst is None else rms[worst],
+                    worst_joint=worst,
+                    coverage=_finite(joint.coverage),
+                    ok=(entry or {}).get("verdict", {}).get("ok") if options.tolerances is not None else None,
+                    e_deg=[_degrees_on(grid, times, joint.error.positions[:, columns[name]]) for name in joints],
+                )
+                lines.append(line)
+        target_rows.append(
+            {
+                "key": target.key,
+                "slug": target.slug,
+                "title": target.title,
+                "named_by": target.named_by,
+                "joints": joints,
+                "t": [round(float(value), 4) for value in grid],
+                "runs": len(target.runs),
+                "repeatability": {
+                    config: _repeatability(reference, kinds["real"] or kinds["sim"], poses, options)
+                    for config, kinds in members.items()
+                },
+            }
+        )
+    config_rows = []
+    sim_colours, colours = iter(_SIM_COLOURS), iter(_CONFIG_COLOURS)
+    for name, kinds in configs.items():
+        palette = sim_colours if kinds["real"] == 0 else colours
+        config_rows.append({"name": name, "color": next(palette, "#52514e"), **kinds})
+    return {"targets": target_rows, "configs": config_rows, "lines": lines}
+
+
+def _repeatability(
+    reference: JointTrajectory, members: Sequence[tuple[Run, str]], poses: Mapping[str, Mapping[str, PoseTrajectory]],
+    options: _Analysis,
+) -> dict[str, Any]:
+    """ISO 9283 path repeatability (RT) of one config's repeats on one target: ``robot_msgs.compare.aggregate``'s spread
+    (mean + 3σ around the repeats' own mean), worst over the path, per joint (rad) and of the TCP (m) with ``poses``.
+    Taken over the config's real lines (repeatability = same everything, run again), its sim lines only when it has none."""
+    if len(members) < 2:
+        return {"status": "needs at least 2 repeats", "n": len(members)}
+    offsets = [float(run.time_offset_s.get(series, 0.0)) for run, series in members]
+    try:
+        joint = aggregate(reference, [run.measured[series] for run, series in members], time_offset_s=offsets)
+        tcp = None
+        if options.poses is not None:
+            first = members[0][0].name
+            spread = aggregate(poses[first][REFERENCE], [poses[run.name][series] for run, series in members], time_offset_s=offsets)
+            tcp = _finite(spread.metrics["position"].max)
+    except ValueError as error:
+        return {"status": str(error), "n": len(members)}
+    return {
+        "n": len(members),
+        "joints": {
+            metric.partition("/")[2]: _finite(stats.max) for metric, stats in joint.metrics.items() if metric.startswith("positions/")
+        },
+        "tcp": tcp,
+    }
+
+
 # ── writing ──────────────────────────────────────────────────────────────────
 
 
@@ -450,7 +701,7 @@ def _validate(runs: Sequence[Run], group_by: Sequence[str], primary: Mapping[str
 
 def _write_run_files(
     run: Run, folder: Path, slug: str, options: _Analysis, specs: Mapping[str, str | None], import_roots: list[str],
-    primary: Mapping[str, str], visible_pairs: Sequence[tuple[str, str]],
+    primary: Mapping[str, str], visible_pairs: Sequence[tuple[str, str]], target: _Target | None = None,
 ) -> None:
     folder.mkdir(parents=True, exist_ok=True)
     # WHY: a drill-down cached by an earlier write describes the old data; lazy mode would serve it.
@@ -487,6 +738,8 @@ def _write_run_files(
         "robot": specs["robot"],
         "import_roots": import_roots,
         "tolerances": None if options.tolerances is None else to_dict(options.tolerances),
+        # the run report's breadcrumb back to index.html#/target/<slug> (NAVIGATION.md Part A)
+        "target": None if target is None else {"key": target.key, "slug": target.slug, "title": target.title},
     }
     (folder / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
@@ -526,9 +779,20 @@ def write_dataset_report(
     primary: Mapping[str, str] | None = None,
     drill_down: str = "lazy",
     data_ui: bool = False,
+    target_by: str | None = None,
+    config_by: str | None = None,
+    display_hz: float = 50.0,
 ) -> Path:
     """Write ``output_dir/index.html`` (many runs at a glance), ``rows.json``/``rows.parquet`` and ``runs/<slug>/``.
 
+    - ``target_by``: the tag naming a run's target trajectory (the Dataset level's cards, ``#/target/<slug>``). Default:
+      ``"target"`` when any run has it, else the first ``group_by`` tag, else a content hash of the reference, titled by
+      its first run. An explicit ``target_by`` value holding two different references raises ``ValueError``.
+    - ``config_by``: the tag naming a line's robot config (its colour on every level). Default: the first ``group_by``
+      tag that does not name the target, else the series name. A line is one measured series of one run, its kind
+      ``real`` when the series name starts with "real", else ``sim``; a run's ``"date"`` tag orders the control chart.
+    - ``display_hz``: the rate of the error series the index embeds for its charts (reference samples picked, never
+      averaged); rows.json and the drill-down keep every sample.
     - ``group_by``: tag names; runs sharing their values are one group for the ISO 9283 cards.
     - ``tolerances``: a ``robot_msgs.compare.Tolerances``; every run x pair gets ``check``'s verdict.
     - ``poses`` / ``robot``: ``"module:function"`` import specs, stored in each manifest so the drill-down
@@ -550,7 +814,13 @@ def write_dataset_report(
     group_by = tuple(group_by)
     if drill_down not in _DRILL_DOWNS:
         raise ValueError(f"drill_down is one of {_DRILL_DOWNS}, got {drill_down!r}")
+    if display_hz <= 0:
+        raise ValueError(f"display_hz must be positive, got {display_hz}")
     _validate(runs, group_by, primary)
+    target_tag = _target_tag(runs, group_by, target_by)
+    targets = _resolve_targets(runs, target_tag, explicit=target_by is not None)
+    target_of = {run.name: target for target in targets for run in target.runs}
+    config_tag = _config_tag(runs, group_by, config_by, target_tag)
     slugs = _unique_slugs(runs)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -575,9 +845,12 @@ def write_dataset_report(
     rows: list[dict[str, Any]] = []
     entries: list[dict[str, Any]] = []
     pose_cache: dict[str, dict[str, PoseTrajectory]] = {}
+    joint_errors: dict[tuple[str, str], Any] = {}
     for run in runs:
         slug = slugs[run.name]
-        _write_run_files(run, output_dir / "runs" / slug, slug, options, specs, import_roots, primary, default_view)
+        _write_run_files(
+            run, output_dir / "runs" / slug, slug, options, specs, import_roots, primary, default_view, target_of[run.name]
+        )
         tags = {key: _tag_value(value) for key, value in run.tags.items()}
         pose_cache[run.name] = options.pose_trajectories(run)
         for first, second in run.resolved_pairs():
@@ -597,7 +870,7 @@ def write_dataset_report(
                 ),
             }
             try:
-                analysis, metrics = _analyze_pair(run, first, second, options, pose_cache[run.name])
+                analysis, metrics = _analyze_pair(run, first, second, options, pose_cache[run.name], joint_errors)
             except ValueError as error:  # e.g. the two series never overlap in time
                 # WHY recorded, not raised: one broken run must not hide the other 386; the row says why.
                 warnings.warn(f"{run.name}: {first} -> {second}: {error}", stacklevel=2)
@@ -620,6 +893,10 @@ def write_dataset_report(
 
     aggregates = _group_aggregates(runs, group_by, options, pose_cache)
     joint_names = list(dict.fromkeys(name for entry in entries for name in entry.get("joints", {})))
+    labels = {series: alias for alias, series in primary.items()}
+    levels = _levels_payload(
+        runs, targets, slugs, config_tag, joint_errors, entries, options, pose_cache, display_hz, labels
+    )
     payload = {
         "title": title,
         "generated": datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z"),
@@ -646,6 +923,13 @@ def write_dataset_report(
         "rows": _clean(entries),
         "aggregates": _clean(aggregates),
         "summary": summary.to_payload() if summary is not None else None,
+        "levels": {
+            "target_by": target_tag,
+            "config_by": config_tag,
+            "date_tag": DATE_TAG if any(DATE_TAG in run.tags for run in runs) else None,
+            "display_hz": display_hz,
+            **_clean(levels),
+        },
     }
     data_json = json.dumps(payload, separators=(",", ":")).replace("</", "<\\/")
     # The ReportPage renderer lives in plots.js; it is only worth its 75 KB when a summary is given.
@@ -657,12 +941,14 @@ def write_dataset_report(
 <meta name='viewport' content='width=device-width, initial-scale=1'/>
 <title>{html.escape(title)}</title>
 <style>{_asset("style.css")}</style>
+<style>{_asset("uplot.min.css")}</style>
 <style>{_asset("dataset.css")}</style>
 </head>
 <body>
 <main class='ds' id='ds-main'></main>
 <script type="application/json" id="traj-compare-dataset">{data_json}</script>
 {renderer}
+<script>{_asset("uplot.iife.min.js")}</script>
 <script>{_asset("dataset.js")}</script>
 </body>
 </html>
@@ -792,6 +1078,15 @@ def _build_run_report(folder: Path) -> Path:
             )
         )
     tags = " · ".join(f"{key}={value}" for key, value in manifest["tags"].items())
+    extra: dict[str, Any] = {}
+    # WHY guarded: the breadcrumb kwarg lands in report.py from a sibling lane (2026-11-19); until it does, the run report
+    # is written exactly as before rather than failing.
+    if "breadcrumb" in inspect.signature(write_comparison_report).parameters:
+        crumbs = [("Dataset", "../../index.html#/")]
+        target = manifest.get("target")
+        if target:
+            crumbs.append((target["title"], f"../../index.html#/target/{target['slug']}"))
+        extra["breadcrumb"] = crumbs
     return write_comparison_report(
         comparisons,
         folder / "report.html",
@@ -799,6 +1094,7 @@ def _build_run_report(folder: Path) -> Path:
         subtitle=tags,
         provenance={"run": manifest["name"]},
         rerun=_rerun_available(),
+        **extra,
     )
 
 
