@@ -638,6 +638,13 @@
   var LV = D.levels || { targets: [], configs: [], lines: [] };
   var INK = '#22211f';
   var FAN_TEXT = 'median, IQR, p5–p95 and min–max across its lines at each instant';
+  // The torque breakdown (Zach 2026-11-19, torque breakdown in the dataset view: "of the command torque some portion of
+  // that is coming from Feedforward, and some portion of that is coming from feedback"). Only lines given one carry
+  // line.torque; with none anywhere nothing below draws, and the page is today's. Feedback keeps the run view's fixed
+  // orange wherever one colour stands for it; on the target's charts the config colours rule, as on every other chart.
+  var HAS_TORQUE = LV.has_torque_breakdown === true;
+  var FEEDBACK = '#f97316';
+  var SHARE_TEXT = 'FB share = Σ|feedback| / (Σ|feedforward| + Σ|feedback|), the part of the commanded torque the feedback had to supply (0 % = the feedforward model did all of it)';
 
   // WHY try/catch around every storage access: file:// pages, private windows and blocked site data can throw; the
   // page must work without it (Zach 2026-11-19, traj compare view feedback: every choice remembered, never required).
@@ -745,6 +752,12 @@
   // ── formatting ──
 
   function fmtDeg(rad) { return rad === null || rad === undefined ? '—' : nice(rad * DEG) + '°'; }
+  function fmtShare(x) {
+    if (x === null || x === undefined) return '—';
+    var pct = 100 * x;
+    return (pct < 10 ? pct.toFixed(1) : pct.toFixed(0)) + '%';
+  }
+  function fmtNm(x) { return x === null || x === undefined ? '—' : nice(x) + ' N·m'; }
   function signedPct(x) { return (x > 0 ? '+' : x < 0 ? '−' : '±') + Math.abs(100 * x).toFixed(0) + '%'; }
   function shortDate(text) { return /^\d{4}-\d{2}-\d{2}/.test(text) ? text.slice(5, 10) : text; }
   function dateRange(dates) {
@@ -934,7 +947,10 @@
       });
       return best;
     }
+    // unit follows every readout value; tickUnit (default: unit) each y tick, so a long unit (N·m) can stay in the title.
     var unit = options.unit || '';
+    var tickUnit = options.tickUnit === undefined ? unit : options.tickUnit;
+    var digits = options.digits === undefined ? 3 : options.digits;
     var opts = {
       width: Math.max(160, host.clientWidth), height: options.height || 200, legend: { show: false },
       cursor: { drag: { x: true, y: false }, points: { show: false } },
@@ -942,8 +958,8 @@
       axes: [
         Object.assign({}, axis, { size: 26, values: function (u, values) { return values.map(function (v) { return v + ' s'; }); } }),
         Object.assign({}, axis, { size: 50, values: function (u, values, i, space, step) {
-          var digits = decimals(step || 1);
-          return values.map(function (v) { return v.toFixed(digits) + unit; });
+          var places = decimals(step || 1);
+          return values.map(function (v) { return v.toFixed(places) + tickUnit; });
         } }),
       ],
       series: series, bands: bands,
@@ -955,11 +971,11 @@
           var parts = ['t ' + x[index].toFixed(2) + ' s'];
           meta.forEach(function (info, k) {
             if (info && info.role === 'median' && data[k][index] !== null && data[k][index] !== undefined) {
-              parts.push('<span style="color:' + info.layer.color + '">■</span> ' + esc(info.layer.config) + ' median <b>' + data[k][index].toFixed(3) + unit + '</b>');
+              parts.push('<span style="color:' + info.layer.color + '">■</span> ' + esc(info.layer.config) + ' median <b>' + data[k][index].toFixed(digits) + unit + '</b>');
             }
           });
           var near = nearest(u, index);
-          if (near) parts.push('nearest <b>' + esc(near.line.id) + '</b> ' + near.y.toFixed(3) + unit);
+          if (near) parts.push('nearest <b>' + esc(near.line.id) + '</b> ' + near.y.toFixed(digits) + unit);
           options.readout.innerHTML = parts.join(' · ');
         }],
         draw: [function (u) {
@@ -994,10 +1010,43 @@
     return chart;
   }
 
+  // A line's drawn series for one joint: its joint error (°, the default), its feedback torque (N·m) or its FB share (%).
+  function errorSeries(line, jointIndex) { return line.e_deg[jointIndex]; }
+  function feedbackSeries(line, jointIndex) {
+    return line.torque && line.torque.tau_fb ? line.torque.tau_fb[jointIndex] : null;
+  }
+  function shareSeries(line, jointIndex) {
+    var values = line.torque && line.torque.fb_share_over_time ? line.torque.fb_share_over_time[jointIndex] : null;
+    return values ? values.map(function (value) { return value === null || value === undefined ? null : 100 * value; }) : null;
+  }
+  // The lines a torque number is taken over: those with a breakdown, the real ones when any has one (as the band's RMS).
+  function torqueMembers(lines) {
+    var having = lines.filter(function (line) { return line.torque && !line.error; });
+    var real = having.filter(function (line) { return line.kind === 'real'; });
+    return real.length ? real : having;
+  }
+  function shareOf(line, joint) {
+    if (!line.torque) return null;
+    var value = joint ? (line.torque.joints[joint] || {}).fb_share : line.torque.fb_share;
+    return value === undefined ? null : value;
+  }
+  // The drive gap (RMS of commanded − applied) of the picked joint, else the line's largest over its joints.
+  function gapOf(line, joint) {
+    if (!line.torque) return null;
+    var joints = line.torque.joints || {}, worst = null;
+    if (joint) return joints[joint] && joints[joint].drive_gap_rms !== undefined ? joints[joint].drive_gap_rms : null;
+    Object.keys(joints).forEach(function (key) {
+      var value = joints[key].drive_gap_rms;
+      if (value !== null && value !== undefined && (worst === null || value > worst)) worst = value;
+    });
+    return worst;
+  }
+
   // The layers one joint's chart draws for these lines, and what each config draws (the [data-tc-draw] statements).
-  function layersFor(lines, jointIndex) {
+  function layersFor(lines, jointIndex, valuesOf) {
     var layers = [], draws = [];
-    function series(line) { return { line: line, y: smoothed(line.e_deg[jointIndex], V.smooth) }; }
+    var pick = valuesOf || errorSeries;
+    function series(line) { return { line: line, y: smoothed(pick(line, jointIndex), V.smooth) }; }
     configGroups(lines).forEach(function (group) {
       var mode = drawMode(group.members.length);
       layers.push({ config: group.config.name, color: group.config.color, mode: mode, dash: group.kind === 'sim', lines: group.members.map(series) });
@@ -1032,7 +1081,9 @@
       plural(LV.configs.length, 'config') + '</b>' + (dates.length ? ' · ' + dateRange(dates) : '') + '</p>';
     var tolerances = lines.some(function (line) { return line.ok === true || line.ok === false; });
     html += '<table class="ds-band-table"><thead><tr><th>Config</th><th>Lines</th><th>Median RMS error <span class="ds-unit">' +
-      esc(jointWords(V.joint)) + '</span></th>' + (tolerances ? '<th>Pass</th>' : '') + '<th>Against the baseline</th></tr></thead><tbody>';
+      esc(jointWords(V.joint)) + '</span></th>' +
+      (HAS_TORQUE ? '<th title="' + esc(SHARE_TEXT) + '"><span class="ds-fbmark"></span>Median FB share <span class="ds-unit">all joints</span></th>' : '') +
+      (tolerances ? '<th>Pass</th>' : '') + '<th>Against the baseline</th></tr></thead><tbody>';
     var verdicts = LV.targets.map(function (target) { return verdictOf(target.lines, V.joint); });
     LV.configs.forEach(function (config) {
       var own = lines.filter(function (line) { return line.config === config.name; });
@@ -1053,13 +1104,23 @@
         against = shared ? 'better than ' + esc(BASELINE) + ' on <b>' + wins + ' of ' + plural(shared, 'target') + '</b>'
           : '<span class="ds-mut">no target shared with ' + esc(BASELINE) + '</span>';
       }
+      var share = '';
+      if (HAS_TORQUE) {
+        // WHY the payload's median, not one taken here: the band's FB share is dataset.py's (robot_msgs.compare's median).
+        var withTorque = torqueMembers(own);
+        share = config.fb_share_median === null || config.fb_share_median === undefined
+          ? '<td data-tc-fb-share="' + esc(config.name) + '"><span class="ds-mut" title="no line of this config has a torque breakdown">—</span></td>'
+          : '<td data-tc-fb-share="' + esc(config.name) + '"><b>' + fmtShare(config.fb_share_median) + '</b> <span class="ds-mut">' +
+            plural(withTorque.length, withTorque.length && withTorque[0].kind === 'real' ? 'real line' : 'sim line') + '</span></td>';
+      }
       html += '<tr><td class="ds-text">' + swatch(config.color, !config.real) + esc(config.name) + '</td><td>' + own.length +
         ' <span class="ds-mut">(' + config.sim + ' sim · ' + config.real + ' real)</span></td><td><b>' + fmtDeg(middle) +
-        '</b> <span class="ds-mut">' + split.kind + ' lines</span></td>' +
+        '</b> <span class="ds-mut">' + split.kind + ' lines</span></td>' + share +
         (tolerances ? '<td>' + (judged.length ? passed + '/' + judged.length : '—') + '</td>' : '') + '<td class="ds-text">' + against + '</td></tr>';
     });
     html += '</tbody></table><p class="ds-note">A line is one measured series of one run. Its RMS error is robot_msgs.compare’s, of the ' +
-      esc(jointWords(V.joint)) + '; a config’s median is over its real lines (its sims when it has none), and “better” compares those medians on each target both configs ran.</p>';
+      esc(jointWords(V.joint)) + '; a config’s median is over its real lines (its sims when it has none), and “better” compares those medians on each target both configs ran.' +
+      (HAS_TORQUE ? ' ' + esc(SHARE_TEXT) + ', over every joint and sample of a line; its median is over the config’s lines with a torque breakdown (real ones when it has any), “—” where none has one.' : '') + '</p>';
     $('ds-band').innerHTML = html;
   }
 
@@ -1201,11 +1262,16 @@
         var values = present(group.members.map(function (line) { return valueOf(line, V.joint); }));
         var middle = median(values);
         var judged = group.lines.filter(function (line) { return line.ok === true || line.ok === false; });
+        var torqued = torqueMembers(group.lines);
         rows.push({
           target: target, group: group, values: values, median: middle, joint: joint, jointIndex: jointIndex, range: [low, high],
           delta: group === base ? 'baseline' : base && base.kind === group.kind && baseMedian ? (middle - baseMedian) / baseMedian : null,
           spread: repeatabilityOf(target, group.config.name, V.joint),
           pass: judged.length ? judged.filter(function (line) { return line.ok; }).length / judged.length : null, judged: judged.length,
+          // medians over the row's lines that have a breakdown; null (the cell says "—") when none has one
+          torqued: torqued,
+          fb: median(torqued.map(function (line) { return shareOf(line, V.joint); })),
+          gap: median(torqued.map(function (line) { return gapOf(line, V.joint); })),
         });
       });
     });
@@ -1218,6 +1284,8 @@
     delta: function (row) { return typeof row.delta === 'number' ? row.delta : row.delta === 'baseline' ? 0 : Infinity; },
     rt: function (row) { return row.spread.value === null ? Infinity : row.spread.value; },
     pass: function (row) { return row.pass === null ? Infinity : -row.pass; },
+    fb: function (row) { return row.fb === null ? Infinity : row.fb; },
+    gap: function (row) { return row.gap === null ? Infinity : row.gap; },
   };
   function renderLeague() {
     var holder = $('ds-view-table');
@@ -1247,6 +1315,7 @@
     var columns = [
       ['target', 'Target · config'], ['n', 'Lines'], ['dist', 'RMS error per line'], ['median', 'Median'], ['delta', 'Δ vs ' + (BASELINE || 'baseline')],
     ];
+    if (HAS_TORQUE) columns.push(['fb', 'FB share'], ['gap', 'Drive gap']);  // NAVIGATION.md's order: after Δ, before RT
     if (tolerances) columns.push(['pass', 'Pass']);
     columns.push(['rt', 'ISO 9283 RT'], ['spark', 'Error over time'], ['open', '']);
     var html = '<div class="ds-scroll ds-league-wrap"><table class="ds-league"><thead><tr>';
@@ -1254,7 +1323,11 @@
       var key = column[0], sortable = key === 'target' || LEAGUE_SORTS[key] || key === 'dist';
       var sortKey = key === 'dist' ? 'median' : key;
       var active = key === 'target' ? !V.league : V.league && V.league.key === sortKey && key !== 'dist';
-      html += '<th data-sort-key="' + (sortable ? sortKey : '') + '" class="' + (sortable ? 'sortable' : '') + (active ? ' sorted' : '') + '">' + esc(column[1]);
+      var tip = key === 'fb' ? SHARE_TEXT + '; median over the row’s lines with a torque breakdown, ' + (V.joint || 'all joints')
+        : key === 'gap' ? 'Drive gap = RMS of commanded − applied torque (robot_msgs.compare), what the drive fell short of the command by ' +
+          '(saturation, current-loop lag, kt error); median over the row’s lines with a torque breakdown, ' + (V.joint || 'each line’s largest joint') : '';
+      html += '<th data-sort-key="' + (sortable ? sortKey : '') + '" class="' + (sortable ? 'sortable' : '') + (active ? ' sorted' : '') + '"' +
+        (tip ? ' title="' + esc(tip) + '"' : '') + '>' + (key === 'fb' ? '<span class="ds-fbmark"></span>' : '') + esc(column[1]);
       if (key === 'dist' && sorted) html += axisHtml(shared);
       if (active && key !== 'target') html += V.league.dir > 0 ? ' ↑' : ' ↓';
       html += '</th>';
@@ -1279,6 +1352,7 @@
         '<td>' + group.lines.length + ' <span class="ds-mut">(' + (group.sims.length ? group.members.length + ' ' + group.kind + ' · ' + group.sims.length + ' sim' : 'all ' + group.kind) + ')</span></td>' +
         '<td class="ds-dist">' + distHtml(row, (sorted ? shared : scales[target.slug]).high) + '</td>' +
         '<td><b>' + fmtDeg(row.median) + '</b></td><td>' + delta + '</td>' +
+        (HAS_TORQUE ? torqueCells(row.fb, row.gap, row.torqued.length) : '') +
         (tolerances ? '<td>' + (row.pass === null ? '—' : Math.round(row.pass * 100) + '%') + '</td>' : '') +
         '<td title="' + esc(row.spread.title || '') + '">' + (row.spread.value === null ? '<span class="ds-mut">—</span>' : fmtDeg(row.spread.value) +
           (row.spread.tcp !== null && row.spread.tcp !== undefined ? ' · ' + nice(mm(row.spread.tcp)) + ' mm' : '')) + '</td>' +
@@ -1288,6 +1362,7 @@
         group.lines.forEach(function (line) {
           html += '<tr class="ds-lg-line"><td class="ds-text" title="' + esc(line.id) + '">' + esc(line.id) + '</td><td class="ds-mut">' + line.kind +
             (line.date ? ' · ' + esc(shortDate(line.date)) : '') + '</td><td></td><td>' + fmtDeg(valueOf(line, V.joint)) + '</td><td></td>' +
+            (HAS_TORQUE ? torqueCells(shareOf(line, V.joint), gapOf(line, V.joint), line.torque ? 1 : 0) : '') +
             (tolerances ? '<td>' + (line.ok === null || line.ok === undefined ? '—' : line.ok ? 'pass' : '<span class="ds-fail">fail</span>') + '</td>' : '') +
             '<td></td><td></td><td><a class="ds-link" href="' + esc(line.report) + '" title="Open this run’s report">↗</a></td></tr>';
         });
@@ -1295,8 +1370,16 @@
     });
     html += '</tbody></table></div><p class="ds-note">One row per target × config: its real lines (its sims when it has none). ' +
       'Dots while a config has ≤ ' + V.n + ' lines, a box (IQR) with min–max whiskers past that; the bar is the median. ' +
-      'RT is ISO 9283 path repeatability from robot_msgs.compare.aggregate. Click a row for its lines, a header to sort.</p>';
+      'RT is ISO 9283 path repeatability from robot_msgs.compare.aggregate. Click a row for its lines, a header to sort.' +
+      (HAS_TORQUE ? ' FB share and drive gap (RMS of commanded − applied torque) are medians over the row’s lines with a torque breakdown, ' +
+        (V.joint ? esc(V.joint) : 'the share over all joints and the gap of each line’s largest joint') + '; “—” where none has one.' : '') + '</p>';
     holder.innerHTML = html;
+  }
+  // The League table's FB share and drive gap cells; "—" where no line of the row has a breakdown (never 0 %).
+  function torqueCells(share, gap, count) {
+    if (!count) return '<td data-tc-fb-share><span class="ds-mut" title="no line here has a torque breakdown">—</span></td>' +
+      '<td data-tc-drive-gap><span class="ds-mut">—</span></td>';
+    return '<td data-tc-fb-share>' + fmtShare(share) + '</td><td data-tc-drive-gap>' + fmtNm(gap) + '</td>';
   }
   function distHtml(row, high) {
     var color = row.group.config.color, html = '<div class="ds-dtrack">';
@@ -1668,23 +1751,51 @@
     var html = '<h2 class="ds-panel-h" data-tc-tab-heading>' + esc(TABS[0][1]) + '</h2><p class="ds-note">Each chart is one joint’s error, target − line, over the trajectory. ' +
       'A config draws lines while it has ≤ N lines and a fan past that (' + FAN_TEXT + '); its sim lines draw dashed over it, never pooled into the fan.</p>';
     if (!lines.length) html += '<p class="ds-note">Every line is filtered out or unchecked.</p>';
-    html += '<div class="ds-charts">';
     var todo = [];
+    // One chart card per joint x signal; every chart draws its config groups exactly as the joint error does.
+    function card(title, joint, index, kind, valuesOf, options) {
+      var own = lines.filter(function (line) { return valuesOf(line, index) !== null; });
+      var drawn = layersFor(own, index, valuesOf);
+      todo.push({ drawn: drawn, index: index, valuesOf: valuesOf, options: options, own: own });
+      return '<div class="ds-chart-card" data-tc-chart="' + kind + '" data-joint-name="' + esc(joint) + '"><div class="ds-csec"><b>' + esc(title) +
+        '</b></div><div class="ds-chips">' + drawChips(drawn.draws) + '</div><div class="ds-plot" data-joint="' + index + '"></div><div class="ds-readout">&nbsp;</div></div>';
+    }
+    html += '<div class="ds-charts">';
     target.joints.forEach(function (joint, index) {
-      var drawn = layersFor(lines, index);
-      html += '<div class="ds-chart-card"><div class="ds-csec"><b>' + esc(joint) + ': joint error, target − line [°]</b></div><div class="ds-chips">' + drawChips(drawn.draws) +
-        '</div><div class="ds-plot" data-joint="' + index + '"></div><div class="ds-readout">&nbsp;</div></div>';
-      todo.push(drawn);
+      html += card(joint + ': joint error, target − line [°]', joint, index, 'joint-error', errorSeries, { unit: '°' });
     });
-    panel.innerHTML = html + '</div>';
+    html += '</div>';
+    // WHY only on a target with a breakdown (Zach 2026-11-19, torque breakdown in the dataset view; NAVIGATION.md Part A:
+    // "when present feedback torque and FB share"): a target whose lines carry none shows no empty torque chart.
+    if (target.has_torque_breakdown) {
+      var torqued = lines.filter(function (line) { return line.torque; });
+      html += '<section class="ds-torque" data-tc-torque><h3 class="ds-panel-sub"><span class="ds-fbmark"></span>How much of the commanded torque did the feedback supply?</h3>' +
+        '<p class="ds-note">Feedback torque is the error-correcting part of the command (commanded − feedforward), per joint over the trajectory. ' +
+        esc(SHARE_TEXT) + ', here over a ±150 ms window around each instant; the window’s denominator is floored at 5 % of the joint’s typical command, ' +
+        'so a parked joint (no feedforward, a hair of feedback) reads near 0 %, not 100 %. Only lines with a torque breakdown draw; their configs fan past N as above.</p>';
+      if (!torqued.length) {
+        html += '<p class="ds-note">No drawn line has a torque breakdown: check one in the list.</p>';
+      } else {
+        html += '<div class="ds-charts">';
+        target.joints.forEach(function (joint, index) {
+          html += card(joint + ': feedback torque, commanded − feedforward [N·m]', joint, index, 'feedback-torque', feedbackSeries, { unit: ' N·m', tickUnit: '' });
+          html += card(joint + ': feedback share of the command, ±150 ms [%]', joint, index, 'fb-share', shareSeries, { unit: '%', digits: 1 });
+        });
+        html += '</div>';
+      }
+      html += '</section>';
+    }
+    panel.innerHTML = html;
     var hosts = panel.querySelectorAll('.ds-plot');
     requestAnimationFrame(function () {
       if (V.target !== target || V.tab !== 'repeat') return;
-      todo.forEach(function (drawn, index) {
-        var host = hosts[index];
+      todo.forEach(function (item, k) {
+        var host = hosts[k];
         if (!host || !host.isConnected) return;
-        var overlay = highlighted.map(function (line) { return { line: line, y: smoothed(line.e_deg[index], V.smooth) }; });
-        var chart = fanChart(host, { x: target.t, layers: drawn.layers, overlay: overlay, height: 220, unit: '°', readout: host.nextElementSibling, onPick: openLine });
+        var overlay = highlighted.filter(function (line) { return item.own.indexOf(line) !== -1; }).map(function (line) {
+          return { line: line, y: smoothed(item.valuesOf(line, item.index), V.smooth) };
+        });
+        var chart = fanChart(host, Object.assign({ x: target.t, layers: item.drawn.layers, overlay: overlay, height: 220, readout: host.nextElementSibling, onPick: openLine }, item.options));
         if (chart) charts.repeat.push(chart);
       });
     });

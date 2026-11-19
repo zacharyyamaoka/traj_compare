@@ -336,6 +336,13 @@ write_dataset_report(runs, "out/", title="Wrist coverage", group_by=("tape",), t
   pairs of `.rrd` is about 2 GB up front. From `file://` the buttons copy the command instead.
 - `examples/dataset_demo.py --out DIR [--eager]` writes twelve synthetic runs of the planar 2R arm.
 
+- **Torque breakdown.** `Run(..., torques={"real": {"tau_ff": ff, "tau_fb": fb}})` takes any of `tau_cmd` / `tau_ff` /
+  `tau_fb`, (N, DOF) N·m on that series' samples. Two of the three give the third; applied stays the series' `effort`. It is
+  saved as `runs/<slug>/<series>.torques.npz`, so the run report gets its "Feedforward or feedback?" tab. The Dataset band
+  shows each config's median FB share (Σ|fb| / (Σ|ff| + Σ|fb|)); the League table shows FB share and drive gap (RMS
+  commanded − applied) per target × config; a Target's "How repeatable…" tab adds a feedback-torque and an FB-share chart
+  per joint (±150 ms window), as lines or fans per config like the joint error. No breakdown: "—" or nothing.
+
 ## data-ui
 
 The dataset also feeds data-ui's robotics dashboards (`traj_compare.data_ui`, 2026-11-11), through data-ui's **trajectory

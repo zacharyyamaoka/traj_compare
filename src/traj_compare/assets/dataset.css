@@ -293,6 +293,12 @@ body.ds-resizing { cursor: col-resize; user-select: none; }
 .ds-charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(460px, 100%), 1fr)); gap: 12px; margin-top: 10px; }
 .ds-chart-card { background: #fcfcfb; border: 1px solid #dddcd6; border-radius: 8px; padding: 10px 12px; display: flex;
                  flex-direction: column; gap: 6px; min-width: 0; }
+/* the torque breakdown (Zach 2026-11-19, torque breakdown in the dataset view): feedback's fixed orange marks it where
+   one colour stands for it (the run view's component colour); the charts themselves keep the config colours */
+.ds-fbmark { display: inline-block; width: 8px; height: 8px; border-radius: 2px; background: #f97316; margin-right: 5px;
+             vertical-align: 0; }
+.ds-torque { margin-top: 18px; padding-top: 10px; border-top: 1px solid #ecebe6; }
+.ds-panel-sub { font-size: 13px; margin: 2px 0 2px; color: #22211f; }
 .ds-spc { margin-top: 8px; background: #fcfcfb; border: 1px solid #dddcd6; border-radius: 8px; padding: 8px 10px; overflow-x: auto; }
 .ds-spc-svg { display: block; }
 .ds-spc-dot { cursor: pointer; }

@@ -22,6 +22,7 @@ Files (file-first, so a dataset can be re-read, re-sorted or opened in pandas wi
     out/runs/<slug>/manifest.json   what the drill-down needs to rebuild itself
     out/runs/<slug>/reference.npz   robot_msgs ``save_npz`` per series (``load_npz`` reads them back)
     out/runs/<slug>/<series>.npz
+    out/runs/<slug>/<series>.torques.npz   the torque breakdown a series was given (tau_cmd / tau_ff / tau_fb), if any
     out/runs/<slug>/media/<key>.<ext>
     out/runs/<slug>/report.html     the run view, built lazily (or eagerly) from the files above
 
@@ -59,11 +60,13 @@ from robot_msgs.compare import (
     aggregate,
     check,
     compare,
+    error_stats,
     estimate_time_offset,
 )
 from robot_msgs.trajectory import JointTrajectory, PoseTrajectory
 
 from . import rerun_export
+from .analysis import _BREAKDOWN_KEYS, _torque_breakdown
 from .model import Comparison, ReportPage, RobotDisplay, Situation
 from .report import write_comparison_report
 
@@ -72,6 +75,7 @@ Tag = str | int | float | bool
 # Columns every row has; a tag may not reuse one of these names.
 _FIXED_COLUMNS = ("run", "pair", "metric", "stat", "value", "unit")
 _DRILL_DOWNS = ("lazy", "eager")
+_TORQUE_KEYS = _BREAKDOWN_KEYS  # tau_cmd / tau_ff / tau_fb: Run.torques' keys, the run view's breakdown
 
 _JOINT_UNITS = {"positions": "rad", "velocities": "rad/s", "accelerations": "rad/s²", "effort": "Nm"}
 _POSE_UNITS = {
@@ -94,6 +98,10 @@ class Run:
     - ``media`` maps a key to a video file. A key that equals a series name is that series' synced
       video in the drill-down; any other key is an extra clip listed on the run page.
       ``media_start_s`` is the trajectory time at video time 0 for that key.
+    - ``torques`` is the command's torque breakdown per series (a key of ``measured``): any of ``"tau_cmd"``
+      (commanded), ``"tau_ff"`` (feedforward), ``"tau_fb"`` (feedback), each (N, DOF) N·m on that series' own samples;
+      1-D promotes to one column. Two of the three derive the third (the run view's rule). Applied stays the series'
+      ``effort``, target the reference's ``effort``.
     """
 
     name: str
@@ -105,6 +113,13 @@ class Run:
     title: str = ""
     media: Mapping[str, Path] = field(default_factory=dict)
     media_start_s: Mapping[str, float] = field(default_factory=dict)
+    # WHY on the Run (Zach 2026-11-19, torque breakdown in the dataset view: "of the command torque some portion of that
+    # is coming from Feedforward, and some portion of that is coming from feedback"): without it the dataset view could
+    # not show that split, nor hand it to the run report it builds.
+    torques: Mapping[str, Mapping[str, np.ndarray]] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        self.torques = _checked_torques(self.name, self.measured, self.torques)
 
     def resolved_pairs(self) -> list[tuple[str, str]]:
         if self.pairs is None:
@@ -117,6 +132,38 @@ class Run:
 
     def relative_offset_s(self, first: str, second: str) -> float:
         return float(self.time_offset_s.get(second, 0.0)) - float(self.time_offset_s.get(first, 0.0))
+
+
+def _checked_torques(
+    run_name: str, measured: Mapping[str, JointTrajectory], torques: Mapping[str, Mapping[str, Any]]
+) -> dict[str, dict[str, np.ndarray]]:
+    """``Run.torques`` as float (N, DOF) arrays, or ``ValueError`` for an unknown series or key or a mismatched shape.
+
+    WHY only tau_cmd / tau_ff / tau_fb (CONTRACT.md addendum): applied is already the series' ``effort``; a second
+    "tau" here would be two sources for one signal. A series with no torque given is dropped, so ``{}`` is no breakdown.
+    """
+    checked: dict[str, dict[str, np.ndarray]] = {}
+    for series, given in dict(torques or {}).items():
+        if series not in measured:
+            raise ValueError(f"run {run_name!r}: torques for {series!r}, which is no measured series; series are {sorted(measured)}")
+        trajectory = measured[series]
+        shape = (len(trajectory.t), len(trajectory.joint_names))
+        parts: dict[str, np.ndarray] = {}
+        for key, values in dict(given).items():
+            if key not in _TORQUE_KEYS:
+                raise ValueError(f"run {run_name!r}: torque {key!r} of {series!r} is not one of {_TORQUE_KEYS}")
+            array = np.array(values, dtype=float)
+            if array.ndim == 1:
+                array = array[:, None]
+            if array.shape != shape:
+                raise ValueError(
+                    f"run {run_name!r}: {series}.{key} has shape {array.shape}, the series' positions {shape} "
+                    f"({len(trajectory.t)} samples x joints {list(trajectory.joint_names)})"
+                )
+            parts[key] = array
+        if parts:
+            checked[str(series)] = parts
+    return checked
 
 
 def default_pairs(series_names: Sequence[str]) -> list[tuple[str, str]]:
@@ -524,11 +571,95 @@ def _degrees_on(grid: np.ndarray, times: np.ndarray, values: np.ndarray) -> list
     ``display_hz``) so a percentile fan can be taken per instant; when a line was sampled on the reference's instants
     (the usual case) this is exact picking, never averaging. Outside the line's span it is missing, never extrapolated.
     """
+    return _picked_on(grid, times, values, scale=180.0 / math.pi)
+
+
+def _picked_on(grid: np.ndarray, times: np.ndarray, values: np.ndarray, scale: float = 1.0) -> list[float | None]:
+    """``values`` at the grid's instants times ``scale``, 4 decimals; None outside the line's own samples (see above)."""
     if len(times) == 0:
         return [None] * len(grid)
     inside = (grid >= times[0] - 1e-9) & (grid <= times[-1] + 1e-9)
-    picked = np.interp(grid, times, values) * (180.0 / math.pi)
+    picked = np.interp(grid, times, values) * scale
     return [round(float(value), 4) if ok and math.isfinite(value) else None for value, ok in zip(picked, inside, strict=True)]
+
+
+# The FB share over time (Zach 2026-11-19, torque breakdown in the dataset view; CONTRACT.md addendum): Σ|fb| / (Σ|ff| +
+# Σ|fb|) over ±150 ms around each sample. WHY a floor under the denominator: where a joint is parked its command is
+# ~0, so a hair of feedback alone would read 100 %; the window's denominator is held to at least 5 % of the joint's
+# typical |ff| + |fb| (its mean over the line), so a parked joint reads near 0 % and a moving one is untouched.
+_SHARE_WINDOW_S = 0.15
+_SHARE_FLOOR = 0.05
+
+
+def _share_over_time(t: np.ndarray, feedforward: np.ndarray, feedback: np.ndarray) -> np.ndarray:
+    """The feedback share of one joint's command over a ±``_SHARE_WINDOW_S`` window, on its own samples (NaN where
+    the window holds no finite sample). A plain ratio of sums, as the run view's ``fb_share``; no new statistic."""
+    ff, fb = np.abs(feedforward), np.abs(feedback)
+    finite = np.isfinite(ff) & np.isfinite(fb)
+    ff, fb = np.where(finite, ff, 0.0), np.where(finite, fb, 0.0)
+
+    def windowed(values: np.ndarray) -> np.ndarray:
+        running = np.concatenate(([0.0], np.cumsum(values, dtype=float)))
+        return running[high] - running[low]
+
+    low = np.searchsorted(t, t - _SHARE_WINDOW_S, side="left")
+    high = np.searchsorted(t, t + _SHARE_WINDOW_S, side="right")
+    count = windowed(finite.astype(float))
+    typical = float(np.mean(ff[finite] + fb[finite])) if finite.any() else 0.0
+    denominator = np.maximum(windowed(ff) + windowed(fb), _SHARE_FLOOR * typical * count)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        share = windowed(fb) / denominator
+    return np.where((count > 0) & (denominator > 0.0), share, np.nan)
+
+
+def _fb_share(feedforward: np.ndarray, feedback: np.ndarray) -> float | None:
+    """Σ|fb| / (Σ|ff| + Σ|fb|) over the samples where both are finite (the run view's ``fb_share``, any shape)."""
+    both = np.isfinite(feedforward) & np.isfinite(feedback)
+    fb_sum = float(np.sum(np.abs(feedback[both])))
+    total = float(np.sum(np.abs(feedforward[both]))) + fb_sum
+    return fb_sum / total if total > 0.0 else None
+
+
+def _line_torque(
+    series: str, measured: JointTrajectory, given: Mapping[str, np.ndarray], joints: Sequence[str], grid: np.ndarray,
+    times: np.ndarray,
+) -> dict[str, Any]:
+    """One line's torque breakdown for the Dataset and Target levels (``line["torque"]``).
+
+    The missing third comes from the run view's two-of-three rule (``analysis._torque_breakdown``); the drive gap is
+    ``robot_msgs.compare.error_stats``' RMS of commanded − applied (applied = the series' ``effort``); the shares are
+    plain sums. ``tau_fb`` and ``fb_share_over_time`` are display series, per joint in ``joints`` order on the target's
+    grid (``times`` = the line's samples on the target clock), None outside the line's span.
+    """
+    situation = Situation(name=series, t=measured.t, q=measured.positions, tau=measured.effort, **given)
+    breakdown, _ = _torque_breakdown(situation)
+    command, feedforward, feedback = (breakdown[key] for key in _BREAKDOWN_KEYS)
+    applied = situation.tau
+    column_of = {name: index for index, name in enumerate(measured.joint_names)}
+    t = np.asarray(measured.t, dtype=float)
+    per_joint: dict[str, dict[str, float | None]] = {}
+    tau_fb: list[list[float | None]] = []
+    over_time: list[list[float | None]] = []
+    for name in joints:
+        column = column_of.get(name)
+        share = gap = None
+        if column is not None and feedforward is not None and feedback is not None:
+            share = _fb_share(feedforward[:, column], feedback[:, column])
+        if column is not None and command is not None and applied is not None:
+            gap = _finite(error_stats(command[:, column] - applied[:, column], t).rms)
+        per_joint[name] = {"fb_share": share, "drive_gap_rms": gap}
+        if feedback is not None:
+            tau_fb.append(_picked_on(grid, times, feedback[:, column]) if column is not None else [None] * len(grid))
+        if feedforward is not None and feedback is not None:
+            shares = _share_over_time(t, feedforward[:, column], feedback[:, column]) if column is not None else None
+            over_time.append(_picked_on(grid, times, shares) if shares is not None else [None] * len(grid))
+    both = feedforward is not None and feedback is not None
+    return {
+        "fb_share": _fb_share(feedforward, feedback) if both else None,
+        "joints": per_joint,
+        "tau_fb": tau_fb if feedback is not None else None,
+        "fb_share_over_time": over_time if both else None,
+    }
 
 
 def _levels_payload(
@@ -594,28 +725,53 @@ def _levels_payload(
                     ok=(entry or {}).get("verdict", {}).get("ok") if options.tolerances is not None else None,
                     e_deg=[_degrees_on(grid, times, joint.error.positions[:, columns[name]]) for name in joints],
                 )
+                # WHY only when given (Zach 2026-11-19, torque breakdown in the dataset view; CONTRACT.md addendum): a
+                # line without a breakdown carries no torque key at all, so a dataset without one is today's payload.
+                if run.torques.get(series):
+                    on_target_clock = np.asarray(measured.absolute_times, dtype=float) - offset - float(reference.header.stamp)
+                    line["torque"] = _line_torque(series, measured, run.torques[series], joints, grid, on_target_clock)
                 lines.append(line)
-        target_rows.append(
-            {
-                "key": target.key,
-                "slug": target.slug,
-                "title": target.title,
-                "named_by": target.named_by,
-                "joints": joints,
-                "t": [round(float(value), 4) for value in grid],
-                "runs": len(target.runs),
-                "repeatability": {
-                    config: _repeatability(reference, kinds["real"] or kinds["sim"], poses, options)
-                    for config, kinds in members.items()
-                },
-            }
-        )
+        target_row: dict[str, Any] = {
+            "key": target.key,
+            "slug": target.slug,
+            "title": target.title,
+            "named_by": target.named_by,
+            "joints": joints,
+            "t": [round(float(value), 4) for value in grid],
+            "runs": len(target.runs),
+            "repeatability": {
+                config: _repeatability(reference, kinds["real"] or kinds["sim"], poses, options)
+                for config, kinds in members.items()
+            },
+        }
+        target_row["has_torque_breakdown"] = any(line.get("torque") for line in lines if line["target"] == target.slug)
+        target_rows.append(target_row)
+    any_breakdown = any(row["has_torque_breakdown"] for row in target_rows)
+    if not any_breakdown:
+        for row in target_rows:
+            del row["has_torque_breakdown"]
     config_rows = []
     sim_colours, colours = iter(_SIM_COLOURS), iter(_CONFIG_COLOURS)
     for name, kinds in configs.items():
         palette = sim_colours if kinds["real"] == 0 else colours
-        config_rows.append({"name": name, "color": next(palette, "#52514e"), **kinds})
-    return {"targets": target_rows, "configs": config_rows, "lines": lines}
+        row = {"name": name, "color": next(palette, "#52514e"), **kinds}
+        if any_breakdown:
+            row["fb_share_median"] = _fb_share_median([line for line in lines if line["config"] == name])
+        config_rows.append(row)
+    levels: dict[str, Any] = {"targets": target_rows, "configs": config_rows, "lines": lines}
+    if any_breakdown:
+        levels["has_torque_breakdown"] = True
+    return levels
+
+
+def _fb_share_median(lines: Sequence[Mapping[str, Any]]) -> float | None:
+    """The summary band's median feedback share of one config: over its lines' overall ``fb_share``, its real lines when
+    any of them has one (as the band's RMS median), else its sim lines; None when no line has a share.
+    The median is ``robot_msgs.compare.error_stats``' (the package's one source of statistics)."""
+    having = [line for line in lines if (line.get("torque") or {}).get("fb_share") is not None]
+    real = [line for line in having if line["kind"] == "real"]
+    shares = [line["torque"]["fb_share"] for line in (real or having)]
+    return _finite(error_stats(np.asarray(shares, dtype=float)).median) if shares else None
 
 
 def _repeatability(
@@ -699,6 +855,11 @@ def _validate(runs: Sequence[Run], group_by: Sequence[str], primary: Mapping[str
         raise ValueError(f"primary maps two aliases to one series: {dict(primary)}")
 
 
+def _torque_file(series: str) -> str:
+    """``<series>.torques.npz``, the series named as its ``<series>.npz`` is (``real`` -> ``real.torques.npz``)."""
+    return f"{_safe_name(series)}.torques.npz"
+
+
 def _write_run_files(
     run: Run, folder: Path, slug: str, options: _Analysis, specs: Mapping[str, str | None], import_roots: list[str],
     primary: Mapping[str, str], visible_pairs: Sequence[tuple[str, str]], target: _Target | None = None,
@@ -712,6 +873,13 @@ def _write_run_files(
     for name, trajectory in run.measured.items():
         files[name] = f"{_safe_name(name)}.npz"
         save_npz(trajectory, folder / files[name])
+    # The torque breakdown beside its series (CONTRACT.md addendum): <series>.torques.npz holds only the keys given, so
+    # the drill-down derives the third exactly as the run view does. WHY unlink first: a breakdown an earlier write
+    # left behind would otherwise outlive the run that no longer carries it.
+    for stale in folder.glob("*.torques.npz"):
+        stale.unlink()
+    for name, parts in run.torques.items():
+        np.savez(folder / _torque_file(name), **{key: np.asarray(values, dtype=float) for key, values in parts.items()})
     media: dict[str, str] = {}
     for key, source in run.media.items():
         source = Path(source)
@@ -728,6 +896,7 @@ def _write_run_files(
         "tags": {key: _tag_value(value) for key, value in run.tags.items()},
         "series": list(run.measured),
         "files": files,
+        "torques": {name: list(parts) for name, parts in run.torques.items()},
         "pairs": [list(pair) for pair in run.resolved_pairs()],
         "default_pairs": [list(pair) for pair in run.resolved_pairs() if pair in set(visible_pairs)],
         "time_offset_s": {key: float(value) for key, value in run.time_offset_s.items()},
@@ -1028,6 +1197,10 @@ def _build_run_report(folder: Path) -> Path:
         return "Reference" if name == REFERENCE else labels.get(name, name)
 
     trajectories = {name: load_npz(folder / file) for name, file in manifest["files"].items()}
+    torques: dict[str, dict[str, np.ndarray]] = {}
+    for name, keys in manifest.get("torques", {}).items():  # .get: manifests written before 2026-11-19 have none
+        with np.load(folder / _torque_file(name), allow_pickle=False) as stored:
+            torques[name] = {key: stored[key] for key in keys}
     offsets: Mapping[str, float] = manifest["time_offset_s"]
     series_names = list(manifest["series"])
     shown = {tuple(pair) for pair in manifest["default_pairs"]}
@@ -1038,6 +1211,9 @@ def _build_run_report(folder: Path) -> Path:
         trajectory = trajectories[name]
         if set(trajectory.joint_names) != set(reference.joint_names):
             raise ValueError(f"{name!r} has joints {trajectory.joint_names}, the reference {reference.joint_names}")
+        # The breakdown's columns follow the series' own joint order; reorder them with the series onto the reference's.
+        columns = [list(trajectory.joint_names).index(joint) for joint in reference.joint_names]
+        breakdown = {key: values[:, columns] for key, values in torques.get(name, {}).items()}
         trajectory = trajectory.select(reference.joint_names)
         return Situation(
             name=name,
@@ -1047,6 +1223,7 @@ def _build_run_report(folder: Path) -> Path:
             qd=trajectory.velocities,
             qdd=trajectory.accelerations,
             tau=trajectory.effort,
+            **breakdown,  # tau_cmd / tau_ff / tau_fb as given; the run view derives the third (its "Feedforward or feedback?" tab)
             poses=None if poses is None else poses(trajectory).matrices(),
             video=manifest["media"].get(name, ""),
             video_start_s=manifest["media_start_s"].get(name, 0.0),

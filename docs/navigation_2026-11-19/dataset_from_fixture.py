@@ -3,7 +3,9 @@
 Turns ``docs/layout_proposals_2026-11-19/fixture/fixture.json`` (SIMULATED: a vertical planar 2R arm, 3 targets, 30 runs
 tagged ``ff_model`` / ``date``, one sim or real series each) into production ``Run``s and writes the dataset with
 ``write_dataset_report(..., group_by=("target", "ff_model"))``. Zach reviewed the summary layouts on this data, so the
-production levels are judged on it too. The fixture's torque breakdown is dropped: the production ``Run`` carries none.
+production levels are judged on it too. Each run's torque breakdown (its ``tau_cmd`` / ``tau_ff`` / ``tau_fb``, all three
+given) goes into ``Run.torques``, so the Dataset band and League table show the FB share and drive gap, the Target's repeat
+tab its feedback torque and FB share charts, and each run report its "Feedforward or feedback?" tab.
 
 ``--shots DIR`` also drives the pages in one headless Chrome (Node Playwright, 1440×900) and writes, in order: the
 Dataset level as cards, as the league table (one config row expanded) and as today's runs view; the Target level's
@@ -36,6 +38,7 @@ OUT = Path("/home/bam/bam_ws/reports/media/traj-compare-tabs-2026-11-19/dataset/
 PLAYWRIGHT = Path(os.environ.get("TRAJ_COMPARE_PLAYWRIGHT", "/home/bam/aruco-studio/web/node_modules/playwright"))
 CHROME = Path("/usr/bin/google-chrome")
 TAGS = ("ff_model", "date")  # the fixture's tags that name a config and a day; the rest are its simulation knobs
+BREAKDOWN = ("tau_cmd", "tau_ff", "tau_fb")  # the fixture's command breakdown, joint-major like its other series
 
 
 def _trajectory(record: dict, joints: tuple[str, ...], effort: str) -> JointTrajectory:
@@ -70,6 +73,8 @@ def runs_from_fixture(path: Path = FIXTURE) -> list[Run]:
                 measured={record["kind"]: _trajectory(record, joints, "tau")},
                 tags={"target": record["target"], **{key: record["tags"][key] for key in TAGS}},
                 title=target["title"],
+                # WHY (Zach 2026-11-19, torque breakdown in the dataset view): the demo shows the split it was built for.
+                torques={record["kind"]: {key: np.asarray(record[key], dtype=float).T for key in BREAKDOWN if key in record}},
             )
         )
     return runs
