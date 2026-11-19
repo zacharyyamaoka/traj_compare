@@ -45,7 +45,7 @@ def body(figure, prune_table, media: Path) -> str:
     torque = media / "torque"
     parts = [
         "<div class='kicker'>traj_compare · 2026-11-19 · Claude Code (Opus 5.5)</div>",
-        "<h1>The torque breakdown is first class; fifteen layouts to pick from</h1>",
+        "<h1>The torque breakdown is first class, from the dataset down to one run</h1>",
         "<p class='verdict'><b>Both viewers now show target, commanded, feedforward, feedback and applied torque as first-class "
         f"data</b> — on bam_ws <code>main</code> @ <code>{COMMIT}</code> (local; this checkout's main is not pushed). "
         "<b>On the real rigs only target, feedforward and applied exist today:</b> the logger never queries moteus "
@@ -56,8 +56,11 @@ def body(figure, prune_table, media: Path) -> str:
         "<li><b>Rerun:</b> <code>/torque/&lt;joint&gt;/…</code> entities, feedback-share bars, and a torque tab in both layouts "
         "(<i>Feedforward or feedback?</i> / <i>Torque</i>).</li>"
         "<li><b>Layouts:</b> five each for the summary view, the run view and the Rerun run view, on one shared simulated fixture, "
-        "scored against criteria written before any was built. AI picks: Scalars board (95), Torque cockpit ≈ Question tabs (92, tie), "
-        "Solo Run Dashboard (95). Nothing about the layouts is merged — they wait for your pick.</li>"
+        "scored against criteria written before any was built. You picked from the galleries (daily note, "
+        "<i>Traj compare view feedback</i>): target-first navigation and one set of question tabs for HTML and Rerun — "
+        "built by the navigation round (section 3).</li>"
+        "<li><b>Dataset view:</b> now carries the torque breakdown too — feedback share and drive gap per config on the "
+        "dataset and league table, feedback-torque and FB-share fans on each target (bam_ws <code>main</code> @ <code>2ab8c8782</code>).</li>"
         "</ul>",
         "<h2>1 · The torque breakdown (shipped)</h2>",
         figure(torque / "hero-torque-breakdown.mp4",
@@ -112,13 +115,30 @@ def body(figure, prune_table, media: Path) -> str:
         parts.append(f"<details><summary>AI prune — pick {esc(pick['id'].upper())} {esc(pick['name'])}; scores, evidence, hinge</summary>"
                      f"{prune_table(media / round_name / 'gallery-spec.json')}</details>")
     parts += [
-        "<h2>3 · Decisions</h2>",
+        "<h2>3 · After your pick (afternoon)</h2>",
+        "<p>Your feedback on the galleries: organise around the target (Dataset › Target › Run, targets as cards or a table), "
+        "one tabbed run view shared by HTML and Rerun with descriptive tab titles, and the 3D always showing. The navigation "
+        "round built that and landed it (<code>3362cda26..e6c9c8390</code>, its own report: "
+        "<code>/home/bam/.local/bin/open /home/bam/bam_ws/reports/media/traj-compare-navigation-2026-11-19.html</code>). "
+        "The torque view lives there as the <b>Feedforward or feedback?</b> tab. Its handoff left one gap that was this task's: "
+        "the dataset view couldn't carry the breakdown. That landed afterwards as <code>2ab8c8782</code> "
+        "(22 acceptance tests written first by a separate agent; 110 dataset/torque tests green; browser-checked).</p>",
+        "<div class='grid2'>",
+        figure(media / "applied" / "dataset-torque" / "2-league-table.png",
+               "Dataset level, League table: FB share and drive gap per target × config — full-circle slow 22 % (ff v1) vs 5.7 % (ff v2); "
+               "the band above gives each config's median, 23 % vs 7.8 %.", width=1000),
+        figure(media / "applied" / "dataset-torque" / "4-target-repeat-torque.png",
+               "Target level, <i>How repeatable…</i> tab: feedback torque and FB share over the trajectory per joint, 8 ff v1 and 6 ff v2 "
+               "real lines as fans (median · IQR · p5–p95 · min–max). The v1 feedback slopes with gravity; v2's stays near zero.", width=1000),
+        "</div>",
+        "<h2>4 · Decisions</h2>",
         "<h3>Done and proved</h3><ul>"
         "<li>Torque breakdown in the data model, payload, HTML run view, Parquet/MCAP and Rerun — 15 acceptance tests written first and "
         "untouched by the implementer (sha256 checked), 166/166 traj_compare tests pass.</li>"
         "<li>Browser-driven on the fixture and on real CAN 11 data (cards measured, chips toggled, 0 console errors); both Rerun torque "
         "tabs rendered in the stock 0.40.0 web viewer.</li>"
-        "<li>Fifteen layout prototypes, each opened and exercised headlessly; three galleries pass <code>gallery.py check --strict</code>.</li></ul>",
+        "<li>Fifteen layout prototypes, each opened and exercised headlessly; three galleries pass <code>gallery.py check --strict</code>.</li>"
+        "<li>The dataset view's torque breakdown (<code>2ab8c8782</code>): Run.torques persisted and read back into the run report; band, league and target charts measured in a browser.</li></ul>",
         "<h3>Decided for you</h3><ul>"
         f"<li>Landed the torque breakdown on bam_ws <code>main</code> ({COMMIT}). Undo: <code>git revert {COMMIT}</code>.</li>"
         "<li>Kept <code>tau</code> meaning <i>applied</i> on a run and <i>target</i> on the target, so every existing report renders "
@@ -128,15 +148,13 @@ def body(figure, prune_table, media: Path) -> str:
         "<h3>Left</h3><ul>"
         "<li>Log <code>control_torque</code> on the rigs (one register in <code>board.py</code>) — the only thing between the real data "
         "and a real feedback trace. Owned by the Sim to Real agent's hardware layer; proposed as its own task.</li>"
-        "<li>Build the layouts you pick (none is merged; they are prototypes on simulated data).</li>"
-        "<li>The dataset (summary) view's <code>Run</code> does not carry the breakdown yet; it arrives with the summary layout you pick.</li>"
+        "<li>The target page's <i>History</i> tab has no FB-share strip yet (NAVIGATION.md lists it).</li>"
         "<li>The budget table is one row per run × joint (30 rows at 14 repeats); the run-view proposals each fold it differently.</li></ul>",
-        "<h3>Needs you</h3><ul><li>Your pick or splice for each round, in each gallery's <i>Your call</i> box or in plain words "
-        "(“summary V1 with V3's verdict cards; run V3 with V2 as the torque tab; Rerun V2”).</li></ul>",
+        "<h3>Needs you</h3><ul><li>Nothing: your pick is built.</li></ul>",
         "<h3>Deliberately not done</h3><ul>"
         "<li>No audit (you didn't ask for one).</li>"
         "<li>Didn't change the rig logger myself: it changes what the live rig queries over CAN, and it belongs to another agent's "
         "hardware layer.</li>"
-        "<li>Didn't apply any layout to production before your pick (babble rule).</li></ul>",
+        "<li>Didn't ship the AI picks (Torque cockpit, a separate Rerun <i>Solo</i> layout): your feedback chose one shared tabbed view instead, and the navigation round built it.</li></ul>",
     ]
     return "\n".join(parts)
