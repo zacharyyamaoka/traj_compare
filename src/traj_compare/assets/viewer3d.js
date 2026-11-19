@@ -88,8 +88,13 @@ var Viewer3D = (function () {
     return new Float32Array(bytes.buffer);
   }
 
-  function create(page, container) {
+  /* ``options.height(width)``: the canvas height for a canvas box ``width`` px wide (default CANVAS_HEIGHT).
+     WHY (Zach 2026-11-19, traj compare view feedback: keep the 3D always visible): in the run view's stage the
+     canvas sits in a pane a third of the page wide, where a fixed 540 px would push the scrubber off screen. */
+  function create(page, container, options) {
     var prefs = TrajCompare.prefs();
+    var heightFor = (options && options.height) || function () { return CANVAS_HEIGHT; };
+    var canvasHeight = CANVAS_HEIGHT;
     var situations = page.data.situations.filter(function (sit) { return sit.three; });
     if (!situations.length) {
       el('div', 'tc-empty', container, 'no cartesian data to draw');
@@ -181,7 +186,7 @@ var Viewer3D = (function () {
     function inGizmo(px, py) {
       var width = canvas.clientWidth || 800;
       return px >= width - GIZMO_SIZE && px <= width
-        && py >= CANVAS_HEIGHT - GIZMO_SIZE && py <= CANVAS_HEIGHT;
+        && py >= canvasHeight - GIZMO_SIZE && py <= canvasHeight;
     }
 
     /* ---------------- pointer: orbit / pan / gizmo ---------------- */
@@ -805,9 +810,10 @@ var Viewer3D = (function () {
 
     function resize() {
       var width = canvasBox.clientWidth || 800;
-      renderer.setSize(width, CANVAS_HEIGHT, false);
-      canvas.style.height = CANVAS_HEIGHT + 'px';
-      camera.aspect = width / CANVAS_HEIGHT;
+      canvasHeight = Math.round(heightFor(width));
+      renderer.setSize(width, canvasHeight, false);
+      canvas.style.height = canvasHeight + 'px';
+      camera.aspect = width / canvasHeight;
       camera.updateProjectionMatrix();
       dirty = true;
     }
@@ -827,7 +833,7 @@ var Viewer3D = (function () {
       }
       if (active && dirty) {
         var width = canvasBox.clientWidth || 800;
-        renderer.setViewport(0, 0, width, CANVAS_HEIGHT);
+        renderer.setViewport(0, 0, width, canvasHeight);
         renderer.clear();
         renderer.render(scene, camera);
         viewHelper.render(renderer);

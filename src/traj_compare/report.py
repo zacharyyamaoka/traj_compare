@@ -12,7 +12,7 @@ import importlib.resources
 import json
 from datetime import datetime
 from pathlib import Path
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from .analysis import analyze_comparison
@@ -64,6 +64,29 @@ def _share_robot_meshes(pages: list[dict[str, Any]]) -> list[str]:
     return library
 
 
+def _breadcrumb_html(breadcrumb: Sequence[tuple[str, str]]) -> str:
+    """``[(label, href), ...]`` as the links at the top of the page (``[data-tc-breadcrumb]``); empty draws nothing.
+
+    WHY (docs/NAVIGATION.md Part A): a run report links back up its levels, ``Dataset › <target title> › <run>``,
+    e.g. ``[("Dataset", "../../index.html"), ("Reach A", "../../index.html#/target/reach-a")]``. An empty ``href``
+    draws its label as plain text: the page you are on.
+    """
+
+    items = []
+    for item in breadcrumb:
+        if isinstance(item, (str, bytes)) or len(item) != 2:
+            raise ValueError(f"a breadcrumb entry is a (label, href) pair, got {item!r}")
+        label, href = (str(part) for part in item)
+        if href:
+            items.append(f"<a href='{html.escape(href, quote=True)}'>{html.escape(label)}</a>")
+        else:
+            items.append(f"<span aria-current='page'>{html.escape(label)}</span>")
+    if not items:
+        return ""
+    separator = "<span class='sep' aria-hidden='true'>›</span>"
+    return f"<nav class='tc-breadcrumb' data-tc-breadcrumb aria-label='Breadcrumb'>{separator.join(items)}</nav>\n  "
+
+
 def write_comparison_report(
     comparisons: Comparison | list[Comparison],
     output: Path | str,
@@ -77,6 +100,7 @@ def write_comparison_report(
     rerun_layout: str | None = None,
     rerun_checks: Mapping[str, str] | None = None,
     exports: bool = False,
+    breadcrumb: Sequence[tuple[str, str]] = (),
 ) -> Path:
     """Analyze the comparison(s) and write one self-contained ``report.html``.
 
@@ -90,10 +114,14 @@ def write_comparison_report(
     out of every other Rerun view and summary (``rerun_export.layout_blueprint``); the HTML page is unchanged.
     ``exports=True`` writes ``exports/<name>.parquet`` and ``.mcap`` the same way (the ``export`` extra)
     and links them next to the page's other downloads.
+    ``breadcrumb`` (``[(label, href), ...]``, e.g. ``[("Dataset", "../../index.html"), (target title,
+    "../../index.html#/target/<slug>")]``) draws those links at the top of the page (``[data-tc-breadcrumb]``);
+    an empty href draws plain text; empty draws nothing.
     """
 
     if isinstance(comparisons, Comparison):
         comparisons = [comparisons]
+    breadcrumb_html = _breadcrumb_html(breadcrumb)
     if not comparisons:
         raise ValueError("need at least one comparison")
 
@@ -186,7 +214,7 @@ def write_comparison_report(
 </head>
 <body>
 <header class='tc'>
-  <h1>{html.escape(report_title)}</h1>
+  {breadcrumb_html}<h1>{html.escape(report_title)}</h1>
   <p>{html.escape(subtitle)}</p>
 </header>
 <nav class='tc-tabs' id='tc-tabs'></nav>

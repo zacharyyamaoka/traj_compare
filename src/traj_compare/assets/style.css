@@ -324,3 +324,123 @@ table.tc-metrics td.wrap { white-space: normal; text-align: left; min-width: 220
 .tc-aggregate table.tc-metrics { min-width: 0; }
 .tc-verdicts table.tc-metrics th, .tc-verdicts table.tc-metrics td { text-align: left; }
 .verdict-badge.shift { color: #52514e; background: #efeee9; }
+
+/* ── the run view: a stage (3D + videos) pinned left of the question tabs (docs/NAVIGATION.md Part B) ──
+   WHY (Zach 2026-11-19, traj compare view feedback): "100% we need to do the tabbed model" so the run view is
+   not one long page, and the 3D stays visible on every tab. Colour stays for data; amber/red only for problems. */
+.tc-breadcrumb { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 4px;
+                 font-size: 12.5px; color: #8a8983; }
+.tc-breadcrumb a { color: #2a6bb8; text-decoration: none; }
+.tc-breadcrumb a:hover { text-decoration: underline; }
+.tc-breadcrumb .sep { color: #c0bfb9; }
+.tc-breadcrumb [aria-current] { color: #52514e; }
+
+.tc-workspace { display: flex; align-items: flex-start; }
+.tc-stage { position: sticky; top: 8px; flex: 0 0 auto; width: 480px; max-width: calc(100% - 380px);
+            max-height: calc(100vh - 16px); display: flex; flex-direction: column; margin-right: 14px;
+            background: #fcfcfb; border: 1px solid #dddcd6; border-radius: 8px; }
+.tc-stage-head { display: flex; align-items: center; gap: 8px; padding: 5px 6px 5px 12px;
+                 border-bottom: 1px solid #e6e5e0; }
+.tc-stage-title { flex: 1 1 auto; min-width: 0; font-size: 11px; color: #8a8983; text-transform: uppercase;
+                  letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tc-stage-fold { flex: 0 0 auto; width: 24px; height: 22px; padding: 0; border: 1px solid #cfcec8;
+                 background: #fcfcfb; border-radius: 5px; color: #52514e; cursor: pointer; font-size: 14px;
+                 line-height: 1; }
+.tc-stage-fold:hover { border-color: #9dbde4; }
+/* stable gutter: a scrollbar that comes and goes would resize the canvas, which resizes the content, ... */
+.tc-stage-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-gutter: stable;
+                   padding: 8px 6px 4px 10px; }
+.tc-stage .tc-section { background: transparent; border: 0; border-radius: 0; padding: 0; margin: 0 0 12px; }
+.tc-stage .tc-section h3 { font-size: 12.5px; margin: 0 0 6px; }
+/* unfolded, the stage is all content: its fold button sits in the corner beside the first heading */
+.tc-stage:not(.folded) .tc-stage-head { position: absolute; top: 6px; right: 8px; z-index: 2; padding: 0; border: 0; }
+.tc-stage:not(.folded) .tc-stage-title { display: none; }
+.tc-stage-scroll > .tc-section:first-child h3 { padding-right: 30px; }
+.tc-stage .tc-3dwrap { flex-direction: column; gap: 8px; }
+.tc-stage .tc-3dpanel { flex: 0 0 auto; width: 100%; }
+.tc-stage .tc-videogrid, .tc-stage .tc-overlaygrid { grid-template-columns: minmax(0, 1fr); }
+.tc-stage-resize { position: absolute; top: 0; bottom: 0; right: -10px; width: 10px; cursor: col-resize;
+                   z-index: 6; touch-action: none; }
+.tc-stage-resize::after { content: ''; position: absolute; top: 8px; bottom: 8px; left: 4px; width: 2px;
+                          border-radius: 1px; background: transparent; }
+.tc-stage-resize:hover::after, .tc-stage-resize.dragging::after { background: #9dbde4; }
+.tc-stage.folded { width: 34px !important; }
+.tc-stage.folded .tc-stage-scroll, .tc-stage.folded .tc-stage-resize { display: none; }
+.tc-stage.folded .tc-stage-head { flex-direction: column-reverse; justify-content: flex-end; gap: 10px;
+                                  padding: 6px 4px; border-bottom: 0; }
+.tc-stage.folded .tc-stage-title { writing-mode: vertical-rl; overflow: visible; }
+
+.tc-qcol { flex: 1 1 auto; min-width: 0; }
+.tc-qhead { position: sticky; top: 0; z-index: 20; background: #f4f4f2; padding-top: 2px; }
+.tc-qtabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid #dddcd6; margin-bottom: 8px; }
+.tc-qtab { border: 1px solid transparent; border-bottom: 0; background: transparent; margin-bottom: -1px;
+           border-radius: 6px 6px 0 0; padding: 7px 11px; font: inherit; font-size: 13px; color: #52514e;
+           cursor: pointer; }
+.tc-qtab:hover { color: #0b0b0b; }
+.tc-qtab[aria-selected="true"] { background: #fcfcfb; border-color: #dddcd6; color: #0b0b0b;
+                                 box-shadow: inset 0 2px 0 #2a78d6; }
+.tc-qhead .tc-controls { position: static; margin-bottom: 10px; padding: 8px 12px; gap: 10px 14px; }
+.tc-qhead .tc-situation-groups { padding-bottom: 6px; }
+.tc-panel[hidden] { display: none; }
+.tc-tab-heading { font-size: 15px; font-weight: 600; margin: 4px 0 10px; color: #22211f; }
+.tc-panel .tc-derived { margin: -4px 0 10px; }
+.tc-panel-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 12px; }
+.tc-panel-chips .grouplabel, .tc-partbar .grouplabel { font-size: 11px; color: #8a8983; text-transform: uppercase;
+                                                       letter-spacing: 0.04em; margin-right: 2px; }
+.tc-panel .tc-tableblock { margin-top: 0; }
+.tc-panel .tc-grid.pathgrid { grid-template-columns: repeat(var(--path-cols, 4), minmax(170px, 1fr)); }
+
+/* track: one calm answer first */
+.tc-answer { background: #fcfcfb; border: 1px solid #dddcd6; border-radius: 8px; padding: 10px 14px;
+             margin: 0 0 12px; }
+.tc-answer p { margin: 0; }
+.tc-answer-lead { font-size: 14px; color: #0b0b0b; }
+.tc-answer-detail { font-size: 12.5px; color: #52514e; margin-top: 4px !important; display: flex;
+                    flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.tc-track-grid { margin: 0 0 12px; }
+
+/* parts: ranking, selector, a row per joint (arm) or per finger (hand) */
+.tc-rank { background: #fcfcfb; border: 1px solid #dddcd6; border-radius: 8px; padding: 10px 12px; margin: 0 0 12px; }
+.tc-rank-title { font-size: 13px; font-weight: 600; margin: 0; color: #22211f; }
+.tc-rank-hint { display: block; font-size: 11.5px; color: #8a8983; margin: 1px 0 8px; }
+.tc-rank-bars { max-width: 620px; }
+.tc-rank-bars.many { max-width: none; columns: 236px; column-gap: 20px; }
+.tc-rank-bar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(40px, 28%) 50px; align-items: center;
+               gap: 6px; width: 100%; padding: 1px 4px; border: 0; border-radius: 4px; background: transparent;
+               font: inherit; text-align: left; cursor: pointer; break-inside: avoid; }
+.tc-rank-bar:hover { background: #eef3fa; }
+.tc-rank-label { font-size: 11.5px; color: #22211f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tc-rank-track { height: 8px; background: #ecebe6; border-radius: 3px; overflow: hidden; }
+.tc-rank-fill { display: block; height: 100%; background: #7f9cc0; border-radius: 3px; }
+.tc-rank-value { font-size: 11.5px; color: #52514e; text-align: right; font-variant-numeric: tabular-nums; }
+.tc-partbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 12px; }
+.chip.tc-part.on { border-color: #2a78d6; box-shadow: inset 0 -2px 0 #2a78d6; }
+/* minmax(0, 1fr): a wide table or a row of cards scrolls or wraps inside the panel instead of widening it */
+.tc-part-block { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.tc-part-block > .tc-tableblock { margin: 0 0 2px; }
+.tc-joint-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; border-radius: 6px; }
+.tc-joint-row.multi { grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); }
+.tc-finger-row { border-top: 1px solid #efeee9; padding-top: 6px; border-radius: 6px; }
+.tc-finger-label { font-size: 11px; color: #8a8983; text-transform: uppercase; letter-spacing: 0.04em;
+                   margin: 0 0 5px; }
+.tc-finger-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 10px; }
+.tc-finger-col { display: grid; gap: 10px; align-content: start; min-width: 0; border-radius: 6px; }
+.tc-flash { outline: 2px solid #2a78d6; outline-offset: 3px; }
+
+/* below 900 px the stage stacks above the tabs at full width */
+@media (max-width: 900px) {
+  .tc-workspace { flex-direction: column; align-items: stretch; }
+  .tc-stage, .tc-stage.folded { position: static; width: auto !important; max-width: none; max-height: none;
+                                 margin: 0 0 12px; }
+  .tc-stage-resize { display: none; }
+  /* stacked, the stage is page-wide again: the 3D controls go back beside the canvas (under it on a phone) */
+  .tc-stage .tc-3dwrap { flex-direction: row; }
+  .tc-stage .tc-3dpanel { flex: 0 0 260px; width: auto; }
+  .tc-stage.folded .tc-stage-head { flex-direction: row; padding: 5px 6px 5px 12px; }
+  .tc-stage.folded .tc-stage-title { writing-mode: horizontal-tb; }
+}
+
+@media (max-width: 720px) {
+  .tc-stage .tc-3dwrap { flex-direction: column; }
+  .tc-stage .tc-3dpanel { flex: 0 0 auto; width: 100%; }
+}

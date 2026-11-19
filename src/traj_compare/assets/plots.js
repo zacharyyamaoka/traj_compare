@@ -35,7 +35,7 @@ var TrajCompare = (function () {
     ms: { label: 'ms', scale: 1000 },
     m_s: { label: 'm/s' },
     m_s2: { label: 'm/s²' },
-    Nm: { label: 'Nm' },
+    Nm: { label: 'N·m' },
     A: { label: 'A' },
     pct: { label: '%' },
     pct_s: { label: '%/s' },
@@ -481,8 +481,9 @@ var TrajCompare = (function () {
       return columns;
     }
 
+    // WHY 160 (2026-11-19, parts): a hand's finger row puts 3-4 joints side by side beside the stage
     function width() {
-      return Math.max(220, card.clientWidth - 18);
+      return Math.max(160, card.clientWidth - 18);
     }
 
     function paintTitle() {
@@ -490,7 +491,8 @@ var TrajCompare = (function () {
       titleEl.appendChild(document.createTextNode(spec.title + ' '));
       el('span', 'unit', titleEl, '[' + unitLabel(spec.kind) + ']');
       if (spec.note) el('span', 'pnote', titleEl, ' · ' + spec.note);
-      if (spec.note) titleEl.title = spec.title + ' · ' + spec.note;
+      // WHY always (Zach's rule: never truncate a name silently): the title ellipsizes, the hover has it whole
+      titleEl.title = spec.title + ' [' + unitLabel(spec.kind) + ']' + (spec.note ? ' · ' + spec.note : '');
     }
 
     chart.build = function () {
@@ -589,8 +591,9 @@ var TrajCompare = (function () {
       chart.u._tcReady = true;
     };
 
+    // A hidden card (its tab, part or run not shown) keeps its size; it is sized when it shows (activateTab).
     chart.resize = function () {
-      if (chart.u) chart.u.setSize({ width: width(), height: PLOT_HEIGHT });
+      if (chart.u && card.clientWidth) chart.u.setSize({ width: width(), height: PLOT_HEIGHT });
     };
 
     chart.build();
@@ -643,11 +646,94 @@ var TrajCompare = (function () {
     return out;
   }
 
+  /* ---------------- parts: an arm or a hand at a time ----------------
+     Zach 2026-11-19, traj compare view feedback: "split the arm and the hand into separate concerns, and each
+     arm separately ... Arm can have between 1 - 7 motors, Hand can have 1 - N motors (perhaps you group by
+     finger)". ``data.parts`` (tabs.normalize_parts) names them — the viewer never guesses membership from joint
+     names. A per-joint section draws the selected part only, built the first time it shows: an arm one row per
+     joint, a hand one row per finger with that finger's joints as columns. */
+
+  function partsOf(data) {
+    if (Array.isArray(data.parts) && data.parts.length) return data.parts;
+    return [{ name: 'All joints', groups: [{ name: '', joints: data.joint_names.slice() }] }];
+  }
+
+  function jointsWord(count) {
+    return count + (count === 1 ? ' joint' : ' joints');
+  }
+
+  function partJoints(part) {
+    var joints = [];
+    part.groups.forEach(function (group) { joints = joints.concat(group.joints); });
+    return joints;
+  }
+
+  // What the part selector says: "Left hand · 16 joints" (NAVIGATION.md Part B).
+  function partLabel(part) {
+    return part.name + ' · ' + jointsWord(partJoints(part).length);
+  }
+
+  function partIndexOf(page, joint) {
+    for (var index = 0; index < page.parts.length; index++) {
+      if (partJoints(page.parts[index]).indexOf(joint) !== -1) return index;
+    }
+    return 0;
+  }
+
+  /* One block per part under a per-joint section. ``buildJoint(page, host, jointName, dof)`` appends that joint's
+     card(s) to ``host``; ``beforePart(block, part)`` draws what a part block opens with (the torque budget). */
+  function partView(page, section, body, buildJoint, beforePart) {
+    var dofOf = {};
+    page.data.joint_names.forEach(function (name, dof) { dofOf[name] = dof; });
+    var view = { section: section, blocks: [] };
+    page.parts.forEach(function (part) {
+      view.blocks.push({ el: el('div', 'tc-part-block', body), part: part, built: false });
+    });
+    view.build = function (index) {
+      var entry = view.blocks[index];
+      if (!entry || entry.built) return;
+      entry.built = true;
+      if (beforePart) beforePart(entry.el, entry.part);
+      entry.part.groups.forEach(function (group) {
+        if (!group.name) {  // an arm: one row per joint
+          group.joints.forEach(function (joint) {
+            var row = el('div', 'tc-joint-row', entry.el);
+            row.setAttribute('data-tc-joint', joint);
+            buildJoint(page, row, joint, dofOf[joint]);
+            if (row.children.length > 1) row.classList.add('multi');
+          });
+          return;
+        }
+        // a hand: one row per finger, that finger's joints as columns
+        var finger = el('div', 'tc-finger-row', entry.el);
+        finger.setAttribute('data-tc-finger', group.name);
+        el('div', 'tc-finger-label', finger, group.name + ' · ' + jointsWord(group.joints.length));
+        var columns = el('div', 'tc-finger-cols', finger);
+        group.joints.forEach(function (joint) {
+          var column = el('div', 'tc-finger-col', columns);
+          column.setAttribute('data-tc-joint', joint);
+          buildJoint(page, column, joint, dofOf[joint]);
+        });
+      });
+      observeGrid(page, entry.el);
+    };
+    page.partViews.push(view);
+    syncPartView(page, view);
+    return view;
+  }
+
+  // Show the selected part's block; build it only once a reader can see it (a shown section on the active tab).
+  function syncPartView(page, view) {
+    view.blocks.forEach(function (entry, index) { entry.el.style.display = index === page.part ? '' : 'none'; });
+    var section = view.section;
+    if (section.on && section.tab && section.tab.id === page.activeTab) view.build(page.part);
+  }
+
   function jointSectionBuilder(field, kind, titleSuffix) {
-    return function (page, body) {
-      var grid = el('div', 'tc-grid', body);
-      page.data.joint_names.forEach(function (jointName, dof) {
-        var series = sitsWith(page, field).map(function (sit) {
+    return function (page, body, section) {
+      var sits = sitsWith(page, field);
+      partView(page, section, body, function (page, host, jointName, dof) {
+        var series = sits.map(function (sit) {
           return { sit: sit, values: sit.plot[field][dof] };
         });
         if (!series.length) return;
@@ -656,11 +742,10 @@ var TrajCompare = (function () {
         var precomputed = field !== 'q' ? null : function (sit) {
           return sit.plot.err_q ? sit.plot.err_q[dof] : null;
         };
-        makeChart(page, el('div', 'tc-plotcard', grid),
-          { title: jointName + ' — ' + titleSuffix, kind: kind,
+        makeChart(page, el('div', 'tc-plotcard', host),
+          { title: jointName + ': ' + titleSuffix, kind: kind,
             series: withErrors(series, precomputed) });
       });
-      observeGrid(page, grid);
     };
   }
 
@@ -712,7 +797,8 @@ var TrajCompare = (function () {
     return { label: name, stroke: withAlpha(sit.color, 'bf'), width: 0.9 };
   }
 
-  function torqueBudgetTable(data) {
+  // ``joints``: the part's joints (default every joint); ``partName`` names the part in the title.
+  function torqueBudgetTable(data, joints, partName) {
     function nm(value) { return value === null || value === undefined ? '—' : value.toFixed(3); }
     function percent(value) { return value === null || value === undefined ? '—' : (value * 100).toFixed(1) + ' %'; }
     var reference = referenceTitle(data);
@@ -724,7 +810,7 @@ var TrajCompare = (function () {
     var budgets = [];
     data.situations.forEach(function (sit) {
       if (!sit.torque_budget) return;
-      data.joint_names.forEach(function (jointName) {
+      (joints || data.joint_names).forEach(function (jointName) {
         if (sit.torque_budget[jointName]) budgets.push([sit, jointName, sit.torque_budget[jointName]]);
       });
     });
@@ -744,7 +830,7 @@ var TrajCompare = (function () {
       return !budgets.some(function (budget) { return budget[2][key] !== null && budget[2][key] !== undefined; });
     });
     return {
-      title: 'Torque budget',
+      title: 'Torque budget per run and joint, N·m' + (partName ? ' — ' + partName : ''),
       description: 'FB share = Σ|feedback| / (Σ|feedforward| + Σ|feedback|) over the run\'s own samples: how much of the ' +
         'command the feedback had to supply (0 % = the feedforward did all of it). RMS values use each run\'s own samples. ' +
         reference + ' − commanded is lined up like every other error (time offset honoured, never extrapolated); ' +
@@ -784,13 +870,11 @@ var TrajCompare = (function () {
     el('span', 'tc-torque-note', legend, 'commanded and applied wear the run\'s colour');
   }
 
-  function torqueBreakdownBuilder(page, body) {
+  function torqueBreakdownBuilder(page, body, section) {
     var data = page.data;
-    var budget = buildTable(body, torqueBudgetTable(data), true);
-    budget.classList.add('embedded', 'tc-torque-budget');
-
     var runs = data.situations.filter(hasTorqueBreakdown);
     if (!runs.length) {
+      buildTable(body, torqueBudgetTable(data), true).classList.add('embedded', 'tc-torque-budget');
       el('div', 'tc-empty', body, 'No measured run has a commanded, feedforward or feedback torque.');
       return;
     }
@@ -805,8 +889,10 @@ var TrajCompare = (function () {
     });
     torqueLegend(page, body, runs, present);
 
-    var grid = el('div', 'tc-grid', body);
-    data.joint_names.forEach(function (jointName, dof) {
+    // WHY the budget per part (Zach 2026-11-19, parts): 46 motors × 4 runs is a 184-row table; the selected
+    // arm or hand's rows sit above its own cards instead.
+    var named = page.parts.length > 1;
+    partView(page, section, body, function (page, host, jointName, dof) {
       runs.forEach(function (sit) {
         var series = [];
         TORQUE_DRAW_ORDER.forEach(function (id) {
@@ -818,15 +904,17 @@ var TrajCompare = (function () {
         // WHY say "derived" on the card (CONTRACT.md): a component computed from the other two is not a recording
         var derived = (sit.derived || []).filter(function (key) { return TORQUE_DERIVED[key]; })
           .map(function (key) { return TORQUE_DERIVED[key]; });
-        var card = el('div', 'tc-plotcard', grid);
+        var card = el('div', 'tc-plotcard', host);
         card.dataset.situation = sit.name;
         makeChart(page, card, {
-          title: jointName + ' — ' + sit.title, kind: 'Nm', series: series,
+          title: jointName + ' · ' + sit.title + ': torque breakdown', kind: 'Nm', series: series,
           situation: sit.name, note: derived.join(' · '),
         });
       });
+    }, function (block, part) {
+      var budget = buildTable(block, torqueBudgetTable(data, partJoints(part), named ? part.name : ''), true);
+      budget.classList.add('embedded', 'tc-torque-budget');
     });
-    observeGrid(page, grid);
   }
 
   // The frame fk / poses describe (Comparison.tcp_frame): "TCP", "L2 tip", ...
@@ -837,8 +925,12 @@ var TrajCompare = (function () {
   function tcpPoseBuilder(page, body) {
     var grid = el('div', 'tc-grid', body);
     var frame = frameName(page);
-    [['x', frame + ' x', 'm'], ['y', frame + ' y', 'm'], ['z', frame + ' z', 'm'],
-     ['rx', frame + ' rx', 'angle'], ['ry', frame + ' ry', 'angle'], ['rz', frame + ' rz', 'angle']]
+    // WHY the axis named in full (Zach 2026-11-19, traj compare view feedback: titles "super descriptive")
+    [['x', frame + ' position x (world)', 'm'], ['y', frame + ' position y (world)', 'm'],
+     ['z', frame + ' position z (world)', 'm'],
+     ['rx', frame + ' rotation rx (extrinsic xyz, unwrapped)', 'angle'],
+     ['ry', frame + ' rotation ry (extrinsic xyz, unwrapped)', 'angle'],
+     ['rz', frame + ' rotation rz (extrinsic xyz, unwrapped)', 'angle']]
       .forEach(function (row) {
         var series = sitsWith(page, row[0]).map(function (sit) {
           return { sit: sit, values: sit.plot[row[0]] };
@@ -857,23 +949,23 @@ var TrajCompare = (function () {
     // Combined magnitudes, then the path split (off the path vs behind along it),
     // then each world axis on its own (rotation as a rotation vector, not RPY).
     // Every error is target - run, as robot_msgs.compare computes it.
-    [['xyz_mag', frame + ' position error |Δp|', 'mm'],
-     ['rot_mag', frame + ' rotation error', 'angle'],
-     ['cross_track', frame + ' cross-track error (off path)', 'mm'],
-     ['lag', frame + ' lag (+ behind target)', 'mm'],
-     ['contour', frame + ' contour (exact)', 'mm'],
-     ['lag_time', frame + ' lag time (+ behind)', 'ms']]
+    [['xyz_mag', frame + ' position error |Δp|, |' + minus + '|', 'mm'],
+     ['rot_mag', frame + ' rotation error angle, ' + minus, 'angle'],
+     ['cross_track', frame + ' cross-track error, distance off the target path', 'mm'],
+     ['lag', frame + ' lag along the path, + = run behind the target', 'mm'],
+     ['contour', frame + ' contour error, exact distance to the target path', 'mm'],
+     ['lag_time', frame + ' lag time, + = run behind the target', 'ms']]
       .concat((page.data.error_axes || []).map(function (label, index) {
         // WHY a field of its own per axis: err_axes is one list per axis, not one channel
-        return ['err_axes:' + index, frame + ' error · ' + label + ' (' + minus + ')', 'mm'];
+        return ['err_axes:' + index, frame + ' position error along ' + label + ', ' + minus, 'mm'];
       }))
       .concat([
-     ['err_x', frame + ' x error (' + minus + ')', 'mm'],
-     ['err_y', frame + ' y error (' + minus + ')', 'mm'],
-     ['err_z', frame + ' z error (' + minus + ')', 'mm'],
-     ['err_rx', frame + ' rx error (' + minus + ')', 'angle'],
-     ['err_ry', frame + ' ry error (' + minus + ')', 'angle'],
-     ['err_rz', frame + ' rz error (' + minus + ')', 'angle']]).forEach(function (row) {
+     ['err_x', frame + ' position error x (world), ' + minus, 'mm'],
+     ['err_y', frame + ' position error y (world), ' + minus, 'mm'],
+     ['err_z', frame + ' position error z (world), ' + minus, 'mm'],
+     ['err_rx', frame + ' rotation error about x (world rotation vector), ' + minus, 'angle'],
+     ['err_ry', frame + ' rotation error about y (world rotation vector), ' + minus, 'angle'],
+     ['err_rz', frame + ' rotation error about z (world rotation vector), ' + minus, 'angle']]).forEach(function (row) {
       var axis = row[0].indexOf('err_axes:') === 0 ? Number(row[0].slice(9)) : null;
       var field = axis === null ? row[0] : 'err_axes';
       var series = sitsWith(page, field).map(function (sit) {
@@ -886,27 +978,33 @@ var TrajCompare = (function () {
     observeGrid(page, grid);
   }
 
-  function jointErrBuilder(page, body) {
-    var grid = el('div', 'tc-grid', body);
-    page.data.joint_names.forEach(function (jointName, dof) {
-      var series = sitsWith(page, 'err_q').map(function (sit) {
-        return { sit: sit, values: sit.plot.err_q[dof] };
+  function jointErrBuilder(page, body, section) {
+    var sits = sitsWith(page, 'err_q');
+    var minus = referenceTitle(page.data) + ' − run';
+    partView(page, section, body, function (page, host, jointName, dof) {
+      if (!sits.length) return;
+      makeChart(page, el('div', 'tc-plotcard', host), {
+        title: jointName + ': joint error, ' + minus, kind: 'angle',
+        series: sits.map(function (sit) { return { sit: sit, values: sit.plot.err_q[dof] }; }),
       });
-      if (!series.length) return;
-      makeChart(page, el('div', 'tc-plotcard', grid),
-        { title: jointName + ' — q error (' + referenceTitle(page.data) + ' − run)', kind: 'angle', series: series });
     });
-    observeGrid(page, grid);
   }
 
   function pathBuilder(page, body) {
+    var frame = frameName(page);
+    var whose = page.data.pct_reference === 'target' ? 'the target' : 'its own';
+    // labels: [the value, its rate, its acceleration] (Zach 2026-11-19: every title names signal and unit)
     var channels = [
-      { key: 'pct', label: '% of path', kinds: ['pct', 'pct_s', 'pct_s2'] },
-      { key: 'xyz', label: 'XYZ path', kinds: ['m', 'm_s', 'm_s2'] },
-      { key: 'rpy', label: 'RPY path', kinds: ['angle', 'angle_rate', 'angle_acc'] },
+      { key: 'pct', labels: ['% of ' + whose + ' path length completed', 'path speed, % of the path per s',
+                             'path acceleration, % of the path per s²'], kinds: ['pct', 'pct_s', 'pct_s2'] },
+      { key: 'xyz', labels: [frame + ' distance travelled along its path', frame + ' speed along its path',
+                             frame + ' acceleration along its path'], kinds: ['m', 'm_s', 'm_s2'] },
+      { key: 'rpy', labels: [frame + ' rotation accumulated along its path', frame + ' rotation rate',
+                             frame + ' rotation acceleration'], kinds: ['angle', 'angle_rate', 'angle_acc'] },
     ];
     page.data.vec_labels.forEach(function (label, index) {
-      channels.push({ key: 'vec' + index, label: 'Vec ' + label, kinds: ['m', 'm_s', 'm_s2'] });
+      channels.push({ key: 'vec' + index, labels: [frame + ' signed displacement along ' + label,
+        frame + ' speed along ' + label, frame + ' acceleration along ' + label], kinds: ['m', 'm_s', 'm_s2'] });
     });
     var grid = el('div', 'tc-grid pathgrid', body);
     grid.style.setProperty('--path-cols', String(channels.length));
@@ -918,7 +1016,7 @@ var TrajCompare = (function () {
         });
         if (!series.length) return;
         makeChart(page, el('div', 'tc-plotcard', grid),
-          { title: channel.label + level[0], kind: channel.kinds[level[1]],
+          { title: channel.labels[level[1]], kind: channel.kinds[level[1]],
             series: withErrors(series) });
       });
     });
@@ -1149,7 +1247,12 @@ var TrajCompare = (function () {
 
   function viewer3dBuilder(page, body) {
     var wrap = el('div', '', body);
-    page.viewer3d = Viewer3D.create(page, wrap);
+    page.viewer3d = Viewer3D.create(page, wrap, { height: stageCanvasHeight });
+  }
+
+  // WHY (Zach 2026-11-19, keep the 3D always visible): in the stage the canvas and its scrubber fit one screen.
+  function stageCanvasHeight(width) {
+    return Math.max(220, Math.min(540, width * 0.8, window.innerHeight - 230));
   }
 
   function observeGrid(page, grid) {
@@ -1175,43 +1278,60 @@ var TrajCompare = (function () {
     return data.default_sections.indexOf(id) !== -1;
   }
 
+  // ``units`` appends the bracketed unit(s), read at paint time so the rad/deg toggle repaints it.
+  function inUnit(kind) {
+    return function () { return ' [' + unitLabel(kind) + ']'; };
+  }
+
+  /* WHY the long labels (Zach 2026-11-19, traj compare view feedback: titles "super descriptive"): each names the
+     signal, its sign convention and unit — "Joint angle q [°]", never "Joint q". Section ids stay as they were:
+     callers pass them in ``default_sections``. */
   function sectionDefs(data) {
+    var reference = referenceTitle(data);
+    var frame = data.tcp_frame || 'TCP';
     var defs = [
-      { id: 'joint-q', label: 'Joint q', on: sectionStartsOn(data, 'joint-q', true), build: jointSectionBuilder('q', 'angle', 'q') },
-      { id: 'joint-qd', label: 'Joint qd', on: sectionStartsOn(data, 'joint-qd', false), build: jointSectionBuilder('qd', 'angle_rate', 'qd') },
-      { id: 'joint-qdd', label: 'Joint qdd', on: sectionStartsOn(data, 'joint-qdd', false), build: jointSectionBuilder('qdd', 'angle_acc', 'qdd') },
+      { id: 'joint-q', label: 'Joint angle q', units: inUnit('angle'), on: sectionStartsOn(data, 'joint-q', true), build: jointSectionBuilder('q', 'angle', 'joint angle q') },
+      { id: 'joint-qd', label: 'Joint speed q̇', units: inUnit('angle_rate'), on: sectionStartsOn(data, 'joint-qd', false), build: jointSectionBuilder('qd', 'angle_rate', 'joint speed q̇') },
+      { id: 'joint-qdd', label: 'Joint acceleration q̈', units: inUnit('angle_acc'), on: sectionStartsOn(data, 'joint-qdd', false), build: jointSectionBuilder('qdd', 'angle_acc', 'joint acceleration q̈') },
     ];
     if (data.has_tau) {
-      defs.push({ id: 'joint-tau', label: 'Motor / joint τ', on: sectionStartsOn(data, 'joint-tau', false), build: jointSectionBuilder('tau', 'Nm', 'τ') });
+      defs.push({ id: 'joint-tau', label: 'Motor / joint τ, applied torque', units: inUnit('Nm'), on: sectionStartsOn(data, 'joint-tau', false), build: jointSectionBuilder('tau', 'Nm', 'applied torque τ') });
     }
     if (data.has_current) {
-      defs.push({ id: 'joint-current', label: 'Motor current i', on: sectionStartsOn(data, 'joint-current', false), build: jointSectionBuilder('current', 'A', 'i') });
+      defs.push({ id: 'joint-current', label: 'Motor current i', units: inUnit('A'), on: sectionStartsOn(data, 'joint-current', false), build: jointSectionBuilder('current', 'A', 'motor current i') });
     }
     if (data.has_torque_breakdown) {
       // on by default (CONTRACT.md): the split of the command is the question a breakdown is recorded to answer
-      defs.push({ id: 'joint-torque', label: 'Torque breakdown', on: sectionStartsOn(data, 'joint-torque', true), build: torqueBreakdownBuilder });
+      defs.push({ id: 'joint-torque', label: 'Torque breakdown: target, commanded = feedforward + feedback, applied', units: inUnit('Nm'), on: sectionStartsOn(data, 'joint-torque', true), build: torqueBreakdownBuilder });
     }
     var anyErr = data.situations.some(function (sit) { return sit.plot && sit.plot.err_q; });
     if (anyErr) {
-      defs.push({ id: 'joint-err', label: 'Joint error', on: sectionStartsOn(data, 'joint-err', false), build: jointErrBuilder });
+      defs.push({ id: 'joint-err', label: 'Joint error, ' + reference + ' − run', units: inUnit('angle'), on: sectionStartsOn(data, 'joint-err', false), build: jointErrBuilder });
     }
     if (data.has_cartesian) {
-      defs.push({ id: 'tcp-pose', label: 'TCP pose', on: sectionStartsOn(data, 'tcp-pose', false), build: tcpPoseBuilder });
+      defs.push({ id: 'tcp-pose', label: frame + ' pose, world frame', units: function () { return ' [m, ' + unitLabel('angle') + ']'; }, on: sectionStartsOn(data, 'tcp-pose', false), build: tcpPoseBuilder });
       var anyMag = data.situations.some(function (sit) { return sit.plot && sit.plot.xyz_mag; });
-      if (anyMag) defs.push({ id: 'tcp-err', label: 'TCP error', on: sectionStartsOn(data, 'tcp-err', true), build: tcpErrBuilder });
-      defs.push({ id: 'path', label: 'Path progress', on: sectionStartsOn(data, 'path', true), build: pathBuilder });
+      if (anyMag) defs.push({ id: 'tcp-err', label: frame + ' error, ' + reference + ' − run', units: function () { return ' [mm, ' + unitLabel('angle') + ', ms]'; }, on: sectionStartsOn(data, 'tcp-err', true), build: tcpErrBuilder });
+      defs.push({ id: 'path', label: 'Path progress: distance, speed and acceleration along the path', units: function () { return ' [%, m, ' + unitLabel('angle') + ']'; }, on: sectionStartsOn(data, 'path', true), build: pathBuilder });
     }
     if (data.has_overlay) {
-      defs.push({ id: 'camera', label: 'Camera', on: sectionStartsOn(data, 'camera', true), build: cameraBuilder });
+      defs.push({ id: 'camera', label: 'Camera overlay: real video under the sim render', on: sectionStartsOn(data, 'camera', true), build: cameraBuilder });
     }
     if (data.has_video) {
-      defs.push({ id: 'videos', label: 'Videos', on: sectionStartsOn(data, 'videos', true), build: videosBuilder });
+      defs.push({ id: 'videos', label: 'Videos, one per run, played together', on: sectionStartsOn(data, 'videos', true), build: videosBuilder });
     }
     if (data.has_cartesian) {
-      defs.push({ id: 'viewer3d', label: '3D paths', on: sectionStartsOn(data, 'viewer3d', true), build: viewer3dBuilder });
+      defs.push({ id: 'viewer3d', label: '3D view: robot and ' + frame + ' paths', on: sectionStartsOn(data, 'viewer3d', true), build: viewer3dBuilder });
     }
     return defs;
   }
+
+  function sectionTitle(def) {
+    return def.label + (def.units ? def.units() : '');
+  }
+
+  // The stage pins these beside the question tabs, 3D first (NAVIGATION.md Part B).
+  var STAGE_SECTIONS = ['viewer3d', 'camera', 'videos'];
 
   // Sections whose plots carry the optional Δ-to-target overlay.
   var DELTA_SECTIONS = ['joint-q', 'joint-qd', 'joint-qdd', 'joint-tau', 'joint-current', 'tcp-pose', 'path'];
@@ -1616,53 +1736,573 @@ var TrajCompare = (function () {
     });
   }
 
+  /* ---------------- the run view: the stage beside the question tabs ----------------
+     docs/NAVIGATION.md Part B (frozen 2026-11-19). Zach, daily note 2026-11-19 (traj compare view feedback):
+     "100% we need to do the tabbed model", keep the 3D always showing, and standalone and Rerun "should be the
+     exact same thing" — so the tabs, their titles, headings and sections come from the payload (tabs.py), never
+     from this file. The Summary / Insights / scenario tabs (#tc-tabs) stay the page level above. */
+
+  var STAGE_MIN_PX = 280;
+  var STAGE_FOLDED_PX = 34;
+  var PANELS_MIN_PX = 380;
+  var PER_JOINT_SECTIONS = ['joint-q', 'joint-qd', 'joint-qdd', 'joint-tau', 'joint-current', 'joint-torque', 'joint-err'];
+
+  function tabFromHash() {
+    var match = /(?:^#|&)tab=([^&]+)/.exec(location.hash || '');
+    if (!match) return null;
+    try { return decodeURIComponent(match[1]); } catch (error) { return match[1]; }
+  }
+
+  function writeHash(id) {
+    try { history.replaceState(null, '', '#tab=' + encodeURIComponent(id)); } catch (error) {}
+  }
+
+  function resizeChartsIn(page, host) {
+    if (!host) return;
+    page.charts.forEach(function (chart) { if (host.contains(chart.card)) chart.resize(); });
+  }
+
+  function activeTab(page) {
+    return (page.tabs || []).filter(function (tab) { return tab.id === page.activeTab; })[0] || null;
+  }
+
+  function angleText(value) {
+    return state.unit === 'deg' ? significant(value * RAD2DEG) + '°' : significant(value) + ' rad';
+  }
+
+  // The 3D view renders only while a reader can see it: its page active, the stage unfolded.
+  function paintStage(page) {
+    if (page.viewer3d) page.viewer3d.setActive(page.el.classList.contains('active') && !page.stageFolded);
+  }
+
+  function setStageWidth(page, width) {
+    var stage = page.stage;
+    var room = stage.workspace.clientWidth;
+    // WHY 30 %: at 1440 px the six question titles still fit on one line beside it
+    var fallback = Math.min(560, Math.max(320, Math.round(room * 0.3)));
+    var widest = Math.max(STAGE_MIN_PX, room - PANELS_MIN_PX);
+    page.stageWidth = Math.round(Math.min(widest, Math.max(STAGE_MIN_PX, Number(width) || fallback)));
+    stage.el.style.width = (page.stageFolded ? STAGE_FOLDED_PX : page.stageWidth) + 'px';
+  }
+
+  function setStageFolded(page, folded, remember) {
+    var stage = page.stage;
+    page.stageFolded = folded;
+    stage.el.classList.toggle('folded', folded);
+    stage.fold.textContent = folded ? '›' : '‹';
+    stage.fold.title = folded ? 'Unfold the stage: 3D view and videos' : 'Fold the stage away: more room for the plots';
+    stage.fold.setAttribute('aria-label', stage.fold.title);
+    stage.fold.setAttribute('aria-expanded', folded ? 'false' : 'true');
+    setStageWidth(page, page.stageWidth);
+    if (remember) store('stage-folded', folded);
+    paintStage(page);
+    var tab = activeTab(page);
+    if (tab) resizeChartsIn(page, tab.panel);
+  }
+
+  /* The stage: the 3D view (its scrubber under it) over the camera overlay / videos, pinned left of the tabs so
+     the time cursor, the 3D pose and every plot stay in view together. Its edge drags (width remembered), it
+     folds away (remembered), and below 900 px it stacks above the tabs (style.css). */
+  function buildStage(page, workspace, sections) {
+    var stageEl = el('aside', 'tc-stage', workspace);
+    stageEl.setAttribute('data-tc-stage', '');
+    stageEl.setAttribute('aria-label', 'Stage: 3D view and videos');
+    var head = el('div', 'tc-stage-head', stageEl);
+    var names = { viewer3d: '3D view', camera: 'Camera', videos: 'Videos' };
+    var title = el('span', 'tc-stage-title', head, sections.map(function (section) { return names[section.def.id]; }).join(' · '));
+    title.title = 'always visible: the scrubber drives the 3D pose, the videos and the cursor on every plot';
+    var fold = el('button', 'tc-stage-fold', head);
+    fold.setAttribute('data-tc-stage-fold', '');
+    var scroll = el('div', 'tc-stage-scroll', stageEl);
+    var handle = el('div', 'tc-stage-resize', stageEl);
+    handle.setAttribute('data-tc-stage-resize', '');
+    handle.setAttribute('role', 'separator');
+    handle.setAttribute('aria-orientation', 'vertical');
+    handle.title = 'drag to resize the stage · double-click for the default width';
+    page.stage = { el: stageEl, fold: fold, handle: handle, workspace: workspace };
+    page.stageWidth = recall('stage-width', null);
+    setStageFolded(page, !!recall('stage-folded', false), false);
+    fold.onclick = function () { setStageFolded(page, !page.stageFolded, true); };
+
+    handle.addEventListener('pointerdown', function (event) {
+      if (page.stageFolded || event.button !== 0) return;
+      event.preventDefault();
+      var startX = event.clientX;
+      var startWidth = page.stageWidth;
+      handle.classList.add('dragging');
+      try { handle.setPointerCapture(event.pointerId); } catch (error) {}
+      function move(moveEvent) { setStageWidth(page, startWidth + moveEvent.clientX - startX); }
+      function up() {
+        handle.classList.remove('dragging');
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', up);
+        handle.removeEventListener('pointercancel', up);
+        store('stage-width', page.stageWidth);
+      }
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', up);
+      handle.addEventListener('pointercancel', up);
+    });
+    handle.addEventListener('dblclick', function () {
+      store('stage-width', null);
+      setStageWidth(page, null);
+    });
+
+    sections.forEach(function (section) {
+      section.on = true;  // WHY always (Zach 2026-11-19): the 3D stays visible; folding is the one way to hide it
+      buildSectionShell(page, section, scroll);
+    });
+  }
+
+  function buildSectionShell(page, section, host) {
+    section.el = el('div', 'tc-section', host);
+    section.el.setAttribute('data-tc-section', section.def.id);
+    var heading = el('h3', '', section.el);
+    var title = el('span', 'tc-section-title', heading);
+    var hint = sectionHint(section.def.id, page.data);
+    if (hint) el('span', 'hint', heading, ' — ' + hint);
+    function paint() { title.textContent = sectionTitle(section.def); }
+    paint();
+    page.unitRepaints.push(paint);
+    section.body = el('div', '', section.el);
+  }
+
+  function paintSection(page, section) {
+    if (section.chip) {
+      section.chip.className = 'chip ' + (section.on ? 'on' : 'off');
+      section.chip.setAttribute('aria-pressed', section.on ? 'true' : 'false');
+    }
+    if (!section.el) return;  // its tab has not been opened yet
+    section.el.style.display = section.on ? '' : 'none';
+    var wasBuilt = section.built;
+    if (section.on && !section.built) {
+      section.built = true;
+      section.def.build(page, section.body, section);
+    }
+    if (section.on && wasBuilt) {
+      page.partViews.forEach(function (view) { if (view.section === section) syncPartView(page, view); });
+      resizeChartsIn(page, section.el);
+    }
+    if (section.def.id === 'viewer3d') paintStage(page);
+  }
+
+  function setSection(page, section, on, remember) {
+    section.on = on;
+    // WHY a new key (2026-11-19): "section:<id>" choices were made to shorten one long page; in tabs they would
+    // hide a tab's plots for no reason, so the tabbed view starts from each section's own default
+    if (remember) state.prefs.set('tabsection:' + section.def.id, on);
+    paintSection(page, section);
+  }
+
+  /* ---- parts: ranking, selector ---- */
+
+  function paintPartButtons(page) {
+    page.partButtons.forEach(function (button) {
+      var on = button.getAttribute('data-tc-part') === String(page.part);
+      button.setAttribute('aria-selected', on ? 'true' : 'false');
+      button.className = 'chip tc-part' + (on ? ' on' : '');
+    });
+  }
+
+  function showPart(page, index) {
+    page.part = index;
+    paintPartButtons(page);
+    page.partViews.forEach(function (view) { syncPartView(page, view); });
+    var tab = activeTab(page);
+    if (tab) resizeChartsIn(page, tab.panel);
+    if (page.transport && page.transport.t !== null) paintCursors(page, page.transport.t);
+  }
+
+  function buildPartBar(page, panel) {
+    if (page.parts.length < 2) return;
+    var bar = el('div', 'tc-partbar', panel);
+    bar.setAttribute('role', 'tablist');
+    bar.setAttribute('aria-label', 'Part of the robot');
+    el('span', 'grouplabel', bar, 'Part');
+    page.parts.forEach(function (part, index) {
+      var button = el('button', 'chip tc-part', bar, partLabel(part));
+      button.setAttribute('data-tc-part', String(index));
+      button.setAttribute('role', 'tab');
+      var fingers = part.groups.filter(function (group) { return group.name; });
+      button.title = part.name + ': ' + (fingers.length
+        ? fingers.map(function (group) { return group.name + ' (' + group.joints.length + ')'; }).join(', ')
+        : partJoints(part).join(', '));
+      button.onclick = function () { showPart(page, index); };
+      page.partButtons.push(button);
+    });
+    paintPartButtons(page);
+  }
+
+  /* One number per joint, worst run first: ``error`` the RMS joint error (target − run), ``fbshare`` the share of
+     the command the feedback supplied. */
+  function rankingRows(page, metric) {
+    var data = page.data;
+    var partOf = {};
+    page.parts.forEach(function (part) {
+      partJoints(part).forEach(function (joint) { partOf[joint] = part.name; });
+    });
+    var runs = data.situations.filter(function (sit) { return sit.role !== 'target' && sit.has_data; });
+    var rows = [];
+    data.joint_names.forEach(function (joint, dof) {
+      var worst = null;
+      runs.forEach(function (sit) {
+        var value = null;
+        if (metric === 'error') {
+          var stats = sit.error_metrics && sit.error_metrics['positions/' + joint];
+          value = stats ? stats.rms : null;
+        } else {
+          var budget = sit.torque_budget && sit.torque_budget[joint];
+          value = budget ? budget.fb_share : null;
+        }
+        if (value === null || value === undefined || !isFinite(value)) return;
+        if (!worst || value > worst.value) worst = { value: value, run: sit };
+      });
+      if (worst) rows.push({ joint: joint, dof: dof, part: partOf[joint] || '', value: worst.value, run: worst.run });
+    });
+    rows.sort(function (a, b) { return b.value - a.value || a.dof - b.dof; });
+    return rows;
+  }
+
+  function buildRanking(page, panel, metric) {
+    var data = page.data;
+    if (data.joint_names.length < 2) return;
+    var rows = rankingRows(page, metric);
+    if (rows.length < 2) return;
+    var box = el('section', 'tc-rank', panel);
+    box.setAttribute('data-tc-rank', '');
+    var title = el('h4', 'tc-rank-title', box);
+    var hint = el('span', 'hint', box, metric === 'error'
+      ? 'the RMS over each run’s own samples; each bar is its worst run · click a bar to show that joint’s plot'
+      : 'Σ|feedback| / (Σ|feedforward| + Σ|feedback|) over the run; each bar is its worst run · click a bar to show that joint’s plots');
+    hint.className = 'tc-rank-hint';
+    var bars = el('div', 'tc-rank-bars' + (rows.length > 8 ? ' many' : ''), box);
+    var maximum = rows[0].value > 0 ? rows[0].value : 1;
+    var named = page.parts.length > 1;
+    var paints = [];
+    function valueText(value) {
+      return metric === 'error' ? angleText(value) : (value * 100).toFixed(1) + ' %';
+    }
+    rows.forEach(function (row) {
+      var label = named ? row.part + ' · ' + row.joint : row.joint;
+      var bar = el('button', 'tc-rank-bar', bars);
+      bar.setAttribute('data-tc-rank-bar', '');
+      bar.setAttribute('data-joint', row.joint);
+      el('span', 'tc-rank-label', bar, label);
+      var fill = el('span', 'tc-rank-fill', el('span', 'tc-rank-track', bar));
+      fill.style.width = Math.max(1, row.value / maximum * 100) + '%';
+      var value = el('span', 'tc-rank-value', bar);
+      paints.push(function () {
+        var text = valueText(row.value);
+        value.textContent = text;
+        var detail = label + ': ' + text + ' (' + row.run.title + ')';
+        bar.title = detail + ' · click to show its plot';
+        bar.setAttribute('aria-label', detail);
+      });
+      bar.onclick = function () { revealJoint(page, row.joint); };
+    });
+    function paint() {
+      title.textContent = metric === 'error'
+        ? 'RMS joint error, ' + referenceTitle(data) + ' − run [' + unitLabel('angle') + '], worst joint first'
+        : 'Feedback share of the commanded torque [%], highest first';
+      paints.forEach(function (paintBar) { paintBar(); });
+    }
+    paint();
+    page.unitRepaints.push(paint);
+  }
+
+  // A ranking bar: show the joint's part, scroll to its first plot in this tab, and outline it for a moment.
+  function revealJoint(page, joint) {
+    showPart(page, partIndexOf(page, joint));
+    var tab = activeTab(page);
+    if (!tab) return;
+    var target = null;
+    tab.panel.querySelectorAll('[data-tc-joint]').forEach(function (node) {
+      if (!target && node.getAttribute('data-tc-joint') === joint && node.offsetParent !== null) target = node;
+    });
+    if (!target) return;
+    target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    target.classList.remove('tc-flash');
+    void target.offsetWidth;  // restart the outline when the same bar is clicked twice
+    target.classList.add('tc-flash');
+    setTimeout(function () { target.classList.remove('tc-flash'); }, 1600);
+  }
+
+  /* ---- the track tab: one calm answer, then the statistics ---- */
+
+  function meanJointRms(data, sit) {
+    var values = [];
+    data.joint_names.forEach(function (joint) {
+      var stats = sit.error_metrics && sit.error_metrics['positions/' + joint];
+      if (stats && isFinite(stats.rms)) values.push(stats.rms);
+    });
+    return values.length ? values.reduce(function (sum, value) { return sum + value; }, 0) / values.length : null;
+  }
+
+  // The largest |target − run| over every joint and display sample: where and when the run was worst.
+  function worstMoment(data, sit) {
+    var errors = sit.plot && sit.plot.err_q;
+    if (!errors) return null;
+    var worst = null;
+    errors.forEach(function (column, dof) {
+      (column || []).forEach(function (value, index) {
+        if (value === null || value === undefined) return;
+        var size = Math.abs(value);
+        if (!worst || size > worst.size) worst = { size: size, joint: data.joint_names[dof], t: data.plot_t[index] };
+      });
+    });
+    return worst;
+  }
+
+  function maxAbsOverJoints(errors) {
+    var length = errors.length && errors[0] ? errors[0].length : 0;
+    var out = new Array(length);
+    for (var index = 0; index < length; index++) {
+      var worst = null;
+      for (var dof = 0; dof < errors.length; dof++) {
+        var value = errors[dof] ? errors[dof][index] : null;
+        if (value === null || value === undefined) continue;
+        if (worst === null || Math.abs(value) > worst) worst = Math.abs(value);
+      }
+      out[index] = worst;
+    }
+    return out;
+  }
+
+  function buildAnswer(page, panel) {
+    var data = page.data;
+    var runs = data.situations.filter(function (sit) {
+      return sit.role !== 'target' && sit.has_data && sit.error_metrics;
+    }).map(function (sit) {
+      return { sit: sit, mean: meanJointRms(data, sit) };
+    }).filter(function (entry) { return entry.mean !== null; });
+    if (!runs.length) return;
+    runs.sort(function (a, b) { return b.mean - a.mean; });
+    var worst = runs[0], best = runs[runs.length - 1];
+    var moment = worstMoment(data, worst.sit);
+    var named = page.parts.length > 1;
+    var box = el('section', 'tc-answer', panel);
+    var lead = el('p', 'tc-answer-lead', box);
+    var detail = el('p', 'tc-answer-detail', box);
+    var momentText = el('span', '', detail);
+    if (moment && page.transport) {
+      var go = el('button', 'chip', detail, 'Go to t = ' + moment.t.toFixed(2) + ' s');
+      go.title = 'moves the scrubber there: the 3D pose, the videos and the cursor on every plot';
+      go.onclick = function () {
+        page.transport.pause();
+        page.transport.setScrub(moment.t);
+      };
+    }
+    function paint() {
+      var minus = referenceTitle(data) + ' − run';
+      lead.textContent = runs.length > 1
+        ? 'Worst run: ' + worst.sit.title + ', mean joint RMS error ' + angleText(worst.mean) + ' (' + minus +
+          '); best: ' + best.sit.title + ', ' + angleText(best.mean) + '.'
+        : worst.sit.title + ': mean joint RMS error ' + angleText(worst.mean) + ' (' + minus + ') over ' +
+          jointsWord(data.joint_names.length) + '.';
+      if (!moment) return;
+      var where = named ? page.parts[partIndexOf(page, moment.joint)].name + ' · ' + moment.joint : moment.joint;
+      momentText.textContent = 'Its worst moment: ' + angleText(moment.size) + ' on ' + where + ' at t = ' +
+        moment.t.toFixed(2) + ' s. ';
+    }
+    paint();
+    page.unitRepaints.push(paint);
+  }
+
+  // "When was it worst?" over time: the largest joint error at each instant, and the tool's position error.
+  function buildWorstOverTime(page, panel) {
+    var minus = referenceTitle(page.data) + ' − run';
+    var grid = el('div', 'tc-grid tc-track-grid', panel);
+    var joint = sitsWith(page, 'err_q');
+    if (joint.length) {
+      makeChart(page, el('div', 'tc-plotcard', grid), {
+        title: 'Largest joint error at each instant, max over joints of |' + minus + '|', kind: 'angle',
+        series: joint.map(function (sit) { return { sit: sit, values: maxAbsOverJoints(sit.plot.err_q) }; }),
+      });
+    }
+    var tool = sitsWith(page, 'xyz_mag');
+    if (tool.length) {
+      makeChart(page, el('div', 'tc-plotcard', grid), {
+        title: frameName(page) + ' position error |Δp|, |' + minus + '|', kind: 'mm',
+        series: tool.map(function (sit) { return { sit: sit, values: sit.plot.xyz_mag }; }),
+      });
+    }
+    if (grid.children.length) observeGrid(page, grid); else grid.remove();
+  }
+
+  function buildDomainSummary(parent, data) {
+    var summary = data.meta && data.meta.summary;
+    if (!summary) return;
+    var summaryCard = el('section', 'tc-summary', parent);
+    el('h3', '', summaryCard, summary.title || 'Performance summary');
+    if (summary.facts && summary.facts.length) {
+      var facts = el('div', 'tc-facts', summaryCard);
+      summary.facts.forEach(function (fact) {
+        var item = el('div', 'tc-fact', facts);
+        el('span', 'label', item, fact.label);
+        el('strong', '', item, String(fact.value));
+      });
+    }
+    if (summary.columns && summary.rows) {
+      var tableWrap = el('div', 'tc-summary-table-wrap', summaryCard);
+      var table = el('table', 'tc-summary-table', tableWrap);
+      var head = el('thead', '', table);
+      var headRow = el('tr', '', head);
+      summary.columns.forEach(function (column) {
+        el('th', '', headRow, column.label + (column.unit ? ' (' + column.unit + ')' : ''));
+      });
+      var body = el('tbody', '', table);
+      summary.rows.forEach(function (row) {
+        var tr = el('tr', '', body);
+        summary.columns.forEach(function (column) {
+          var value = row[column.key];
+          el('td', '', tr, value === undefined || value === null ? '—' : String(value));
+        });
+      });
+    }
+  }
+
+  // track: the answer, the statistics, when it was worst, verdicts, ISO 9283, the caller's own summary.
+  function buildTrackPanel(page, panel) {
+    var data = page.data;
+    buildAnswer(page, panel);
+    if (data.statistics) buildTable(panel, data.statistics, true);
+    buildWorstOverTime(page, panel);
+    buildVerdictDetails(panel, data);
+    buildAggregateCards(page, panel, data);
+    buildDomainSummary(panel, data);
+  }
+
+  /* ---- tabs ---- */
+
+  // A tab's panel is drawn the first time it opens, so its charts are sized to a visible panel.
+  function buildPanel(page, tab) {
+    tab.built = true;
+    var panel = tab.panel;
+    if (tab.id === 'track') buildTrackPanel(page, panel);
+    var ids = tab.sections.map(function (section) { return section.def.id; });
+    var notes = [];
+    if (page.derived.fd && ids.some(function (id) { return id === 'joint-qd' || id === 'joint-qdd'; })) notes.push(page.derived.fd);
+    if (page.derived.torque && ids.indexOf('joint-torque') !== -1) notes.push(page.derived.torque);
+    if (notes.length) el('div', 'tc-derived', panel, notes.join(' · '));
+    var toggles = tab.sections.filter(function (section) { return section.toggle; });
+    if (toggles.length) {
+      var chips = el('div', 'tc-panel-chips', panel);
+      el('span', 'grouplabel', chips, 'Plots in this tab');
+      toggles.forEach(function (section) {
+        section.chip = el('button', 'chip', chips);
+        var paintChip = function () { section.chip.textContent = sectionTitle(section.def); };
+        paintChip();
+        page.unitRepaints.push(paintChip);
+        section.chip.onclick = function () { setSection(page, section, !section.on, true); };
+      });
+    }
+    if (tab.id === 'joints') buildRanking(page, panel, 'error');
+    if (tab.id === 'torque') buildRanking(page, panel, 'fbshare');
+    if (ids.some(function (id) { return PER_JOINT_SECTIONS.indexOf(id) !== -1; })) buildPartBar(page, panel);
+    tab.sections.forEach(function (section) { buildSectionShell(page, section, panel); });
+    tab.sections.forEach(function (section) { paintSection(page, section); });
+  }
+
+  function activateTab(page, id, fromUser) {
+    var tab = page.tabs.filter(function (candidate) { return candidate.id === id; })[0] || page.tabs[0];
+    if (!tab) return;
+    page.activeTab = tab.id;
+    page.tabs.forEach(function (other) {
+      var on = other === tab;
+      other.button.setAttribute('aria-selected', on ? 'true' : 'false');
+      other.button.tabIndex = on ? 0 : -1;
+      other.panel.hidden = !on;
+    });
+    if (!tab.built) buildPanel(page, tab);
+    page.partViews.forEach(function (view) { syncPartView(page, view); });
+    // WHY (measured 2026-11-19): a chart drawn or last sized while its panel was hidden keeps that width; size every
+    // chart of the shown panel to it, and put the shared time cursor on the newly drawn ones
+    resizeChartsIn(page, tab.panel);
+    if (page.transport && page.transport.t !== null) paintCursors(page, page.transport.t);
+    if (fromUser) {
+      state.prefs.set('tab', tab.id);
+      writeHash(tab.id);
+    }
+  }
+
+  function buildTabStrip(page, strip, column, tabs, byId) {
+    strip.setAttribute('data-tc-tabs', '');
+    strip.setAttribute('role', 'tablist');
+    strip.setAttribute('aria-label', 'Questions about this run');
+    page.tabs = tabs.map(function (tab) {
+      var record = { id: tab.id, title: tab.title, heading: tab.heading, built: false, sections: [] };
+      record.button = el('button', 'tc-qtab', strip, tab.title);
+      record.button.setAttribute('data-tc-tab', tab.id);
+      record.button.setAttribute('role', 'tab');
+      record.button.title = tab.heading;
+      record.button.onclick = function () { activateTab(page, tab.id, true); };
+      record.panel = el('section', 'tc-panel', column);
+      record.panel.setAttribute('data-tc-panel', tab.id);
+      record.panel.setAttribute('role', 'tabpanel');
+      record.panel.setAttribute('aria-label', tab.title);
+      record.panel.hidden = true;
+      el('h3', 'tc-tab-heading', record.panel, tab.heading).setAttribute('data-tc-tab-heading', '');
+      (tab.sections || []).forEach(function (id) {
+        var section = byId[id];
+        if (!section || section.tab || STAGE_SECTIONS.indexOf(id) !== -1) return;
+        section.tab = record;
+        record.sections.push(section);
+      });
+      // A lone section is the tab's content: always on, no chip. Several start as the caller asked
+      // (default_sections) or as last toggled, and never all off.
+      var lone = record.sections.length < 2;
+      record.sections.forEach(function (section) {
+        section.toggle = !lone;
+        section.on = lone ? true : !!state.prefs.get('tabsection:' + section.def.id, section.defaultOn);
+      });
+      if (!lone && !record.sections.some(function (section) { return section.on; })) record.sections[0].on = true;
+      return record;
+    });
+    strip.addEventListener('keydown', function (event) {
+      var index = page.tabs.map(function (tab) { return tab.id; }).indexOf(page.activeTab);
+      var next = { ArrowRight: index + 1, ArrowLeft: index - 1, Home: 0, End: page.tabs.length - 1 }[event.key];
+      if (next === undefined) return;
+      event.preventDefault();
+      var tab = page.tabs[(next + page.tabs.length) % page.tabs.length];
+      activateTab(page, tab.id, true);
+      tab.button.focus();
+    });
+  }
+
   function buildPage(page) {
     var data = page.data;
     var root = page.el;
 
     if (data.plot_t) page.transport = makeTransport(page);
+    page.unitRepaints = [];
+    page.parts = partsOf(data);
+    page.part = 0;
+    page.partViews = [];
+    page.partButtons = [];
 
     el('h2', 'tc-page-title', root, data.title);
     if (data.description) el('p', 'tc-desc', root, data.description);
     if (data.rerun) buildRerunBar(root, data.rerun, data.exports);
     else if (data.exports) buildExportsBar(root, data.exports);
-    if (data.statistics) buildTable(root, data.statistics, true);
-    page.unitRepaints = [];
-    buildVerdictDetails(root, data);
-    buildAggregateCards(page, root, data);
 
-    var summary = data.meta && data.meta.summary;
-    if (summary) {
-      var summaryCard = el('section', 'tc-summary', root);
-      el('h3', '', summaryCard, summary.title || 'Performance summary');
-      if (summary.facts && summary.facts.length) {
-        var facts = el('div', 'tc-facts', summaryCard);
-        summary.facts.forEach(function (fact) {
-          var item = el('div', 'tc-fact', facts);
-          el('span', 'label', item, fact.label);
-          el('strong', '', item, String(fact.value));
-        });
-      }
-      if (summary.columns && summary.rows) {
-        var tableWrap = el('div', 'tc-summary-table-wrap', summaryCard);
-        var table = el('table', 'tc-summary-table', tableWrap);
-        var head = el('thead', '', table);
-        var headRow = el('tr', '', head);
-        summary.columns.forEach(function (column) {
-          el('th', '', headRow, column.label + (column.unit ? ' (' + column.unit + ')' : ''));
-        });
-        var body = el('tbody', '', table);
-        summary.rows.forEach(function (row) {
-          var tr = el('tr', '', body);
-          summary.columns.forEach(function (column) {
-            var value = row[column.key];
-            el('td', '', tr, value === undefined || value === null ? '—' : String(value));
-          });
-        });
-      }
-    }
+    page.sections = sectionDefs(data).map(function (def) {
+      return { def: def, on: false, defaultOn: def.on, toggle: false, tab: null, built: false, chip: null, el: null, body: null };
+    });
+    var byId = {};
+    page.sections.forEach(function (section) { byId[section.def.id] = section; });
+    var tabs = Array.isArray(data.tabs) && data.tabs.length ? data.tabs : [{
+      // a payload from before the question tabs: one panel with every plot section
+      id: 'plots', title: data.title, heading: '',
+      sections: page.sections.map(function (section) { return section.def.id; }),
+    }];
 
-    var controls = el('div', 'tc-controls', root);
+    var workspace = el('div', 'tc-workspace', root);
+    var stageSections = STAGE_SECTIONS.map(function (id) { return byId[id]; }).filter(Boolean);
+    if (stageSections.length) buildStage(page, workspace, stageSections);
+    var column = el('div', 'tc-qcol', workspace);
+    var head = el('div', 'tc-qhead', column);
+    buildTabStrip(page, el('nav', 'tc-qtabs', head), column, tabs, byId);
+    var controls = el('div', 'tc-controls', head);
 
     // Situation chips are grouped semantically instead of becoming one long,
     // permutation-heavy list. Visibility is keyed by situation name across
@@ -1784,26 +2424,8 @@ var TrajCompare = (function () {
       page.charts.forEach(function (chart) { chart.resetZoom(); });
     };
 
-    // section chips
-    var sectionGroup = el('div', 'group', controls);
-    el('span', 'grouplabel', sectionGroup, 'Plots');
-    page.sections = sectionDefs(data).map(function (def) {
-      var section = {
-        def: def,
-        // A section nobody has touched keeps this page's own default; once
-        // it is toggled the choice is shared by every scenario tab.
-        on: state.prefs.get('section:' + def.id, def.on),
-        built: false,
-        chip: el('button', 'chip', sectionGroup, def.label),
-        el: null,
-        body: null,
-      };
-      section.chip.onclick = function () { setSection(section, !section.on, true); };
-      return section;
-    });
-
-    // derived-channel footnote: qd / qdd by finite differences; a torque from the other two of commanded /
-    // feedforward / feedback (TORQUE_DERIVED), which is arithmetic, not a finite difference
+    // derived-channel footnotes, shown in the tab whose plots they qualify: qd / qdd by finite differences; a torque
+    // from the other two of commanded / feedforward / feedback (TORQUE_DERIVED), which is arithmetic
     function derivedNote(test) {
       return data.situations
         .map(function (sit) {
@@ -1814,51 +2436,26 @@ var TrajCompare = (function () {
     }
     var derivedBits = derivedNote(function (key) { return !TORQUE_DERIVED[key]; });
     var torqueBits = derivedNote(function (key) { return !!TORQUE_DERIVED[key]; });
-    if (derivedBits.length || torqueBits.length) {
-      el('div', 'tc-derived', root,
-        (derivedBits.length ? 'Finite-difference derived — ' + derivedBits.join(' · ') : '') +
-        (derivedBits.length && torqueBits.length ? ' · ' : '') +
-        (torqueBits.length ? 'Derived from the other two (tau_cmd = tau_ff + tau_fb) — ' + torqueBits.join(' · ') : ''));
-    }
+    page.derived = {
+      fd: derivedBits.length ? 'Finite-difference derived — ' + derivedBits.join(' · ') : '',
+      torque: torqueBits.length ? 'Derived from the other two (tau_cmd = tau_ff + tau_fb) — ' + torqueBits.join(' · ') : '',
+    };
 
-    var sectionHost = el('div', '', root);
-    page.sections.forEach(function (section) {
-      section.el = el('div', 'tc-section', sectionHost);
-      var heading = el('h3', '', section.el, section.def.label + ' ');
-      var hint = sectionHint(section.def.id, data);
-      if (hint) el('span', 'hint', heading, '— ' + hint);
-      section.body = el('div', '', section.el);
-      paintSection(section);
-    });
-
-    function paintSection(section) {
-      section.chip.className = 'chip ' + (section.on ? 'on' : 'off');
-      section.el.style.display = section.on ? '' : 'none';
-      if (section.on && !section.built) {
-        section.built = true;
-        section.def.build(page, section.body);
-      }
-      if (section.def.id === 'viewer3d' && page.viewer3d) {
-        page.viewer3d.setActive(section.on && page.el.classList.contains('active'));
-      }
-    }
-
-    function setSection(section, on, remember) {
-      section.on = on;
-      if (remember) state.prefs.set('section:' + section.def.id, on);
-      paintSection(section);
-    }
+    // the stage is drawn after the chips, so the 3D view and the videos start with the runs they left on
+    stageSections.forEach(function (section) { paintSection(page, section); });
+    activateTab(page, tabFromHash() || state.prefs.get('tab', null), false);
 
     page.paintSections = function () {
-      page.sections.forEach(paintSection);
+      page.sections.forEach(function (section) { paintSection(page, section); });
     };
 
     /* Pull in choices made on another scenario tab. Pages are built lazily,
        so this is what keeps an already-built page in step. */
     page.applyShared = function () {
       page.sections.forEach(function (section) {
-        var want = state.prefs.get('section:' + section.def.id, section.def.on);
-        if (want !== section.on) setSection(section, want, false);
+        if (!section.toggle) return;
+        var want = !!state.prefs.get('tabsection:' + section.def.id, section.defaultOn);
+        if (want !== section.on) setSection(page, section, want, false);
       });
       page.sitChips.forEach(function (entry) {
         var want = state.prefs.get('sit:' + entry.sit.name, true);
@@ -1874,6 +2471,12 @@ var TrajCompare = (function () {
       });
       page.overlayCards.forEach(function (card) { card.applyShared(); });
       if (page.viewer3d && page.viewer3d.applyShared) page.viewer3d.applyShared();
+      if (page.stage) {
+        page.stageWidth = recall('stage-width', page.stageWidth);
+        setStageFolded(page, !!recall('stage-folded', false), false);
+      }
+      var wanted = state.prefs.get('tab', null);
+      if (wanted && wanted !== page.activeTab) activateTab(page, wanted, false);
     };
   }
 
@@ -1932,10 +2535,11 @@ var TrajCompare = (function () {
       } else if (active && page.applyShared) {
         page.applyShared();
       }
-      if (active && page.charts) {
-        page.charts.forEach(function (chart) { chart.resize(); });
+      if (active && page.tabs) {
+        var shown = activeTab(page);
+        if (shown) resizeChartsIn(page, shown.panel);
       }
-      if (page.viewer3d) page.viewer3d.setActive(active);
+      if (page.viewer3d) page.viewer3d.setActive(active && !page.stageFolded);
       if (!active && page.transport) page.transport.pause();
     });
   }
@@ -2043,6 +2647,13 @@ var TrajCompare = (function () {
       return page;
     });
     if (state.groups.length + state.reportPages.length < 2) nav.style.display = 'none';
+
+    // ``report.html#tab=<id>`` opens that question tab (NAVIGATION.md Part B), also when the hash changes later
+    window.addEventListener('hashchange', function () {
+      var id = tabFromHash();
+      var page = state.pages[state.activePage];
+      if (id && page && page.builtPage && page.tabs && page.el.classList.contains('active')) activateTab(page, id, false);
+    });
 
     activatePage(0);
   }
