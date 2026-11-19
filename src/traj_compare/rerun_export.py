@@ -22,6 +22,8 @@ Entity layout (situations are the last path part so a plot view can overlay them
     /torque/<joint>/target              the target torque, N·m (only when a run has a torque breakdown)
     /torque/<joint>/<run>/{commanded,feedforward,feedback,applied}   the run's torque breakdown, N·m
     /stats/fb_share/<joint>             the feedback share of the command, one bar per run, %
+    /stats/joint_rms/<part>             the joints tab's ranking: per part, each joint's worst-run RMS error, °
+    /stats/joint_ranking                every joint of every part, worst first, as one markdown line (≥ 2 parts)
     /error/axes/<label>_mm/<situation>  the position error projected on each ``error_axes`` direction
     /vec/<label>/<situation>            signed speed along a ``vec_dirs`` direction (belt matching)
     /video/<situation>                  AssetVideo + VideoFrameReference (MP4 only)
@@ -53,6 +55,7 @@ import numpy as np
 
 from .analysis import analyze_comparison
 from .model import Comparison, RobotDisplay, Situation
+from .tabs import normalize_parts, resolve_tab, tabs_for
 
 try:
     import rerun as rr
@@ -627,6 +630,17 @@ def _log_review_entities(recording: Any, writer: "_Writer", comparison: Comparis
     if bar_values:
         recording.log("/stats/tool_rms_mm" if tool_errors else "/stats/joint_rms_deg",
                       rr.BarChart(np.array(bar_values), color=[90, 90, 90]), static=True)
+    # The joints tab's ranking (NAVIGATION.md Part B): per part, one bar per joint in the part's own order, the RMS
+    # error of that joint's worst run (°); check runs stay out, as above. One joint has nothing to rank.
+    ranked = _without_checks(payload, groups)
+    if _has_ranking(ranked):
+        rms = _joint_rms_deg(ranked)
+        for part in _parts(ranked):
+            recording.log(f"/stats/joint_rms/{_part(part['name'])}",
+                          rr.BarChart(np.array([rms[joint] for joint in _part_joints(part)]), color=[90, 90, 90]), static=True)
+        if len(_parts(ranked)) >= 2:
+            recording.log(_JOINT_RANKING, rr.TextDocument(_ranking_markdown(ranked, rms), media_type=rr.MediaType.MARKDOWN),
+                          static=True)
     # How much of the command the feedback supplied, per joint, one bar per run (check runs stay out, as above).
     share_runs = _fb_share_runs(_without_checks(payload, groups))
     if share_runs:
@@ -732,9 +746,32 @@ def _eye(payload: dict[str, Any], robot: bool) -> Any:
                              position=centre + span * np.array([0.6, -0.85, 0.75]))
 
 
-def _world(payload: dict[str, Any], name: str, contents: list[str], robot: bool = True, **kwargs: Any) -> Any:
+def _world(payload: dict[str, Any], name: str, contents: list[str], robot: bool = True, eye_controls: Any = None,
+           **kwargs: Any) -> Any:
     return rrb.Spatial3DView(origin="/", contents=contents, name=name, line_grid=rrb.LineGrid3D(visible=False),
-                             eye_controls=_eye(payload, robot), **kwargs)
+                             eye_controls=eye_controls if eye_controls is not None else _eye(payload, robot), **kwargs)
+
+
+def _stage_eye(payload: dict[str, Any]) -> Any:
+    """The stage's camera: every link of the robot in frame (both arms of a bimanual), not just the tool path.
+
+    WHY (the 46-motor fixture in the real viewer, 2026-11-19): framing the tool path alone put a bimanual's torso in
+    front of its far arm, half out of frame. The middle 90 % of the link origins (a static base link may sit at the
+    world origin) and the tool path set the box; a robot wider across y than deep along x is seen from the front."""
+
+    points = [np.asarray(entry["robot_track"]["p"], dtype=float).reshape(-1, 3)
+              for entry in payload["situations"] if entry.get("robot_track")]
+    if not points:
+        return _eye(payload, True)
+    points += [np.asarray(entry["three"]["p"], dtype=float) for entry in payload["situations"] if entry.get("three")]
+    cloud = np.vstack(points)
+    cloud = cloud[np.all(np.isfinite(cloud), axis=1)]
+    low, high = np.percentile(cloud, 5, axis=0), np.percentile(cloud, 95, axis=0)
+    look = 0.5 * (low + high)
+    spread = high - low
+    reach = max(float(spread.max()), 0.6)
+    direction = np.array([1.9, -1.0, 0.9]) if spread[1] > 1.2 * spread[0] else np.array([1.5, -1.9, 1.1])
+    return rrb.EyeControls3D(kind="Orbital", look_target=look, eye_up=[0, 0, 1], position=look + reach * direction)
 
 
 def _has_world(payload: dict[str, Any]) -> bool:
@@ -812,14 +849,52 @@ def _check_tab(full: dict[str, Any], group: str, title: str, members: list[dict[
     measured = [entry for entry in members if entry["has_data"] and "err_q" in entry["plot"]]
     if not measured:  # only a note: why this comparison has no line for the check
         return rrb.Vertical(document, name=title)
-    joints = [_part(joint) for joint in full["joint_names"]]
+    reference = _minuend(full)
     top = rrb.Horizontal(document, _world(full, f"{title}: every run in 3D", ["/world/**"]), column_shares=[2, 3]) if _has_world(full) else document
     rows = [top,
-            _one_or_grid([_ts(f"/positions/{j}", f"{title}: {_short(j)} angle, every run [°]", legend=True) for j in joints], "Angle"),
-            _one_or_grid([_ts(f"/error/positions/{j}", f"{title}: {_short(j)} error vs {full['reference_title']} [°]") for j in joints], "Joint error")]
+            _one_or_grid([_ts(f"/positions/{_part(j)}", f"{title}: {_short(j)} joint angle, every run [°]", legend=True)
+                          for j in full["joint_names"]], "Angle"),
+            _one_or_grid([_ts(f"/error/positions/{_part(j)}", f"{title}: {_short(j)} joint error, {reference} − run [°]")
+                          for j in full["joint_names"]], "Joint error")]
     if any("xyz_mag" in entry["plot"] for entry in measured):
-        rows.append(_ts("/error/tool/position_mm", f"{title}: {full['tcp_frame']} position error [mm]"))
+        rows.append(_ts("/error/tool/position_mm", f"{title}: {full['tcp_frame']} position error, |{reference} − run| [mm]"))
     return rrb.Vertical(*rows, row_shares=[3] + [2] * (len(rows) - 1), name=title)
+
+
+TorqueContext = tuple[dict[str, Any], list[str], list[dict[str, Any]], str]
+
+
+def _torque_context(payload: dict[str, Any]) -> TorqueContext | None:
+    """(the run whose full breakdown is drawn, every breakdown run's path part, the FB-share runs, their bar order)."""
+
+    worst = _worst_torque_run(payload)
+    if worst is None:
+        return None
+    share_runs = _fb_share_runs(payload)
+    order = " · ".join(f"{index} {_short_run(entry)}" for index, entry in enumerate(share_runs))
+    return worst, [_part(entry["name"]) for entry in _torque_runs(payload)], share_runs, order
+
+
+def _torque_views(joint: str, context: TorqueContext, legend: bool = True) -> list[Any]:
+    """One joint's torque views: the worst run's breakdown, every run's feedback, the FB-share bars (with a share)."""
+
+    worst, runs, share_runs, order = context
+    j = _part(joint)
+    views = [
+        _ts(f"/torque/{j}", f"{_short(joint)}: {_short_run(worst)} — target, commanded, feedforward, feedback, applied [N·m]",
+            legend=legend, contents=["+ $origin/target", f"+ $origin/{_part(worst['name'])}/**"]),
+        _ts(f"/torque/{j}", f"{_short(joint)}: feedback, every run [N·m]", legend=legend,
+            contents=[f"+ $origin/{run}/feedback" for run in runs]),
+    ]
+    if share_runs:
+        views.append(rrb.BarChartView(origin=f"/stats/fb_share/{j}", name=f"{_short(joint)}: feedback share of the command [%] — {order}",
+                                      plot_legend=_legend(False)))
+    return views
+
+
+def _torque_row(joint: str, context: TorqueContext, legend: bool = True) -> Any:
+    views = _torque_views(joint, context, legend)
+    return rrb.Horizontal(*views, column_shares=[3, 3, 2][: len(views)])
 
 
 def _torque_tab(payload: dict[str, Any], name: str) -> Any:
@@ -829,76 +904,327 @@ def _torque_tab(payload: dict[str, Any], name: str) -> Any:
     Feedforward, and some portion of that is coming from feedback"): one run shows how the command splits and how
     much of it arrived; the feedback of every run and its share say whether the feedforward model is doing the work."""
 
-    worst = _worst_torque_run(payload)
-    if worst is None:
+    context = _torque_context(payload)
+    if context is None:
         return None
-    runs = [_part(entry["name"]) for entry in _torque_runs(payload)]
-    share_runs = _fb_share_runs(payload)
-    order = " · ".join(f"{index} {_short_run(entry)}" for index, entry in enumerate(share_runs))
-    rows = []
+    return rrb.Vertical(*[_torque_row(joint, context) for joint in payload["joint_names"]], name=name)
+
+
+# ── the questions layout: the shared question tabs (docs/NAVIGATION.md Part B) ──
+
+
+def _parts(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """``payload["parts"]``: the arms and hands, in the caller's order (one implicit part when none were named)."""
+
+    return payload.get("parts") or normalize_parts(payload["joint_names"], None)
+
+
+def _part_joints(part: dict[str, Any]) -> list[str]:
+    return [joint for group in part["groups"] for joint in group["joints"]]
+
+
+def _part_label(part: dict[str, Any]) -> str:
+    """The part's nested tab: ``<part> · <n> joints``, the HTML part selector's label (NAVIGATION.md Part B)."""
+
+    count = len(_part_joints(part))
+    return f"{part['name']} · {count} joint{'' if count == 1 else 's'}"
+
+
+def _is_hand(part: dict[str, Any]) -> bool:
+    """A hand groups its joints by finger (named groups); an arm is one unnamed group."""
+
+    return any(group["name"] for group in part["groups"])
+
+
+def _part_grid(part: dict[str, Any], cell: Callable[[str], Any], name: str) -> Any:
+    """One part's per-joint cells: an arm as a two-column grid, a hand as one row per finger, its joints side by side.
+
+    WHY rows per finger (Zach 2026-11-19, traj compare view feedback: "Hand can have 1 - N motors (perhaps you group
+    by finger)"): a finger's joints move together, so they read side by side; an arm's 1-7 joints keep today's grid."""
+
+    if _is_hand(part):
+        return rrb.Vertical(*[rrb.Horizontal(*[cell(joint) for joint in group["joints"]], name=group["name"])
+                              for group in part["groups"]], name=name)
+    views = [cell(joint) for joint in _part_joints(part)]
+    return rrb.Grid(*views, grid_columns=min(2, len(views)), name=name)
+
+
+def _per_part(payload: dict[str, Any], title: str, build: Callable[[dict[str, Any], str], Any]) -> Any:
+    """``build(part, name)`` for the one part (named ``title``), or nested tabs ``<part> · <n> joints`` for several.
+
+    WHY nested tabs (Zach 2026-11-19, traj compare view feedback: "split the arm and the hand into separate concerns,
+    and each arm separately"): 46 motors on one screen is unreadable; one part per tab keeps each plot legible."""
+
+    parts = _parts(payload)
+    if len(parts) == 1:
+        return build(parts[0], title)
+    return rrb.Tabs(*[build(part, _part_label(part)) for part in parts], name=title)
+
+
+def _minuend(payload: dict[str, Any]) -> str:
+    """The reference as every error's sign convention names it: ``target`` (− run), or the reference run's title."""
+
+    title = payload["reference_title"]
+    return "target" if title == "Target" else title
+
+
+def _with_reference(payload: dict[str, Any], key: str) -> str:
+    """Who a signal view draws: "target and every run" when the reference has ``key``, else "every run"."""
+
+    reference = next((entry for entry in payload["situations"] if entry["role"] == "target"), None)
+    has = reference is not None and reference["has_data"] and (reference["plot"] or {}).get(key) is not None
+    return f"{_minuend(payload)} and every run" if has else "every run"
+
+
+def _joint_rms_deg(payload: dict[str, Any]) -> dict[str, float]:
+    """Each joint's RMS error in its worst run, in degrees: the ``joints`` tab's ranking (NAVIGATION.md Part B)."""
+
+    runs = _runs(payload)
+    worst: dict[str, float] = {}
     for joint in payload["joint_names"]:
-        j = _part(joint)
-        views = [
-            _ts(f"/torque/{j}", f"{_short(joint)}: {_short_run(worst)} — target, commanded, feedforward, feedback, applied [N·m]",
-                legend=True, contents=["+ $origin/target", f"+ $origin/{_part(worst['name'])}/**"]),
-            _ts(f"/torque/{j}", f"{_short(joint)}: feedback, every run [N·m]", legend=True,
-                contents=[f"+ $origin/{run}/feedback" for run in runs]),
-        ]
-        if share_runs:
-            views.append(rrb.BarChartView(origin=f"/stats/fb_share/{j}", name=f"{_short(joint)}: feedback share of the command [%] — {order}",
-                                          plot_legend=_legend(False)))
-        rows.append(rrb.Horizontal(*views, column_shares=[3, 3, 2][: len(views)]))
-    return rrb.Vertical(*rows, name=name)
+        values = [entry["error_metrics"][f"positions/{joint}"]["rms"] for entry in runs
+                  if f"positions/{joint}" in entry["error_metrics"]]
+        finite = [value for value in values if value is not None and math.isfinite(value)]
+        worst[joint] = max(finite) * DEGREES if finite else math.nan
+    return worst
+
+
+def _has_ranking(payload: dict[str, Any]) -> bool:
+    """One joint has nothing to rank; without a graded run there is no error to rank."""
+
+    return len(payload["joint_names"]) >= 2 and bool(_runs(payload))
+
+
+# Every joint of every part, worst first, as one markdown line: the joints tab's cross-part ranking (≥ 2 parts).
+_JOINT_RANKING = "/stats/joint_ranking"
+
+
+def _ranking_markdown(payload: dict[str, Any], rms: dict[str, float]) -> str:
+    """``1. Right hand · r index pip 2.25°; 2. …``: every joint, worst first, labelled ``<part> · <joint>`` as in the HTML.
+
+    WHY "; " between entries (seen in the real viewer, 2026-11-19): " · " already joins a part and its joint."""
+
+    owner = {joint: part["name"] for part in _parts(payload) for joint in _part_joints(part)}
+    ranked = sorted((joint for joint in payload["joint_names"] if math.isfinite(rms[joint])), key=lambda joint: -rms[joint])
+    return "; ".join(f"**{index}.** {owner[joint]} · {_short(joint)} {rms[joint]:.2f}°"
+                     for index, joint in enumerate(ranked, start=1)) + "\n"
+
+
+def _ranking_view(part: dict[str, Any], rms: dict[str, float]) -> Any:
+    """The part's ranking bars (``/stats/joint_rms/<part>``), the worst joint first in the title, then the bar order.
+
+    WHY the answer first (Zach 2026-11-19, traj compare view feedback: titles "super descriptive"): Rerun's bars carry
+    no labels and a narrow view truncates its title, so the visible start names the worst joint; the order follows
+    the way ``_torque_tab`` names its FB-share bars."""
+
+    joints = _part_joints(part)
+    finite = [joint for joint in joints if math.isfinite(rms[joint])]
+    worst = max(finite, key=lambda joint: rms[joint]) if finite else None
+    answer = f"worst {_short(worst)} {rms[worst]:.2f}°" if worst else "no joint error"
+    order = " · ".join(f"{index} {_short(joint)}" for index, joint in enumerate(joints))
+    return rrb.BarChartView(origin=f"/stats/joint_rms/{_part(part['name'])}",
+                            name=f"{part['name']}: {answer} — RMS joint error of each joint's worst run [°] — bars {order}",
+                            plot_legend=_legend(False))
+
+
+def _track_tab(payload: dict[str, Any], title: str) -> Any:
+    reference, tcp = _minuend(payload), payload["tcp_frame"]
+    joint_band = " — grey band = tolerance" if _has_verdict(payload, "joint") else ""
+    tool_band = " — grey band = tolerance" if _has_verdict(payload, "tcp") else ""
+    views = [rrb.TextDocumentView(origin="/scorecard", name=f"Scorecard: every run against the {reference}, worst run first"),
+             _ts("/worst/joint_deg", f"Largest joint error at each instant, any joint, |{reference} − run| [°]{joint_band}", legend=True)]
+    if _has_tool(payload):
+        views.append(_ts("/error/tool/position_mm", f"{tcp} position error, distance |{reference} − run| [mm]{tool_band}"))
+    views.append(rrb.TextLogView(origin="/events", name="Events: tolerance breaks and settling, on the clock"))
+    return rrb.Vertical(*views, row_shares=[3, 2, 2, 1][: len(views) - 1] + [1], name=title)
+
+
+def _tool_position_views(payload: dict[str, Any]) -> list[Any]:
+    """The tool position per axis: what the ``where`` / ``timing`` tabs show when there is a tool but no tool error."""
+
+    who = _with_reference(payload, "x")
+    return [_ts(f"/tcp/{axis}_mm", f"{payload['tcp_frame']} position {axis}, {who} [mm]", legend=True) for axis in "xyz"]
+
+
+def _where_tab(payload: dict[str, Any], title: str) -> Any:
+    if not _has_tool(payload):
+        return rrb.Vertical(*_tool_position_views(payload), name=title)
+    reference, tcp = _minuend(payload), payload["tcp_frame"]
+    axes = ([(f"/error/axes/{_part(f'{label}_mm')}", label) for label in payload["error_axes"]] if payload["error_axes"]
+            else [(f"/error/tool/{axis}_mm", axis) for axis in "xyz"])
+    return rrb.Vertical(*[_ts(origin, f"{tcp} position error along {label}, {reference} − run [mm]", legend=index == 0)
+                          for index, (origin, label) in enumerate(axes)], name=title)
+
+
+def _joints_tab(payload: dict[str, Any], title: str) -> Any:
+    """Ranking bars first, then every joint's error: one part as one grid, several as nested part tabs."""
+
+    reference = _minuend(payload)
+
+    def cell(joint: str) -> Any:
+        return _ts(f"/error/positions/{_part(joint)}", f"{_short(joint)}: joint error, {reference} − run [°]")
+
+    parts = _parts(payload)
+    ranked = _has_ranking(payload)
+    rms = _joint_rms_deg(payload)
+
+    def part_body(part: dict[str, Any], name: str) -> Any:
+        if not ranked:
+            return _part_grid(part, cell, name)
+        return rrb.Vertical(_ranking_view(part, rms), _part_grid(part, cell, "Joint error per joint"),
+                            row_shares=[1, 4 if _is_hand(part) else 3], name=name)
+
+    if len(parts) == 1:
+        return part_body(parts[0], title)
+    body = rrb.Tabs(*[part_body(part, _part_label(part)) for part in parts])
+    if not ranked:
+        return rrb.Vertical(body, name=title)
+    # WHY one ranking line above the part tabs, each part's bars inside its tab (NAVIGATION.md Part B: ranking first,
+    # then the part selector; seen in the real viewer, 2026-11-19): four bar charts side by side truncated every title
+    # to its part's name, so which of 46 joints is worst never read. The line names it; a part's bars get full width.
+    ranking = rrb.TextDocumentView(origin=_JOINT_RANKING,
+                                   name=f"Which joint, of all {len(payload['joint_names'])}: worst first, RMS joint error of each "
+                                        f"joint's worst run, {reference} − run [°]")
+    return rrb.Vertical(ranking, body, row_shares=[1, 6], name=title)
+
+
+def _timing_tab(payload: dict[str, Any], title: str) -> Any:
+    tcp, reference = payload["tcp_frame"], _minuend(payload)
+    views = []
+    if _has_tool(payload):
+        views += [_ts("/error/tool/lag_time_ms", f"Lag time: how far behind schedule the {tcp} is along the path, + = behind [ms]",
+                      legend=True),
+                  _ts("/error/tool/contour_mm", f"Contour error: {tcp} distance off the {reference} path, timing ignored [mm]")]
+    views += [_ts(f"/vec/{_part(label)}", f"{tcp} speed along {label}, signed, {_with_reference(payload, f'vec{index}_d')} [m/s]")
+              for index, label in enumerate(payload["vec_labels"])]
+    return rrb.Vertical(*(views or _tool_position_views(payload)), name=title)
+
+
+def _hand_torque_cell(joint: str, context: TorqueContext) -> Any:
+    """One finger joint's torque: the worst run's breakdown, its FB share in the title (no legend, no bars)."""
+
+    worst = context[0]
+    share = ((worst.get("torque_budget") or {}).get(joint) or {}).get("fb_share")
+    lead = f"FB share {share * 100.0:.0f} % · " if share is not None else ""
+    return _ts(f"/torque/{_part(joint)}",
+               f"{_short(joint)}: {lead}{_short_run(worst)} — target, commanded, feedforward, feedback, applied [N·m]",
+               contents=["+ $origin/target", f"+ $origin/{_part(worst['name'])}/**"])
+
+
+def _torque_part(part: dict[str, Any], context: TorqueContext, name: str) -> Any:
+    """One part's torque: an arm one row per joint (as ``_torque_tab``), a hand one row per finger.
+
+    WHY a hand cell is one plot, the worst run's breakdown with its FB share leading the title (seen in the real viewer
+    at 1440 × 900, 2026-11-19): a finger row holds 3-4 joints, so the legend covered the plot, stacked views left it no
+    height, and beside the share bars both titles shrank to "l thum". The components keep their fixed colours
+    (feedforward blue, feedback orange), as in every arm row, where the legend names them."""
+
+    if not _is_hand(part):
+        # WHY a legend on the first row only (seen in the real viewer at 1440 × 900, 2026-11-19): every row's legend
+        # names the same run and components, and on a 6-joint arm it covered half of each plot.
+        return rrb.Vertical(*[_torque_row(joint, context, legend=index == 0) for index, joint in enumerate(_part_joints(part))],
+                            name=name)
+    return rrb.Vertical(*[rrb.Horizontal(*[_hand_torque_cell(joint, context) for joint in group["joints"]], name=group["name"])
+                          for group in part["groups"]], name=name)
+
+
+def _torque_question_tab(payload: dict[str, Any], title: str) -> Any:
+    context = _torque_context(payload)
+    if context is None:
+        return None
+    return _per_part(payload, title, lambda part, name: _torque_part(part, context, name))
+
+
+# The signals sub-tabs: (entity field, sub-tab title, what the view draws, unit, payload plot key).
+_SIGNALS = (
+    ("positions", "Angle [°]", "joint angle", "°", "q"),
+    ("velocities", "Speed [°/s]", "joint speed", "°/s", "qd"),
+    ("effort", "Applied torque [N·m]", "applied torque", "N·m", "tau"),
+)
+
+
+def _signals_tab(payload: dict[str, Any], title: str) -> Any:
+    signals = [signal for signal in _SIGNALS if signal[0] != "effort" or payload["has_tau"]]
+
+    def part_signals(part: dict[str, Any], name: str) -> Any:
+        tabs = []
+        for field, tab_title, what, unit, key in signals:
+            who = _with_reference(payload, key)
+            if field == "effort" and who != "every run":  # the reference's torque is planned, never applied
+                what, who = "torque", f"{_minuend(payload)} (planned) and every run (applied)"
+
+            def cell(joint: str, field: str = field, what: str = what, unit: str = unit, who: str = who) -> Any:
+                return _ts(f"/{field}/{_part(joint)}", f"{_short(joint)}: {what}, {who} [{unit}]")
+
+            tabs.append(_part_grid(part, cell, tab_title))
+        return rrb.Tabs(*tabs, name=name)
+
+    return _per_part(payload, title, part_signals)
+
+
+_QUESTION_TABS: dict[str, Callable[[dict[str, Any], str], Any]] = {
+    "track": _track_tab,
+    "where": _where_tab,
+    "joints": _joints_tab,
+    "timing": _timing_tab,
+    "torque": _torque_question_tab,
+    "signals": _signals_tab,
+}
+
+
+def _question_index(shown: list[str], titles: list[str], check_titles: list[str], tab: str | None) -> int | None:
+    """The index of ``tab`` (an id, a title, a pre-2026-11-19 title or a check tab's name) among this layout's tabs."""
+
+    if tab is None:
+        return None
+    if tab in check_titles:  # a check tab is named by its caller, never in traj_compare.tabs
+        return len(shown) + check_titles.index(tab)
+    try:
+        wanted = resolve_tab(tab).id
+    except ValueError:
+        raise ValueError(f"no tab {tab!r} in this layout; tabs: {', '.join(titles + check_titles)}") from None
+    if wanted not in shown:
+        raise ValueError(f"tab {tab!r} has nothing to show in this comparison; tabs: {', '.join(titles + check_titles)}")
+    return shown.index(wanted)
 
 
 def _layout_questions(payload: dict[str, Any], videos: dict[str, Path], overlays: list[str], tab: str | None = None,
                       checks: Checks = ()) -> Any:
-    """'questions': a pinned stage (3D over the camera) on the left; tabs named by the question you are asking.
+    """'questions': a pinned stage (3D over the camera) on the left; the shared question tabs beside it.
 
     WHY (Zach's pick, 2026-11-11, babble V2 at 88/100): the opening tab alone answers pass/fail, which
     run is worst and when, and the robot and camera never leave the screen while you work through
-    where, which joint, and timing-or-shape. ``checks`` groups each get a last tab and leave the rest."""
+    where, which joint, and timing-or-shape. WHY the shared tabs (Zach 2026-11-19, traj compare view feedback:
+    "designing a different run viewer for standalone and rerun is a bit silly ... they should be the exact same
+    thing"): the titles and the drop rule are ``traj_compare.tabs``', the HTML run view's own. ``checks`` groups
+    each get a last tab and leave the rest."""
 
     full, payload = payload, _without_checks(payload, checks)
-    joints = [_part(joint) for joint in payload["joint_names"]]
-    tool = _has_tool(payload)
-    good = [rrb.TextDocumentView(origin="/scorecard", name="Scorecard"),
-            _ts("/worst/joint_deg", f"Worst joint error, any joint [°]{_band_note(payload)}", legend=True)]
-    if tool:
-        good.append(_ts("/error/tool/position_mm", f"{payload['tcp_frame']} position error [mm]"))
-    good.append(rrb.TextLogView(origin="/events", name="Events"))
-    tabs = [rrb.Vertical(*good, row_shares=[3, 2, 2, 1][: len(good) - 1] + [1], name="Is it good?")]
-    if tool:
-        tabs.append(rrb.Vertical(*_where_views(payload), name="Where?"))
-    tabs.append(rrb.Grid(*[_ts(f"/error/positions/{j}", f"{_short(j)} [°]") for j in joints],
-                         grid_columns=min(2, len(joints)), name="Which joint?"))
-    if tool:
-        timing = [_ts("/error/tool/lag_time_ms", "Lag time [ms] (how late along the path)", legend=True),
-                  _ts("/error/tool/contour_mm", "Contour error [mm] (off the path)")]
-        timing += [_ts(f"/vec/{_part(label)}", f"Speed along {label} [m/s]") for label in payload["vec_labels"]]
-        tabs.append(rrb.Vertical(*timing, name="Timing or shape?"))
-    torque = _torque_tab(payload, "Feedforward or feedback?")
-    if torque is not None:
-        tabs.append(torque)
-    signals = [rrb.Grid(*[_ts(f"/positions/{j}", f"{_short(j)} [°]") for j in joints], grid_columns=min(2, len(joints)), name="Position"),
-               rrb.Grid(*[_ts(f"/velocities/{j}", f"{_short(j)} [°/s]") for j in joints], grid_columns=min(2, len(joints)), name="Velocity")]
-    if payload["has_tau"]:
-        signals.append(rrb.Grid(*[_ts(f"/effort/{j}", f"{_short(j)} [N·m]") for j in joints], grid_columns=min(2, len(joints)), name="Torque"))
-    tabs.append(rrb.Tabs(*signals, name="Signals"))
+    tabs, shown, titles = [], [], []
+    for entry in full.get("tabs") or tabs_for(full):
+        container = _QUESTION_TABS[entry["id"]](payload, entry["title"])
+        if container is not None:
+            tabs.append(container)
+            shown.append(entry["id"])
+            titles.append(entry["title"])
 
     stage = []
     if _has_world(payload):
-        stage.append(_world(payload, "Stage", ["/world/**"]))
+        stage.append(_world(payload, f"3D: every run's robot and {payload['tcp_frame']} path", ["/world/**"],
+                            eye_controls=_stage_eye(payload)))
     camera = _camera_origin(videos, overlays)
     if camera:
-        stage.append(rrb.Spatial2DView(origin=camera, name="Camera overlay" if overlays else "Camera"))
+        stage.append(rrb.Spatial2DView(origin=camera, name="Camera overlay: the real camera with the sim renders over it"
+                                       if overlays else "Camera: the run's video, at the playhead"))
     for container in tabs + stage:
         _exclude(container, _check_parts(checks))
     tabs += [_check_tab(full, *check) for check in checks]
-    questions = rrb.Tabs(*tabs, active_tab=_active(tabs, tab))
+    questions = rrb.Tabs(*tabs, active_tab=_question_index(shown, titles, [title for _, title, _ in checks], tab))
     if not stage:
         return rrb.Blueprint(questions, *_panels())
-    return rrb.Blueprint(rrb.Horizontal(rrb.Vertical(*stage, row_shares=[3, 2][: len(stage)]), questions, column_shares=[2, 3]),
+    # WHY 2 : 5 (was 2 : 3; seen in the real viewer, 2026-11-19): at 1440 px the six descriptive tab titles need
+    # about 1000 px, and at 2 : 3 the last two hid behind the tab strip's scroll arrow. The stage still shows the robot.
+    return rrb.Blueprint(rrb.Horizontal(rrb.Vertical(*stage, row_shares=[3, 2][: len(stage)]), questions, column_shares=[2, 5]),
                          *_panels())
 
 
