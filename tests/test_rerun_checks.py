@@ -79,6 +79,19 @@ def _text(path, entity: str) -> str:
     raise AssertionError(f"{entity} not in {path}")
 
 
+def _container_names(rbl) -> set[str]:
+    """The container (tab) names in a saved .rbl's blueprint store, read with Rerun's RrdReader."""
+
+    reader = RrdReader(rbl)
+    names: set[str] = set()
+    for chunk in reader.stream(store=reader.blueprints()[0]):
+        batch = chunk.to_record_batch()
+        for index, column in enumerate(batch.schema.names):
+            if column == "ContainerBlueprint:display_name":
+                names |= {str(value[0] if isinstance(value, list) else value) for value in batch.column(index).to_pylist() if value}
+    return names
+
+
 def test_questions_layout_gets_a_camera_check_tab_and_the_other_tabs_show_joints_only():
     blueprint = layout_blueprint("questions", _payload(camera_checked()), {}, checks=CHECKS)
     stage, questions = blueprint.root_container.contents
@@ -132,7 +145,8 @@ def test_main_scorecard_bars_and_heat_path_leave_the_check_out(tmp_path):
     bars = next(chunk for chunk in RrdReader(rrd).stream() if chunk.entity_path == "/stats/tool_rms_mm")
     batch = bars.to_record_batch()
     values = batch.column(next(i for i, name in enumerate(batch.schema.names) if name.endswith(":values"))).to_pylist()
-    assert len(np.ravel(values[0])) == 2  # sim and real, not the camera
+    tensor = values[0][0] if isinstance(values[0], list) else values[0]  # Rerun stores the bars as a tensor {shape, buffer}
+    assert tensor["shape"] == [2] and len(tensor["buffer"]) == 2  # sim and real, not the camera
 
 
 def test_a_check_with_only_a_note_still_gets_its_tab_saying_why(tmp_path):
@@ -153,4 +167,4 @@ def test_report_passes_the_checks_to_every_recording_and_layout_file(tmp_path):
     rrd = report.parent / "rerun" / f"{camera_checked().name}.rrd"
     assert CAMERA_TITLE not in _text(rrd, "/scorecard")
     for layout in ("questions", "evo"):
-        assert "Camera Check" in rrd_print(blueprint_path(rrd, layout)), f"{layout}.rbl has no Camera Check tab"
+        assert "Camera Check" in _container_names(blueprint_path(rrd, layout)), f"{layout}.rbl has no Camera Check tab"

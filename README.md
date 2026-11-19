@@ -216,6 +216,14 @@ the `.rrd`; every layout is also written beside it as `<name>.<layout>.rbl`, so 
 `viewer_command(rrd, layout="evo")`) opens either. `layout_blueprint(name, payload, videos, tab="Which joint?")` opens on
 a named tab.
 
+**Check tabs in Rerun.** A measurement that checks the others (a camera's ArUco angle checking the encoder) is not a run to
+grade. Name its situation `group` and give it a tab: `write_comparison_report(..., rerun=True, rerun_checks={"camera": "Camera Check"})`
+(also `write_rrd(..., checks=...)`, `layout_blueprint(..., checks=...)`). That group's runs leave every other Rerun view (a
+`- $origin/<run>/**` contents rule, so they are in no legend or auto-scaled axis there), the scorecard, the events, the RMS
+bars and the worst-run heat path, and get a last tab in either layout: their notes and every run's scores
+(`/checks/<group>/scorecard`), the angle and joint error of every run, the tool error, and every run in 3D. A comparison whose
+check run has only a note (no data) still gets the tab, saying why; one without the group gets none. The HTML page is unchanged.
+
 **Camera overlay in Rerun.** A `CameraOverlay` (the real camera + sim renders) is baked with ffmpeg into one MP4,
 `rerun/<name>.overlay-<overlay>.mp4`, and logged as `/video/overlay/<overlay>`: Rerun's stock video view plays it. Each
 render is mixed at 50 %; `CameraOverlay(key_color="#fcfcfb")` keys a render's flat background out first so only the

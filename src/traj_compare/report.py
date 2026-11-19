@@ -12,6 +12,7 @@ import importlib.resources
 import json
 from datetime import datetime
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
 
 from .analysis import analyze_comparison
@@ -74,6 +75,7 @@ def write_comparison_report(
     insights: ReportPage | None = None,
     rerun: bool = False,
     rerun_layout: str | None = None,
+    rerun_checks: Mapping[str, str] | None = None,
     exports: bool = False,
 ) -> Path:
     """Analyze the comparison(s) and write one self-contained ``report.html``.
@@ -84,6 +86,8 @@ def write_comparison_report(
     it needs the ``rerun`` extra and raises ImportError naming it when the SDK is absent.
     ``rerun_layout`` names the layout embedded in each .rrd ("questions" or "evo"; default: the user's
     preference, ``rerun_export.default_layout()``); the page offers every layout either way.
+    ``rerun_checks`` (``{"camera": "Camera Check"}``) gives each named situation group its own Rerun tab,
+    out of every other Rerun view and summary (``rerun_export.layout_blueprint``); the HTML page is unchanged.
     ``exports=True`` writes ``exports/<name>.parquet`` and ``.mcap`` the same way (the ``export`` extra)
     and links them next to the page's other downloads.
     """
@@ -122,6 +126,7 @@ def write_comparison_report(
                 layout=chosen,
                 payload=payload,
                 video_root=report_path.parent,
+                checks=rerun_checks,
             )
             layouts = [
                 {

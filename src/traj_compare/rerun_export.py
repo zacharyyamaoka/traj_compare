@@ -43,6 +43,7 @@ import shutil
 import subprocess
 import warnings
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any, Callable
 
 import numpy as np
@@ -417,14 +418,58 @@ def _scorecard(payload: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
         worst = rows[0]
         peak = f"tool error peaks at {_mm(worst['tool_max'])}" if key == "tool_max" else f"joint error peaks at {_deg(worst['worst_joint'])}"
         lines += [f"**Worst run: {worst['run']}** — {peak} (vs {payload['reference_title']}).", ""]
-    lines += ["| Run | Joints | TCP | Tool RMS | Tool max | Worst joint | Latency |", "|---|---|---|---|---|---|---|"]
+    return "\n".join(lines + _score_table(rows)) + "\n", rows
+
+
+def _score_table(rows: list[dict[str, Any]]) -> list[str]:
+    lines = ["| Run | Joints | TCP | Tool RMS | Tool max | Worst joint | Latency |", "|---|---|---|---|---|---|---|"]
     for row in rows:
         latency = "—" if row["latency"] is None else f"{row['latency'] * 1000.0:.1f} ms"
         lines.append(
             f"| {_markdown_cell(row['run'])} | {row['joints']} | {row['tcp']} | {_mm(row['tool_rms'])} | "
             f"{_mm(row['tool_max'])} | {_deg(row['worst_joint'])} | {latency} |"
         )
-    return "\n".join(lines) + "\n", rows
+    return lines
+
+
+# ── check groups ────────────────────────────────────────────────────────────
+# WHY (Zach, 2026-11-19, on the CAN 11 envelope report): "make a separate page tab for "Camera Check", here
+# you show the camera information (on the other tabs it can just be the joint information)". A check group
+# is a measurement that checks the others (the camera's ArUco angle checks the encoder), not a run to grade:
+# its 15 fps noise made it the "worst run" and its spikes buried every error plot. So its runs leave every
+# other view and the main summaries, and get one tab where they sit beside every run they check.
+
+Checks = list[tuple[str, str, list[dict[str, Any]]]]
+
+
+def _check_groups(payload: dict[str, Any], checks: Mapping[str, str] | None) -> Checks:
+    """(group, tab title, its situations) for each ``checks`` group this comparison has, in ``checks`` order."""
+
+    found: Checks = []
+    for group, title in (checks or {}).items():
+        members = [entry for entry in payload["situations"] if entry.get("group") == group]
+        if members:
+            found.append((group, title, members))
+    return found
+
+
+def _without_checks(payload: dict[str, Any], checks: Checks) -> dict[str, Any]:
+    """``payload`` minus the check groups' situations: what the main views and summaries read."""
+
+    names = {entry["name"] for _, _, members in checks for entry in members}
+    return {**payload, "situations": [entry for entry in payload["situations"] if entry["name"] not in names]} if names else payload
+
+
+def _check_document(payload: dict[str, Any], title: str, members: list[dict[str, Any]]) -> str:
+    """The check tab's text: each check run's note (how it was measured, or why there is no line), then every run's scores."""
+
+    lines = [f"# {title}", ""]
+    for entry in members:
+        lines += [f"**{_markdown_cell(entry['title'])}**" + (f" — {entry['note']}" if entry.get("note") else ""), ""]
+    _, rows = _scorecard(payload)
+    if rows:
+        lines += [f"Every run against {payload['reference_title']}, the check beside the runs it checks:", "", *_score_table(rows)]
+    return "\n".join(lines) + "\n"
 
 
 def _events(payload: dict[str, Any], t0: float, reference_end: float) -> list[tuple[float, str, str]]:
@@ -448,14 +493,21 @@ def _events(payload: dict[str, Any], t0: float, reference_end: float) -> list[tu
     return sorted(events)
 
 
-def _log_review_entities(recording: Any, writer: "_Writer", comparison: Comparison, payload: dict[str, Any], t0: float) -> None:
+def _log_review_entities(recording: Any, writer: "_Writer", comparison: Comparison, payload: dict[str, Any], t0: float,
+                         checks: Mapping[str, str] | None = None) -> None:
     """The entities the layouts read beyond the raw signals: bands, worst-of, heat path, scorecard, events.
 
     WHY here and not in a layout: both layouts (and any later one) read the same entities; a layout
-    only chooses views, so switching layout never changes a number."""
+    only chooses views, so switching layout never changes a number. ``checks`` groups stay out of the
+    scorecard, events, RMS bars and heat path, and get ``/checks/<group>/scorecard`` instead."""
 
     if payload["plot_t"] is None:
         return
+    groups = _check_groups(payload, checks)
+    for group, title, members in groups:
+        recording.log(f"/checks/{_part(group)}/scorecard",
+                      rr.TextDocument(_check_document(payload, title, members), media_type=rr.MediaType.MARKDOWN), static=True)
+    graded = {entry["name"] for entry in _runs(_without_checks(payload, groups))}
     plot_t = _array(payload["plot_t"]) - t0
     reference_end = float(comparison.target.t[-1]) - t0 if comparison.target is not None and comparison.target.has_data else float(plot_t[-1])
     in_goal = plot_t >= reference_end
@@ -485,6 +537,8 @@ def _log_review_entities(recording: Any, writer: "_Writer", comparison: Comparis
         name, color, label, plot = _part(entry["name"]), _hex_to_rgb(entry["color"]), entry["title"], entry["plot"]
         worst = np.degrees(np.nanmax(np.abs(np.array([_array(row) for row in plot["err_q"]])), axis=0))
         writer.series(f"/worst/joint_deg/{name}", plot_t, worst, color, label)
+        if entry["name"] not in graded:
+            continue  # a check run: plotted in its own tab, never in the bars or the heat path
         if "xyz_mag" in plot:
             tool_errors.append(_array(plot["xyz_mag"]) * 1000.0)
         metrics = entry["error_metrics"]
@@ -515,9 +569,9 @@ def _log_review_entities(recording: Any, writer: "_Writer", comparison: Comparis
         )
         recording.log("/path/reference", rr.LineStrips3D([reference_p], colors=[_hex_to_rgb(reference["color"])], radii=0.0015), static=True)
 
-    scorecard, _ = _scorecard(payload)
+    scorecard, _ = _scorecard(_without_checks(payload, groups))
     recording.log("/scorecard", rr.TextDocument(scorecard, media_type=rr.MediaType.MARKDOWN), static=True)
-    for when, level, text in _events(payload, t0, reference_end):
+    for when, level, text in _events(_without_checks(payload, groups), t0, reference_end):
         recording.set_time(TIMELINE, duration=when)
         recording.log("/events", rr.TextLog(text, level=level))
     recording.reset_time()
@@ -631,13 +685,64 @@ def _where_views(payload: dict[str, Any]) -> list[Any]:
     return [_ts(f"/error/tool/{axis}_mm", f"error {axis} [mm]") for axis in "xyz"]
 
 
-def _layout_questions(payload: dict[str, Any], videos: dict[str, Path], overlays: list[str], tab: str | None = None) -> Any:
+_PLOTS = ("TimeSeriesView", "BarChartView", "Spatial3DView")
+
+
+def _exclude(container: Any, parts: list[str]) -> None:
+    """Take the runs named ``parts`` out of every plot and 3D view under ``container`` (a contents rule per run).
+
+    WHY a contents rule and not a hidden override: the run is not in the view at all, so it is in no legend,
+    no auto-scaled axis and no Blueprint tree row there. Runs are the last path part (``/<field>/<column>/<run>``,
+    ``/world/<run>/...``), so one rule per run covers every layout's views."""
+
+    if not parts:
+        return
+    if hasattr(container, "origin"):
+        kind = type(container).__name__
+        if kind in _PLOTS:
+            rules = [container.contents] if isinstance(container.contents, str) else list(container.contents or ["$origin/**"])
+            # WHY no $origin rule in 3D: its origin is "/", so "$origin/<run>" would name a root entity, not the world's run
+            rules += [f"- /world/{part}/**" if kind == "Spatial3DView" else f"- $origin/{part}/**" for part in parts]
+            container.contents = rules
+        return
+    for child in getattr(container, "contents", None) or []:
+        _exclude(child, parts)
+
+
+def _check_parts(checks: Checks) -> list[str]:
+    return [_part(entry["name"]) for _, _, members in checks for entry in members]
+
+
+def _one_or_grid(views: list[Any], name: str) -> Any:
+    return views[0] if len(views) == 1 else rrb.Grid(*views, grid_columns=min(2, len(views)), name=name)
+
+
+def _check_tab(full: dict[str, Any], group: str, title: str, members: list[dict[str, Any]]) -> Any:
+    """One check group's tab: its note and scores, then its runs beside every other run (angle, joint error, tool error, 3D)."""
+
+    document = rrb.TextDocumentView(origin=f"/checks/{_part(group)}/scorecard", name=title)
+    measured = [entry for entry in members if entry["has_data"] and "err_q" in entry["plot"]]
+    if not measured:  # only a note: why this comparison has no line for the check
+        return rrb.Vertical(document, name=title)
+    joints = [_part(joint) for joint in full["joint_names"]]
+    top = rrb.Horizontal(document, _world(full, f"{title}: every run in 3D", ["/world/**"]), column_shares=[2, 3]) if _has_world(full) else document
+    rows = [top,
+            _one_or_grid([_ts(f"/positions/{j}", f"{title}: {_short(j)} angle, every run [°]", legend=True) for j in joints], "Angle"),
+            _one_or_grid([_ts(f"/error/positions/{j}", f"{title}: {_short(j)} error vs {full['reference_title']} [°]") for j in joints], "Joint error")]
+    if any("xyz_mag" in entry["plot"] for entry in measured):
+        rows.append(_ts("/error/tool/position_mm", f"{title}: {full['tcp_frame']} position error [mm]"))
+    return rrb.Vertical(*rows, row_shares=[3] + [2] * (len(rows) - 1), name=title)
+
+
+def _layout_questions(payload: dict[str, Any], videos: dict[str, Path], overlays: list[str], tab: str | None = None,
+                      checks: Checks = ()) -> Any:
     """'questions': a pinned stage (3D over the camera) on the left; tabs named by the question you are asking.
 
     WHY (Zach's pick, 2026-11-11, babble V2 at 88/100): the opening tab alone answers pass/fail, which
     run is worst and when, and the robot and camera never leave the screen while you work through
-    where, which joint, and timing-or-shape."""
+    where, which joint, and timing-or-shape. ``checks`` groups each get a last tab and leave the rest."""
 
+    full, payload = payload, _without_checks(payload, checks)
     joints = [_part(joint) for joint in payload["joint_names"]]
     tool = _has_tool(payload)
     good = [rrb.TextDocumentView(origin="/scorecard", name="Scorecard"),
@@ -660,7 +765,6 @@ def _layout_questions(payload: dict[str, Any], videos: dict[str, Path], overlays
     if payload["has_tau"]:
         signals.append(rrb.Grid(*[_ts(f"/effort/{j}", f"{_short(j)} [N·m]") for j in joints], grid_columns=min(2, len(joints)), name="Torque"))
     tabs.append(rrb.Tabs(*signals, name="Signals"))
-    questions = rrb.Tabs(*tabs, active_tab=_active(tabs, tab))
 
     stage = []
     if _has_world(payload):
@@ -668,18 +772,25 @@ def _layout_questions(payload: dict[str, Any], videos: dict[str, Path], overlays
     camera = _camera_origin(videos, overlays)
     if camera:
         stage.append(rrb.Spatial2DView(origin=camera, name="Camera overlay" if overlays else "Camera"))
+    for container in tabs + stage:
+        _exclude(container, _check_parts(checks))
+    tabs += [_check_tab(full, *check) for check in checks]
+    questions = rrb.Tabs(*tabs, active_tab=_active(tabs, tab))
     if not stage:
         return rrb.Blueprint(questions, *_panels())
     return rrb.Blueprint(rrb.Horizontal(rrb.Vertical(*stage, row_shares=[3, 2][: len(stage)]), questions, column_shares=[2, 3]),
                          *_panels())
 
 
-def _layout_evo(payload: dict[str, Any], videos: dict[str, Path], overlays: list[str], tab: str | None = None) -> Any:
+def _layout_evo(payload: dict[str, Any], videos: dict[str, Path], overlays: list[str], tab: str | None = None,
+                checks: Checks = ()) -> Any:
     """'evo': evo's own Rerun layout (evo_ape --rerun: Visualization + Raw data) with a full-screen tab per analysis.
 
     WHY (Zach's pick, 2026-11-11): evo is the reference he named; its blueprint is copied, not
-    reinvented — the error-coloured path and the error curve draw themselves up to the playhead."""
+    reinvented — the error-coloured path and the error curve draw themselves up to the playhead.
+    ``checks`` groups each get a last tab and leave the rest."""
 
+    full, payload = payload, _without_checks(payload, checks)
     joints = [_part(joint) for joint in payload["joint_names"]]
     tool = _has_tool(payload)
     bars = "/stats/tool_rms_mm" if tool else "/stats/joint_rms_deg"
@@ -725,6 +836,9 @@ def _layout_evo(payload: dict[str, Any], videos: dict[str, Path], overlays: list
     tabs.append(rrb.Horizontal(rrb.TextDocumentView(origin="/scorecard", name="Scorecard"),
                                rrb.TextDocumentView(origin="/notes", name="Full statistics"), name="Stats"))
     tabs.append(rrb.DataframeView(origin="/error", name="Raw data"))
+    for container in tabs:
+        _exclude(container, _check_parts(checks))
+    tabs += [_check_tab(full, *check) for check in checks]
     return rrb.Blueprint(rrb.Tabs(*tabs, active_tab=_active(tabs, tab)), *_panels())
 
 
@@ -777,11 +891,15 @@ def default_layout() -> str:
 
 
 def layout_blueprint(name: str, payload: dict[str, Any], videos: dict[str, Path], overlays: list[str] | tuple = (),
-                     tab: str | None = None) -> Any:
-    """The named layout's blueprint for one comparison payload, opening on ``tab`` (by name) if given."""
+                     tab: str | None = None, checks: Mapping[str, str] | None = None) -> Any:
+    """The named layout's blueprint for one comparison payload, opening on ``tab`` (by name) if given.
+
+    ``checks`` maps a situation ``group`` to a tab title (``{"camera": "Camera Check"}``): that group's runs
+    leave every other view and get that tab, beside every run they check. A comparison without the group
+    gets no tab."""
 
     _require_sdk()
-    return LAYOUTS[_check_layout(name)][1](payload, videos, list(overlays), tab)
+    return LAYOUTS[_check_layout(name)][1](payload, videos, list(overlays), tab, _check_groups(payload, checks))
 
 
 def blueprint_path(rrd_path: Path | str, layout: str) -> Path:
@@ -836,6 +954,7 @@ def write_rrd(
     blueprint: Callable[[dict[str, Any], dict[str, Path]], Any] | None = None,
     application_id: str = APPLICATION_ID,
     extra: Callable[[Any, dict[str, Any], float], None] | None = None,
+    checks: Mapping[str, str] | None = None,
 ) -> Path:
     """Write ``comparison`` as one .rrd and return its path.
 
@@ -844,7 +963,8 @@ def write_rrd(
     with ``viewer_argv(path, layout=...)``. ``payload`` is an already-computed ``analyze_comparison``
     result (colours included) so a report that also writes the HTML does not analyze twice; omitted,
     it is computed here. ``video_root`` is the directory ``Situation.video`` and ``CameraOverlay``
-    paths are relative to (default: beside the .rrd).
+    paths are relative to (default: beside the .rrd). ``checks`` (``{"camera": "Camera Check"}``) gives
+    each named situation group its own tab, out of every other view and summary (``layout_blueprint``).
 
     Hooks for trying another layout without forking the writer: ``blueprint(payload, videos)``
     replaces the named layout; ``application_id`` keeps several layouts of one comparison apart when
@@ -876,7 +996,7 @@ def write_rrd(
     recording.send_recording_name(_recording_name(comparison))
     # WHY embedded: the blueprint travels inside the .rrd (default_blueprint), so the layout opens
     # the same in any viewer of the pinned version, with no sidecar file.
-    embedded = blueprint(payload, videos) if blueprint else layout_blueprint(layout, payload, videos, list(overlays))
+    embedded = blueprint(payload, videos) if blueprint else layout_blueprint(layout, payload, videos, list(overlays), checks=checks)
     recording.save(path, default_blueprint=embedded)
     writer = _Writer(recording, t0)
 
@@ -935,12 +1055,12 @@ def write_rrd(
         rr.TextDocument(_notes_markdown(payload), media_type=rr.MediaType.MARKDOWN),
         static=True,
     )
-    _log_review_entities(recording, writer, comparison, payload, t0)
+    _log_review_entities(recording, writer, comparison, payload, t0, checks=checks)
     if extra is not None:
         extra(recording, payload, t0)
     recording.flush()
     recording.disconnect()
     # every named layout beside the file, so the user's other preference is one argument away
     for name in LAYOUTS:
-        layout_blueprint(name, payload, videos, list(overlays)).save(application_id, blueprint_path(path, name))
+        layout_blueprint(name, payload, videos, list(overlays), checks=checks).save(application_id, blueprint_path(path, name))
     return path
