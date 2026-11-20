@@ -73,7 +73,9 @@ def landing_page(root: Path) -> str:
     items = []
     for site in find_sites(root):
         path = site.relative_to(root).as_posix()
-        match = _TITLE.search((site / "index.html").read_text("utf-8", "replace"))
+        # WHY only the head: a site's index.html embeds its whole dataset (tens of MB for the UR5e); the <title> is near the top.
+        with (site / "index.html").open("r", encoding="utf-8", errors="replace") as page:
+            match = _TITLE.search(page.read(65536))
         title = html.unescape(match.group(1)).strip() if match else path
         runs = len(list((site / "runs").glob("*/manifest.json")))
         text = html.escape(f"{title} \u2014 {runs} {'run' if runs == 1 else 'runs'}")
