@@ -172,8 +172,11 @@ def test_runs_are_stored_file_first_and_round_trip(tmp_path):
     assert manifest["name"] == run.name
     assert manifest["tags"]["can"] == 13
     assert [tuple(pair) for pair in manifest["pairs"]] == default_pairs(["sim", "real"])
-    # one robot_msgs npz per series, loadable with robot_msgs alone
-    reference = load_npz(folders[0] / "reference.npz")
+    # one robot_msgs npz per series, loadable with robot_msgs alone; the reference is shared by every run that follows it,
+    # under references/<digest>.npz, and the manifest names it relative to the run folder (NAVIGATION.md C6, 2026-11-20)
+    assert manifest["files"]["reference"].startswith("../../references/")
+    assert not (folders[0] / "reference.npz").exists()
+    reference = load_npz(folders[0] / manifest["files"]["reference"])
     real = load_npz(folders[0] / "real.npz")
     np.testing.assert_allclose(reference.positions, run.reference.positions)
     np.testing.assert_allclose(real.positions, run.measured["real"].positions)
