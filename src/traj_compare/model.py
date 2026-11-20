@@ -575,8 +575,15 @@ class Comparison:
     # Channel name -> its ``Signal`` (title, unit, column labels): how the "What else was measured?" tab names
     # ``Situation.channels``. A described channel no situation has is fine (a dataset describes every run's at once).
     signals: Mapping[str, Signal] = field(default_factory=dict)
+    # What sits in ``target``: "target", a trajectory to follow (its τ is the torque it needs), or "run", a recorded run
+    # another run is measured against (sim → real; its τ is that run's applied torque). WHY (arm_motion_bench, 2026-11-20):
+    # a sim → real torque card called the sim run's applied torque "Target", a different signal; the viewers name a run
+    # reference by its own title instead of "target".
+    reference_kind: str = "target"
 
     def __post_init__(self) -> None:
+        if self.reference_kind not in ("target", "run"):
+            raise ValueError(f"comparison {self.title!r}: reference_kind is 'target' or 'run', got {self.reference_kind!r}")
         if not self.name:
             self.name = _slug(self.title)
         if not self.group:

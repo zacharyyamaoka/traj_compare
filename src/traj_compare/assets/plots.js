@@ -623,6 +623,16 @@ var TrajCompare = (function () {
     return data.reference_title || 'Target';
   }
 
+  /* How the page names the reference in running text. WHY (arm_motion_bench, 2026-11-20): in a sim → real pair the
+     reference is the sim run (Comparison.reference_kind "run"), and its τ is that run's applied torque; calling it
+     "target" named a different signal. A target reference keeps "target". */
+  function isRunReference(data) {
+    return data.reference_kind === 'run';
+  }
+  function referenceWord(data) {
+    return isRunReference(data) ? referenceTitle(data) : 'the target';
+  }
+
   /* Difference on the display grid, reference - value (target - run, the ROS 2
      convention robot_msgs.compare uses): both columns are already resampled
      onto plot_t, and a null on either side (outside a run's own recorded
@@ -893,6 +903,7 @@ var TrajCompare = (function () {
 
   /* One chip per component present on the page; a chip toggles that component on every card (report-level pref). */
   function torqueLegend(page, body, runs, present) {
+    var runReference = isRunReference(page.data);
     var legend = el('div', 'tc-torque-legend', body);
     el('span', 'grouplabel', legend, 'Components');
     var runColors = runs.map(function (sit) { return sit.color; });
@@ -905,8 +916,10 @@ var TrajCompare = (function () {
       else if (component.id === 'feedforward') swatch.style.background = TORQUE_FEEDFORWARD;
       else if (component.id === 'feedback') swatch.style.color = TORQUE_FEEDBACK;
       else swatch.style.background = runPaint;
-      chip.appendChild(document.createTextNode(component.label));
-      chip.title = component.hint;
+      var reference = component.id === 'target' && runReference;
+      chip.appendChild(document.createTextNode(reference ? referenceTitle(page.data) + ' τ (applied)' : component.label));
+      chip.title = reference ? 'the applied torque of ' + referenceTitle(page.data) + ', the run this pair is measured against'
+        : component.hint;
       function apply(show, remember) {
         page.torqueOn[component.id] = show;
         chip.className = 'chip ' + (show ? 'on' : 'off');
@@ -1001,10 +1014,10 @@ var TrajCompare = (function () {
     // Every error is target - run, as robot_msgs.compare computes it.
     [['xyz_mag', frame + ' position error |Δp|, |' + minus + '|', 'mm'],
      ['rot_mag', frame + ' rotation error angle, ' + minus, 'angle'],
-     ['cross_track', frame + ' cross-track error, distance off the target path', 'mm'],
-     ['lag', frame + ' lag along the path, + = run behind the target', 'mm'],
-     ['contour', frame + ' contour error, exact distance to the target path', 'mm'],
-     ['lag_time', frame + ' lag time, + = run behind the target', 'ms']]
+     ['cross_track', frame + ' cross-track error, distance off ' + referenceWord(page.data) + "'s path", 'mm'],
+     ['lag', frame + ' lag along the path, + = run behind ' + referenceWord(page.data), 'mm'],
+     ['contour', frame + ' contour error, exact distance to ' + referenceWord(page.data) + "'s path", 'mm'],
+     ['lag_time', frame + ' lag time, + = run behind ' + referenceWord(page.data), 'ms']]
       .concat((page.data.error_axes || []).map(function (label, index) {
         // WHY a field of its own per axis: err_axes is one list per axis, not one channel
         return ['err_axes:' + index, frame + ' position error along ' + label + ', ' + minus, 'mm'];
@@ -1352,7 +1365,8 @@ var TrajCompare = (function () {
     }
     if (data.has_torque_breakdown) {
       // on by default (CONTRACT.md): the split of the command is the question a breakdown is recorded to answer
-      defs.push({ id: 'joint-torque', label: 'Torque breakdown: target, commanded = feedforward + feedback, applied', units: inUnit('Nm'), on: sectionStartsOn(data, 'joint-torque', true), build: torqueBreakdownBuilder });
+      defs.push({ id: 'joint-torque', label: 'Torque breakdown: ' + (isRunReference(data) ? reference + ' (applied)' : 'target') +
+        ', commanded = feedforward + feedback, applied', units: inUnit('Nm'), on: sectionStartsOn(data, 'joint-torque', true), build: torqueBreakdownBuilder });
     }
     var anyErr = data.situations.some(function (sit) { return sit.plot && sit.plot.err_q; });
     if (anyErr) {
@@ -1403,7 +1417,7 @@ var TrajCompare = (function () {
     if (id === 'tcp-err') {
       hint = (data.tcp_frame || 'TCP') + ' frame, error = ' + referenceTitle(data) + ' − run at the run\'s own sample times; ' +
         'axis errors are world-frame, rotation as a world-axis rotation vector; ' +
-        'lag is + when the run is behind the target; contour is the exact distance to the reference path, ' +
+        'lag is + when the run is behind ' + referenceWord(data) + '; contour is the exact distance to the reference path, ' +
         'lag time the time offset to its nearest point' +
         (data.error_axes && data.error_axes.length
           ? '; error · <axis> is the position error projected on ' + data.error_axes.join(' / ') : '');
@@ -2428,8 +2442,8 @@ var TrajCompare = (function () {
     });
     if (errorCandidates.length) {
       var errorGroup = el('div', 'group', controls);
-      el('span', 'grouplabel', errorGroup, 'Error vs target');
-      errorGroup.title = 'overlay each measured run minus the target on every plot';
+      el('span', 'grouplabel', errorGroup, isRunReference(data) ? 'Error vs ' + referenceTitle(data) : 'Error vs target');
+      errorGroup.title = 'overlay each measured run minus ' + referenceWord(data) + ' on every plot';
       errorCandidates.forEach(function (sit) {
         var chip = el('button', 'chip', errorGroup);
         var swatch = el('span', 'swatch dotted', chip);

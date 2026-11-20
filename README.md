@@ -199,6 +199,7 @@ write_comparison_report([comparison], out_dir, insights=insights)
   | `estimate_latency=True` | `entry["latency"] = {offset_s, rms_before, rms_after}` (`estimate_time_offset` on the joints); **Est. latency** column |
   | `goal_band` (rad) / `tcp_goal_band` (m) | `entry["goal"]` (`goal`: final error, settling time, overshoot); **Settling · overshoot** column (TCP, else the slowest joint) |
   | `error_axes=[(label, vector), …]` | `payload["error_axes"]`, `plot["err_axes"]` and the TCP-error rows above |
+  | `reference_kind="run"` | the reference in `target` is a recorded run (sim → real), not a trajectory to follow: the torque legend reads `<title> τ (applied)`, the toolbar `Error vs <title>`, the 3D arrows `Arrows → <title>`, Rerun's torque views `<title> (applied)`; the dataset drill-down sets it for every run-to-run pair. Default `"target"` keeps "target" |
   | `repeat_groups={"Real ×5": [names]}` | `payload["aggregates"][group]` (`aggregate`) and an **Accuracy vs repeatability (ISO 9283)** card: AT = max \|reference − barycentre\| (bias), RT = max of mean + 3σ of the runs' distance to the barycentre (scatter), per joint and TCP position |
 
   `Situation.time_offset_s` (how late the run's clock runs, `robot_msgs.compare`'s `time_offset_s`; 0 = agree) is

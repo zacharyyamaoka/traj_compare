@@ -43,6 +43,14 @@ var Viewer3D = (function () {
     { id: 'zarc', label: 'Z rotation arcs', all: false, on: false },
   ];
 
+  /* An element's words on this page. WHY (arm_motion_bench, 2026-11-20): in a sim → real pair the arrows point at the
+     sim run (Comparison.reference_kind "run"), so they say so instead of "target". */
+  function elementLabel(element, page) {
+    var data = page && page.data;
+    if (element.id === 'diff' && data && data.reference_kind === 'run') return 'Arrows → ' + data.reference_title;
+    return element.label;
+  }
+
   function availableElements(sit) {
     return ELEMENTS.filter(function (element) {
       if (element.robot) return !!sit.robot_track;
@@ -673,7 +681,7 @@ var Viewer3D = (function () {
         var on = available.filter(function (element) { return state.enabled[element.id]; });
         button.textContent = on.length === 0 ? 'nothing shown'
           : on.length === available.length ? 'everything shown'
-          : on.map(function (element) { return element.label; }).join(', ');
+          : on.map(function (element) { return elementLabel(element, page); }).join(', ');
       }
       state.paintButton = paintButton;
 
@@ -683,7 +691,7 @@ var Viewer3D = (function () {
         checkbox.type = 'checkbox';
         checkbox.checked = !!state.enabled[element.id];
         label.appendChild(checkbox);
-        label.appendChild(document.createTextNode(element.label));
+        label.appendChild(document.createTextNode(elementLabel(element, page)));
         if (element.robot) {
           var payload = robotPayloads[state.sit.robot_track.robot || 0];
           label.title = payload ? payload.name : 'robot model';
@@ -795,9 +803,12 @@ var Viewer3D = (function () {
     el('div', 'hint', panel,
       'Orbit: drag · zoom: wheel · pan: right-drag · fit: double-click or the button. ' +
       'Click an axis ball on the corner gizmo to fly to that view. ' +
-      'Arrows → target: from a run’s pose to the target’s pose at the same instant — ' +
-      'points to where you should have been. ' +
-      'Z rotation arcs: the gap between a run’s tool z and the target’s (grey ghost).');
+      (page.data && page.data.reference_kind === 'run'
+        ? 'Arrows → ' + page.data.reference_title + ': from a run’s pose to ' + page.data.reference_title + '’s pose at the same instant. ' +
+          'Z rotation arcs: the gap between a run’s tool z and ' + page.data.reference_title + '’s (grey ghost).'
+        : 'Arrows → target: from a run’s pose to the target’s pose at the same instant — ' +
+          'points to where you should have been. ' +
+          'Z rotation arcs: the gap between a run’s tool z and the target’s (grey ghost).'));
 
     /* ---------------- scrubber (page transport) ---------------- */
 

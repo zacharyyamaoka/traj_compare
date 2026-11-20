@@ -1641,6 +1641,8 @@ def _build_run_report(folder: Path) -> Path:
                 estimate_latency=True,
                 description=f"Errors are {label(first)} − {label(second)}, the ROS 2 convention.{skipped}",
                 signals=signals,
+                # a pair whose first element is a measured series (sim → real) is measured against a run, not a target
+                reference_kind="target" if first == REFERENCE else "run",
             )
         )
     tags = " · ".join(f"{key}={value}" for key, value in manifest["tags"].items())

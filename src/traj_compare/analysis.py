@@ -1102,6 +1102,7 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
         "joint_names": list(comparison.joint_names),
         "tcp_frame": comparison.tcp_frame,
         "reference_title": reference_title(comparison),
+        "reference_kind": comparison.reference_kind,
         "vec_labels": [label for label, _ in comparison.vec_dirs],
         "error_axes": [label for label, _ in comparison.error_axes or ()],
         "aggregates": aggregates,

@@ -864,7 +864,14 @@ def _check_tab(full: dict[str, Any], group: str, title: str, members: list[dict[
     return rrb.Vertical(*rows, row_shares=[3] + [2] * (len(rows) - 1), name=title)
 
 
-TorqueContext = tuple[dict[str, Any], list[str], list[dict[str, Any]], str]
+# (worst breakdown run, every breakdown run's path part, the FB-share runs, their bar order, how the reference is named)
+TorqueContext = tuple[dict[str, Any], list[str], list[dict[str, Any]], str, str]
+
+
+def _torque_reference(payload: dict[str, Any]) -> str:
+    """How a torque view names its dashed line: "target", or "<run> (applied)" when a run is the reference (sim → real)."""
+
+    return f"{payload['reference_title']} (applied)" if payload.get("reference_kind") == "run" else "target"
 
 
 def _torque_context(payload: dict[str, Any]) -> TorqueContext | None:
@@ -875,16 +882,16 @@ def _torque_context(payload: dict[str, Any]) -> TorqueContext | None:
         return None
     share_runs = _fb_share_runs(payload)
     order = " · ".join(f"{index} {_short_run(entry)}" for index, entry in enumerate(share_runs))
-    return worst, [_part(entry["name"]) for entry in _torque_runs(payload)], share_runs, order
+    return worst, [_part(entry["name"]) for entry in _torque_runs(payload)], share_runs, order, _torque_reference(payload)
 
 
 def _torque_views(joint: str, context: TorqueContext, legend: bool = True) -> list[Any]:
     """One joint's torque views: the worst run's breakdown, every run's feedback, the FB-share bars (with a share)."""
 
-    worst, runs, share_runs, order = context
+    worst, runs, share_runs, order, reference = context
     j = _part(joint)
     views = [
-        _ts(f"/torque/{j}", f"{_short(joint)}: {_short_run(worst)} — target, commanded, feedforward, feedback, applied [N·m]",
+        _ts(f"/torque/{j}", f"{_short(joint)}: {_short_run(worst)} — {reference}, commanded, feedforward, feedback, applied [N·m]",
             legend=legend, contents=["+ $origin/target", f"+ $origin/{_part(worst['name'])}/**"]),
         _ts(f"/torque/{j}", f"{_short(joint)}: feedback, every run [N·m]", legend=legend,
             contents=[f"+ $origin/{run}/feedback" for run in runs]),
@@ -1106,11 +1113,11 @@ def _timing_tab(payload: dict[str, Any], title: str) -> Any:
 def _hand_torque_cell(joint: str, context: TorqueContext) -> Any:
     """One finger joint's torque: the worst run's breakdown, its FB share in the title (no legend, no bars)."""
 
-    worst = context[0]
+    worst, reference = context[0], context[4]
     share = ((worst.get("torque_budget") or {}).get(joint) or {}).get("fb_share")
     lead = f"FB share {share * 100.0:.0f} % · " if share is not None else ""
     return _ts(f"/torque/{_part(joint)}",
-               f"{_short(joint)}: {lead}{_short_run(worst)} — target, commanded, feedforward, feedback, applied [N·m]",
+               f"{_short(joint)}: {lead}{_short_run(worst)} — {reference}, commanded, feedforward, feedback, applied [N·m]",
                contents=["+ $origin/target", f"+ $origin/{_part(worst['name'])}/**"])
 
 
@@ -1540,7 +1547,9 @@ def write_rrd(
                 if entry["role"] == "target":
                     if plot["tau"] is not None:
                         writer.series(f"{torque}/target", plot_t, _array(plot["tau"][column]),
-                                      _hex_to_rgb(TARGET_TORQUE_COLOR), f"{label} · target", _TORQUE_WIDTHS["target"])
+                                      _hex_to_rgb(TARGET_TORQUE_COLOR),
+                                      f"{label} · applied" if payload.get("reference_kind") == "run" else f"{label} · target",
+                                      _TORQUE_WIDTHS["target"])
                     continue
                 if not _has_breakdown(entry):
                     continue
