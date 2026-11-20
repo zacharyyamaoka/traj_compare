@@ -32,7 +32,7 @@ FFMPEG = "/usr/bin/ffmpeg"
 PIN = ["taskset", "-c", "2-5,16,17", "nice", "-n", "19"]
 MAX_BYTES = 1_900_000  # the desktop preview's ceiling for a page with media
 
-HEAD = "243f892"
+HEAD = "c869be7"  # main after the seven gaps (243f892) and the sim → real follow-up
 REPO = "zacharyyamaoka/traj_compare"
 BENCH_SHOTS = Path("/home/bam/arm_motion_bench/reports/media/dashboard/shots")
 C1_SHOTS = PACKAGE / ".claude" / "worktrees" / "channels" / "docs" / "proof_c1"
@@ -41,10 +41,16 @@ COPIES = {  # name inside MEDIA → where it came from (copied once; the page bu
     "before/ur5e-1b-dataset-table.png": BENCH_SHOTS / "ur5e-1b-dataset-table.png",
     "c1/c1-channels-tab.png": C1_SHOTS / "c1-channels-tab.png",
     "c1/c1-signals-motor-current.png": C1_SHOTS / "c1-signals-motor-current.png",
+    # the follow-up the bench reported after switching (2026-11-20): a sim → real torque legend said "Target"
+    "followup/pendulum-7-sim-real-torque.png": BENCH_SHOTS / "pendulum-7-sim-real-torque.png",
+    "followup/pendulum-sim-real-torque-after.png": Path(
+        "/tmp/claude-1000/-home-bam--claude-jidoka-spares-spare-rrpsDw/b331c896-01c1-4684-837b-e19d9e0e6e2f/scratchpad/"
+        "pendulum-sim-real-torque-after.png"),
 }
 SERVE = ("env -u VIRTUAL_ENV /home/bam/arm_motion_bench/.venv/bin/python -m traj_compare.serve "
-         "/tmp/claude-1000/-home-bam--claude-jidoka-spares-spare-rrpsDw/b331c896-01c1-4684-837b-e19d9e0e6e2f/scratchpad/bench-after "
-         "--port 8779")  # fmt: skip
+         "/home/bam/arm_motion_bench/reports/media/dashboard --port 8779")  # fmt: skip
+# WHY the bench's own folder: it rebuilt all three sites with this code at 14:42-14:49 (index 19.2 / 10.3 / 13.4 MB),
+# so the live dashboards are the after state; the scratch rebuild was only the measurement.
 
 STYLE = """
 :root{--ink:#22221f;--muted:#6f6e69;--line:#e3e2dc;--bg:#fafaf7;--card:#fff;--accent:#2f6fdf;--ok:#2f8f4e;--warn:#b7791f}
@@ -268,6 +274,20 @@ def body() -> str:
         "manifest; unreferenced ones are deleted; old manifests still build. Every .npz the dataset writes is compressed, values "
         "bit-identical.</p>"
         "<p class='note'>UR5e: runs/ 2.3 → 1.4 GB, plus references/ 121 MB in 974 files.</p>" + commit("4029ed1 (merge fc26e2e)") + "</div>",
+        "<div class='gap'><h3>Follow-up · a sim → real pair names its reference (reported by the bench after it switched)</h3>"
+        "<p><b>Was:</b> in a run-to-run pair the reference is a run, not a target. The pendulum's <i>sim → real</i> torque legend "
+        "still called the sim run's <b>applied</b> torque “Target”, a different signal. The toolbar said “Error vs target”, the 3D "
+        "dropdown “Arrows → target”, and Rerun's torque views “— target, …”.</p>"
+        "<p><b>Now:</b> <code>Comparison.reference_kind</code> is <code>\"target\"</code> (default, wording unchanged) or "
+        "<code>\"run\"</code>. The dataset drill-down sets it for every pair whose first element is a measured series. Every place "
+        "that named the reference then says <i>sim τ (applied)</i>, <i>Error vs sim</i>, <i>Arrows → sim</i>, and in Rerun "
+        "<i>sim (applied)</i>.</p>"
+        + pair(fig(MEDIA / "followup" / "pendulum-7-sim-real-torque.png", "<span class='tag before'>before</span> The bench's own "
+                   "shot: components “Target · Feedforward · Applied”, “Error vs target”.", 1000, (440, 280, 1000, 620), 75),
+               fig(MEDIA / "followup" / "pendulum-sim-real-torque-after.png", "<span class='tag after'>after</span> The same run, "
+                   "rebuilt from a copy of its folder: “sim τ (applied)”, “Torque breakdown: sim (applied), …”, “Error vs sim”.",
+                   1000, (440, 280, 1000, 620), 75))
+        + commit("c869be7") + "</div>",
         # ── decision surface ─────────────────────────────────────────────────────────────────────────────────────
         "<h2>Decided for you</h2><ul>"
         "<li><b>The channels tab is not one of the fixed tabs</b>: it is <code>tabs.CHANNELS_TAB</code>, shown only when some situation "
