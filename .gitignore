@@ -7,3 +7,5 @@ __pycache__/
 **/out/
 # raw screenshots and GIFs of the 2026-07-29 viewer rounds: evidence, not source (kept on disk, out of history)
 docs/viewer_*/
+# review reports with inlined media (captures, video) stay out of git; text-only pages in reports/ are committed
+reports/media/
