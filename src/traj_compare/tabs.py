@@ -5,7 +5,8 @@ One set of tabs for both viewers (docs/NAVIGATION.md, Part B, frozen 2026-11-19)
 bit silly ... they should be the exact same thing"): the titles, the headings and the rule that drops a
 tab with nothing to show live here once, so the two viewers cannot drift apart.
 
-- ``TABS``: every tab in the contract's order, with its exact title and heading.
+- ``TABS``: every fixed question tab in the contract's order, with its exact title and heading.
+- ``CHANNELS_TAB``: "What else was measured?", one section per recorded channel (NAVIGATION.md C1), after ``signals``.
 - ``tabs_for(payload)``: the tabs an ``analyze_comparison`` payload can fill (``payload["tabs"]``).
 - ``normalize_parts(joint_names, parts)``: ``Comparison.parts`` as the payload's ``payload["parts"]``.
 - ``resolve_tab(name)``: a tab by id, by title, or by a pre-2026-11-19 title.
@@ -13,6 +14,7 @@ tab with nothing to show live here once, so the two viewers cannot drift apart.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -85,7 +87,17 @@ TABS: tuple[Tab, ...] = (
     ),
 )
 
-_BY_ID = {tab.id: tab for tab in TABS}
+# Every recorded signal beyond the joints (``Situation.channels``), one section per channel: docs/NAVIGATION.md C1.
+# WHY not in ``TABS``: ``TABS`` are the six fixed question tabs of Part B, each with sections known in advance; this
+# one is data-driven like the check tabs — its sections are whatever channels the runs recorded — so ``tabs_for``
+# appends it right after ``signals`` only when a situation (the target included) has a channel.
+CHANNELS_TAB = Tab(
+    id="channels",
+    title="What else was measured?",
+    heading="How did every other recorded signal change over the run?",
+)
+
+_BY_ID = {tab.id: tab for tab in (*TABS, CHANNELS_TAB)}
 
 
 def _runs_with(payload: Mapping[str, Any], key: str) -> bool:
@@ -134,7 +146,9 @@ def tabs_for(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
     A tab with nothing to show is dropped, in both viewers, by this one rule (NAVIGATION.md Part B):
     ``where`` and ``timing`` need a tool frame, ``joints`` at least two joints (and a joint error to rank),
     ``torque`` a torque breakdown; ``track`` and ``signals`` are always there. ``sections`` lists only the
-    tab's sections this payload can draw (``joint-tau`` only with ``tau``, and so on).
+    tab's sections this payload can draw (``joint-tau`` only with ``tau``, and so on). ``channels``
+    (``CHANNELS_TAB``) follows ``signals`` when any situation, the target included, has a channel
+    (``payload["channels"]``), one ``channel-<slug>`` section each (NAVIGATION.md C1).
     """
 
     available = _available_sections(payload)
@@ -143,7 +157,22 @@ def tabs_for(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
         sections = [section for section in tab.html_sections if section in available]
         if _shown(tab, payload, sections):
             shown.append({"id": tab.id, "title": tab.title, "heading": tab.heading, "sections": sections})
+    # the channels tab: one section per recorded channel (payload["channels"], analysis.py), right after signals
+    channel_sections = [channel["section"] for channel in payload.get("channels") or ()]
+    if channel_sections:
+        after = next((index + 1 for index, tab in enumerate(shown) if tab["id"] == "signals"), len(shown))
+        tab = CHANNELS_TAB
+        shown.insert(after, {"id": tab.id, "title": tab.title, "heading": tab.heading, "sections": channel_sections})
     return shown
+
+
+def channel_slug(name: str) -> str:
+    """A channel's section slug: lowercased, every run outside ``[a-z0-9]`` -> ``-``, ends stripped (NAVIGATION.md C1).
+
+    ``contact_force_n`` -> ``contact-force-n``. A name with no letter or digit at all slugs to ``channel``.
+    """
+
+    return re.sub(r"[^a-z0-9]+", "-", str(name).lower()).strip("-") or "channel"
 
 
 def resolve_tab(name_or_id: str) -> Tab:
@@ -155,10 +184,10 @@ def resolve_tab(name_or_id: str) -> Tab:
     name = str(name_or_id)
     if name in _BY_ID:
         return _BY_ID[name]
-    for tab in TABS:
+    for tab in (*TABS, CHANNELS_TAB):
         if name == tab.title or name in tab.legacy_titles:
             return tab
-    known = ", ".join(f"{tab.id} ({tab.title!r})" for tab in TABS)
+    known = ", ".join(f"{tab.id} ({tab.title!r})" for tab in (*TABS, CHANNELS_TAB))
     raise ValueError(f"no question tab {name!r}; tabs: {known}")
 
 

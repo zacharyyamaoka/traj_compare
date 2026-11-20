@@ -67,7 +67,7 @@ from robot_msgs.trajectory import JointTrajectory, PoseTrajectory
 
 from . import rerun_export
 from .analysis import _BREAKDOWN_KEYS, _torque_breakdown
-from .model import Comparison, ReportPage, RobotDisplay, Situation
+from .model import Comparison, ReportPage, RobotDisplay, Signal, Situation
 from .report import write_comparison_report
 
 REFERENCE = "reference"
@@ -855,6 +855,52 @@ def _validate(runs: Sequence[Run], group_by: Sequence[str], primary: Mapping[str
         raise ValueError(f"primary maps two aliases to one series: {dict(primary)}")
 
 
+def _drawable(values: Any) -> bool:
+    """Whether the run view can draw a channel: numbers, (N,) or (N, k). Labels and (N, a, b) blocks it cannot."""
+    array = np.asarray(values)
+    return array.dtype.kind in "biuf" and array.ndim in (1, 2)
+
+
+def _validate_channels(runs: Sequence[Run], signals: Mapping[str, Signal]) -> None:
+    """Every series' ``channels``, checked when the dataset is written, so a drill-down never fails on them (NAVIGATION.md C1).
+
+    ``channels["current"]`` is motor current, (N, J) in that series' ``joint_names`` order; any other shape raises
+    ``ValueError`` naming run, series and shape. A described channel must fit its ``Signal`` (``per_joint``: (N, J);
+    ``columns``: one per column), and one channel keeps one shape across a run's series (one plot per column).
+    """
+    for name, signal in signals.items():
+        if not isinstance(signal, Signal):
+            raise ValueError(f"signals[{name!r}] must be a traj_compare.Signal, got {type(signal).__name__}")
+    for run in runs:
+        shapes: dict[str, tuple[tuple[int, ...], str]] = {}  # channel -> (shape past N, the first series with it)
+        for series, trajectory in run.series().items():
+            joints = list(trajectory.joint_names)
+            for key, values in trajectory.channels.items():
+                shape = tuple(np.shape(values))
+                if key == "current":
+                    if shape != (len(trajectory.t), len(joints)):
+                        raise ValueError(
+                            f"run {run.name!r}: series {series!r} has channels['current'] of shape {shape}; motor current "
+                            f"is (N, J) = {(len(trajectory.t), len(joints))}, amperes, one column per joint of {joints}"
+                        )
+                    continue
+                if not _drawable(values):
+                    continue  # the drill-down says it is not drawn, and why
+                where = f"run {run.name!r}: series {series!r}, channel {key!r}"
+                first = shapes.setdefault(key, (shape[1:], series))
+                if first[0] != shape[1:]:
+                    recorded = "(N, " + ", ".join(map(str, first[0])) + ")" if first[0] else "(N,)"
+                    raise ValueError(f"{where} has shape {shape}, but series {first[1]!r} records it {recorded}; one shape per channel")
+                signal = signals.get(key)
+                if signal is None:
+                    continue
+                if signal.per_joint and shape[1:] != (len(joints),):
+                    raise ValueError(f"{where} has shape {shape}; per_joint needs (N, {len(joints)}), one column per joint of {joints}")
+                count = shape[1] if len(shape) == 2 else 1
+                if signal.columns and len(signal.columns) != count:
+                    raise ValueError(f"{where} has {count} column(s), but its Signal names {list(signal.columns)}")
+
+
 def _torque_file(series: str) -> str:
     """``<series>.torques.npz``, the series named as its ``<series>.npz`` is (``real`` -> ``real.torques.npz``)."""
     return f"{_safe_name(series)}.torques.npz"
@@ -909,6 +955,8 @@ def _write_run_files(
         "tolerances": None if options.tolerances is None else to_dict(options.tolerances),
         # the run report's breadcrumb back to index.html#/target/<slug> (NAVIGATION.md Part A)
         "target": None if target is None else {"key": target.key, "slug": target.slug, "title": target.title},
+        # how the run view names each channel (traj_compare.Signal), so a drill-down rebuilt later still has them (C1)
+        "signals": {name: signal.to_payload() for name, signal in getattr(options, "signals", {}).items()},
     }
     (folder / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
@@ -951,6 +999,7 @@ def write_dataset_report(
     target_by: str | None = None,
     config_by: str | None = None,
     display_hz: float = 50.0,
+    signals: Mapping[str, Signal] | None = None,
 ) -> Path:
     """Write ``output_dir/index.html`` (many runs at a glance), ``rows.json``/``rows.parquet`` and ``runs/<slug>/``.
 
@@ -976,6 +1025,9 @@ def write_dataset_report(
     - ``data_ui``: also write ``output_dir/data-ui/`` (``traj_compare.data_ui.write_tables``): data-ui's trajectory-contract
       tables over the same runs (the TCP from ``poses``, the links from ``robot``) and a ``views.base`` dashboard whose run
       rows link back to the drill-down. Open it in data-ui; see the README's "data-ui" section.
+    - ``signals``: channel name -> ``traj_compare.Signal`` (title, unit, column labels, ``per_joint``) for the series'
+      ``JointTrajectory.channels``, stored in every manifest; the drill-down draws ``channels["current"]`` ((N, J), A)
+      as motor current and every other channel, described or not, in its "What else was measured?" tab.
     """
 
     runs = list(runs)
@@ -986,6 +1038,8 @@ def write_dataset_report(
     if display_hz <= 0:
         raise ValueError(f"display_hz must be positive, got {display_hz}")
     _validate(runs, group_by, primary)
+    signals = {str(name): signal for name, signal in dict(signals or {}).items()}
+    _validate_channels(runs, signals)
     target_tag = _target_tag(runs, group_by, target_by)
     targets = _resolve_targets(runs, target_tag, explicit=target_by is not None)
     target_of = {run.name: target for target in targets for run in target.runs}
@@ -1004,6 +1058,7 @@ def write_dataset_report(
         if root is not None and root not in import_roots:
             import_roots.append(root)
     options = _Analysis(tolerances, _import_spec(poses, import_roots) if poses else None)
+    options.signals = signals  # the channel descriptions travel with the write's other options into every manifest
     if robot:
         _import_spec(robot, import_roots)  # fail now, not on the first drill-down
 
@@ -1201,6 +1256,13 @@ def _build_run_report(folder: Path) -> Path:
     for name, keys in manifest.get("torques", {}).items():  # .get: manifests written before 2026-11-19 have none
         with np.load(folder / _torque_file(name), allow_pickle=False) as stored:
             torques[name] = {key: stored[key] for key in keys}
+    # .get: manifests written before 2026-11-20 describe no channel (they are drawn under their own names)
+    signals = {
+        str(name): Signal(title=entry.get("title", ""), unit=entry.get("unit", ""), columns=tuple(entry.get("columns", ())),
+                          per_joint=bool(entry.get("per_joint", False)))
+        for name, entry in (manifest.get("signals") or {}).items()
+    }  # fmt: skip
+    not_drawn: dict[str, str] = {}  # a channel the run view cannot hold -> why; the page says so (never silently)
     offsets: Mapping[str, float] = manifest["time_offset_s"]
     series_names = list(manifest["series"])
     shown = {tuple(pair) for pair in manifest["default_pairs"]}
@@ -1214,6 +1276,21 @@ def _build_run_report(folder: Path) -> Path:
         # The breakdown's columns follow the series' own joint order; reorder them with the series onto the reference's.
         columns = [list(trajectory.joint_names).index(joint) for joint in reference.joint_names]
         breakdown = {key: values[:, columns] for key, values in torques.get(name, {}).items()}
+        # NAVIGATION.md C1: channels["current"] is Situation.current, every other channel Situation.channels.
+        # WHY reordered like effort: current and a per_joint channel follow the series' own joint order, the view the
+        # reference's (select() keeps channels whole); any other channel's columns (x, y, z) are no joints, never moved.
+        recorded = {str(key): np.asarray(values) for key, values in trajectory.channels.items()}
+        current = recorded.pop("current", None)
+        if current is not None and current.shape != (len(trajectory.t), len(columns)):  # a manifest from before C1
+            not_drawn["current"] = f"shape {current.shape}, not (N, {len(columns)})"
+            current = None
+        channels: dict[str, np.ndarray] = {}
+        for key, values in recorded.items():
+            if not _drawable(values):
+                not_drawn.setdefault(key, f"{values.dtype} of shape {values.shape}")
+                continue
+            signal = signals.get(key)
+            channels[key] = values[:, columns] if signal is not None and signal.per_joint else values
         trajectory = trajectory.select(reference.joint_names)
         return Situation(
             name=name,
@@ -1223,12 +1300,14 @@ def _build_run_report(folder: Path) -> Path:
             qd=trajectory.velocities,
             qdd=trajectory.accelerations,
             tau=trajectory.effort,
+            current=None if current is None else current[:, columns],
             **breakdown,  # tau_cmd / tau_ff / tau_fb as given; the run view derives the third (its "Feedforward or feedback?" tab)
             poses=None if poses is None else poses(trajectory).matrices(),
             video=manifest["media"].get(name, ""),
             video_start_s=manifest["media_start_s"].get(name, 0.0),
             time_offset_s=offset_s,
             robot=None,
+            channels=channels,
         )
 
     comparisons = []
@@ -1238,20 +1317,23 @@ def _build_run_report(folder: Path) -> Path:
         offset = float(offsets.get(second, 0.0)) - float(offsets.get(first, 0.0))
         tcp_frame = poses(reference).child_frame_id if poses is not None else ""
         hidden = "" if (first, second) in shown else " (earlier iteration)"
+        target, measured = situation(first, reference, origin, 0.0), situation(second, reference, origin, offset)
+        skipped = "".join(f" Not drawn: {key} ({why})." for key, why in not_drawn.items())
         comparisons.append(
             Comparison(
                 title=f"{label(first)} → {label(second)}",
                 name=_pair_name(first, second),
                 tab_title=f"{label(first)} → {label(second)}{hidden}",
                 joint_names=list(reference.joint_names),
-                target=situation(first, reference, origin, 0.0),
-                situations=[situation(second, reference, origin, offset), *_clip_situations(manifest, series_names)],
+                target=target,
+                situations=[measured, *_clip_situations(manifest, series_names)],
                 robot=robot,
                 tcp_frame=tcp_frame or "TCP",
                 tolerances=None if pose_tolerances else tolerances,
                 tcp_tolerances=tolerances if pose_tolerances else None,
                 estimate_latency=True,
-                description=f"Errors are {label(first)} − {label(second)}, the ROS 2 convention.",
+                description=f"Errors are {label(first)} − {label(second)}, the ROS 2 convention.{skipped}",
+                signals=signals,
             )
         )
     tags = " · ".join(f"{key}={value}" for key, value in manifest["tags"].items())

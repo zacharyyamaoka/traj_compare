@@ -17,6 +17,7 @@ from .model import (
     ReportPage,
     ReportTable,
     RobotDisplay,
+    Signal,
     Situation,
     TableRow,
 )
@@ -47,6 +48,7 @@ __all__ = [
     "ReportPage",
     "ReportTable",
     "RobotDisplay",
+    "Signal",
     "Situation",
     "TableRow",
     "analyze_comparison",

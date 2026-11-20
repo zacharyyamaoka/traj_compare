@@ -5,6 +5,9 @@ Per situation, computed on that situation's own time grid:
 - joint space: ``q``, ``qd``, ``qdd``, ``tau``, ``current`` (velocity/
   acceleration fall back to ``np.gradient`` when not recorded; ``tau`` and
   ``current`` stay absent if absent — a missing channel is never invented);
+- every other recorded signal (``Situation.channels``) as ``entry["channels"][name]``, one display column per
+  channel column, named by ``Comparison.signals`` (``payload["channels"]``: title, unit, column labels, section);
+  an undescribed channel keeps its own name, no unit and columns ``0``, ``1``, ... (docs/NAVIGATION.md C1);
 - the torque breakdown: ``tau_cmd`` (commanded, to the FOC current loop), ``tau_ff``
   (feedforward) and ``tau_fb`` (feedback). Two of the three derive the third (``tau_cmd =
   tau_ff + tau_fb``, listed in ``entry["derived"]``); all three given are kept as given (a drive
@@ -59,7 +62,7 @@ from robot_msgs.compare import (
 )
 from robot_msgs.trajectory import JointTrajectory, PoseTrajectory
 
-from .model import Comparison, ReportTable, RobotDisplay, Situation, TableRow
+from .model import Comparison, ReportTable, RobotDisplay, Signal, Situation, TableRow
 from .rotations import (
     align_unwrapped,
     mat_to_quat,
@@ -67,7 +70,7 @@ from .rotations import (
     successive_rotation_angles,
     unwrap_rpy,
 )
-from .tabs import normalize_parts, tabs_for
+from .tabs import channel_slug, normalize_parts, tabs_for
 
 MAX_PLOT_POINTS = 5000
 MAX_ROBOT_TRACK_POINTS = 2000
@@ -772,6 +775,56 @@ def _aggregates(
     return out
 
 
+def _channel_descriptors(comparison: Comparison, ordered: list[tuple[Situation, str]]) -> list[dict[str, Any]]:
+    """One entry per channel any situation (the target included) recorded: how both viewers name and lay it out.
+
+    ``{"name", "section", "title", "unit", "ndim", "columns", "per_joint", "described"}``, the described channels in
+    ``Comparison.signals`` order, then the rest in the order they first appear. ``section`` is ``channel-<slug>``
+    (``tabs.channel_slug``), suffixed ``-2``, ``-3`` when two names slug alike, so neither is lost.
+
+    WHY an undescribed channel is drawn anyway (NAVIGATION.md C1, truthful rendering): a recorded signal is never
+    dropped or renamed — title = its name, no unit, columns ``0``, ``1``, ... (robot_msgs' own column indices).
+    """
+
+    shapes: dict[str, np.ndarray] = {}
+    for situation, _ in ordered:
+        for name, values in situation.channels.items():
+            shapes.setdefault(name, values)  # Comparison keeps one shape per channel
+    names = [name for name in comparison.signals if name in shapes] + [
+        name for name in shapes if name not in comparison.signals
+    ]
+    taken: set[str] = set()
+    descriptors = []
+    for name in names:
+        values = shapes[name]
+        signal = comparison.signals.get(name) or Signal()
+        if values.ndim == 1:
+            columns: list[str] = []
+        elif signal.per_joint:
+            columns = list(comparison.joint_names)
+        elif signal.columns:
+            columns = list(signal.columns)
+        else:
+            columns = [str(index) for index in range(values.shape[1])]
+        section = base = f"channel-{channel_slug(name)}"
+        count = 1
+        while section in taken:
+            count += 1
+            section = f"{base}-{count}"
+        taken.add(section)
+        descriptors.append({
+            "name": name,
+            "section": section,
+            "title": signal.title or name,
+            "unit": signal.unit,
+            "ndim": int(values.ndim),
+            "columns": columns,
+            "per_joint": signal.per_joint,
+            "described": name in comparison.signals,
+        })  # fmt: skip
+    return descriptors
+
+
 def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
     """Compute the full channel payload for one comparison page."""
 
@@ -825,6 +878,8 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
             "robot_track": None,
             "error_metrics": None,
             "torque_budget": None,
+            # name -> display columns on plot_t (beside ``plot``, whose keys are the fixed joint / tool series)
+            "channels": None,
         }
         payload_situations.append(entry)
         if role != "target":
@@ -886,6 +941,13 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
                 _clean(on_grid(situation.current[:, col]))
                 for col in range(situation.current.shape[1])
             ]
+
+        if situation.channels:
+            # one column per channel column (a 1-D channel is one), on the display grid like every other trace
+            entry["channels"] = {
+                name: [_clean(on_grid(column)) for column in values.reshape(len(t), -1).T]
+                for name, values in situation.channels.items()
+            }
 
         breakdown, derived_torques = _torque_breakdown(situation)
         entry["derived"].extend(derived_torques)
@@ -1063,6 +1125,7 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
         # WHY here (Zach 2026-11-19, traj compare view feedback: the standalone and the Rerun run viewer "should be
         # the exact same thing"): both read the parts and the already-dropped question tabs from this one payload.
         "parts": normalize_parts(comparison.joint_names, comparison.parts),
+        "channels": _channel_descriptors(comparison, ordered),
     }
     payload["tabs"] = tabs_for(payload)
     return payload
