@@ -221,8 +221,12 @@ def test_build_run_folder_is_public_and_takes_just_the_folder():
 def test_build_run_folder_builds_the_report_from_the_folder_alone(tmp_path):
     write_site(tmp_path / "site", "Folder only", 2)
     folder = first_run(tmp_path / "site")
-    moved = tmp_path / "elsewhere" / folder.name  # no site around it: no index.html, no sibling runs
+    # No site around it: no index.html, no sibling runs. Since NAVIGATION.md C6 (2026-11-20) a run folder names its
+    # reference as ../../references/<digest>.npz, so "the folder alone" is the folder plus the reference it names.
+    moved = tmp_path / "elsewhere" / "runs" / folder.name
     shutil.copytree(folder, moved)
+    if (tmp_path / "site" / "references").is_dir():
+        shutil.copytree(tmp_path / "site" / "references", tmp_path / "elsewhere" / "references")
     path = dataset.build_run_folder(moved)
     assert path == moved / "report.html" and path.is_file()
     assert not (folder / "report.html").exists()  # the original folder is not the one built
