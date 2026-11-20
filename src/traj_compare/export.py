@@ -72,8 +72,14 @@ def _reference_name(payload: dict[str, Any]) -> str:
     return ""
 
 
-def _channels(payload: dict[str, Any], plot: dict[str, Any]) -> list[tuple[str, list[tuple[str, np.ndarray]]]]:
-    """A situation's plot as ``(channel, [(column, values)])`` in the payload's own order."""
+def _channels(payload: dict[str, Any], entry: dict[str, Any]) -> list[tuple[str, list[tuple[str, np.ndarray]]]]:
+    """A situation's plot as ``(channel, [(column, values)])`` in the payload's own order, then its recorded channels.
+
+    WHY the recorded channels too (NAVIGATION.md C1, 2026-11-20): Parquet and MCAP are projections of the same payload,
+    so a contact force the run view draws must not vanish from the export. They are named ``channels/<name>``, so a
+    recorded channel can never collide with a joint signal such as ``q``; columns are ``Comparison.signals``' labels.
+    """
+    plot = entry["plot"]
 
     columns_of = {
         "err_axes": payload["error_axes"],
@@ -89,6 +95,12 @@ def _channels(payload: dict[str, Any], plot: dict[str, Any]) -> list[tuple[str, 
             channels.append((channel, [(str(name), _array(values)) for name, values in zip(names, series, strict=True)]))
         else:
             channels.append((channel, [("", _array(series))]))
+    described = {descriptor["name"]: descriptor for descriptor in payload.get("channels") or []}
+    for name, columns in (entry.get("channels") or {}).items():
+        labels = (described.get(name) or {}).get("columns") or []
+        if len(labels) != len(columns):  # a 1-D channel is one unnamed column, as the run view's scalar series
+            labels = [""] if len(columns) == 1 else [str(index) for index in range(len(columns))]
+        channels.append((f"channels/{name}", [(str(label), _array(values)) for label, values in zip(labels, columns, strict=True)]))
     return channels
 
 
@@ -118,7 +130,7 @@ def write_parquet(comparison: Comparison, path: Path | str, *, payload: dict[str
         if not entry["has_data"] or entry["plot"] is None:
             continue
         own_reference = entry["name"] if entry["role"] == "target" else reference
-        for channel, columns in _channels(payload, entry["plot"]):
+        for channel, columns in _channels(payload, entry):
             for column, values in columns:
                 count = len(time_s)
                 pieces["situation"].append(np.full(count, entry["name"], dtype=object))
@@ -194,7 +206,7 @@ def write_mcap(comparison: Comparison, path: Path | str, *, payload: dict[str, A
         for entry in payload["situations"]:
             if not entry["has_data"] or entry["plot"] is None:
                 continue
-            for channel, columns in _channels(payload, entry["plot"]):
+            for channel, columns in _channels(payload, entry):
                 names = [column for column, _ in columns]
                 topic = f"/traj_compare/{entry['name']}/{channel}"
                 schema_id = writer.register_schema(
