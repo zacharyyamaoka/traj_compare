@@ -65,6 +65,7 @@ players.
 | Camera | one card per `CameraOverlay` in `Comparison.overlays`: the real video with a selected sim render stacked on top — **Real ◀ ▶ Sim** opacity slider (0 = only real, 1 = only sim), sim-source dropdown, Mix / Difference blend, 2 Hz Flicker; video position = t − `t0_s`; opacity/sim/blend/flicker are report-level prefs; a missing file shows a greyed "no video" card with its path | on |
 | Videos | one card per situation with a `video`, always played/seeked together by the transport | on |
 | 3D paths | interactive three.js viewer — see below | on |
+| Recorded channels (tab **What else was measured?**) | every other signal a situation recorded (`Situation.channels`: contact force, a detector residual, a temperature), described by `Comparison.signals` = `{name: traj_compare.Signal(title, unit, columns, per_joint)}`: one section per channel, one plot per column titled `<title>, <column> [<unit>]`, every situation in its run colour. A channel nobody described is drawn under its own name, never dropped (`docs/NAVIGATION.md` C1). Rerun: `/channels/<name>/<column>/<situation>`, the same tab title | on |
 
 **Vec** is the belt-matching view: pass your conveyor direction in
 `vec_dirs` and `Vec[Conveyor]_d` reads back directly whether the TCP holds
@@ -286,7 +287,7 @@ opened by a viewer at least as new as the SDK that wrote it, so the button and t
 
 | Opened from | "Open in Rerun" | Also |
 | --- | --- | --- |
-| `python -m traj_compare.serve <dir>` (default `http://127.0.0.1:8767/report.html`) | `POST /__rerun/open?rrd=...&layout=...`; the server starts the pinned viewer on the file in the chosen layout (only files inside `<dir>`) | "Rerun in browser" opens app.rerun.io on the served `.rrd` |
+| `python -m traj_compare.serve <dir>` (default `http://127.0.0.1:8767/report.html`) | `POST /__rerun/open?rrd=...&layout=...`; the server starts the pinned viewer on the file in the chosen layout (only files inside `<dir>`) | "Rerun in browser" opens app.rerun.io on the served `.rrd`; one server holds every dataset site below `<dir>` (see Dataset view) |
 | `file://` or any plain static server | copies the `uvx` command (no launcher to call) | "Copy command", "Download .rrd" |
 
 ## Dataset view
@@ -316,7 +317,18 @@ write_dataset_report(runs, "out/", title="Wrist coverage", group_by=("tape",), t
   whose breadcrumb links back.
 - `target_by` (default: the `"target"` tag, else the first `group_by` tag, else a hash of the reference), `config_by`
   (default: the first `group_by` tag that isn't the target, else the series name); a `"date"` tag orders the history;
-  `display_hz` (default 50) sets the rate of the embedded error series (about 4.5 MB of page at 387 two-joint runs).
+  configs keep one colour on every level, all distinct (grey only for the single sim-only config of a twin-vs-hardware
+  dataset; sim lines are dashed either way).
+- **Size** (`docs/NAVIGATION.md` C5). `index.html` holds each line's scalars only; every line's drawn series (joint error,
+  feedback torque, FB share) lives in `targets/<slug>.js`, a classic script the page adds when a target opens or its card
+  or league row scrolls into view, so it works from `file://` too. `display_hz` (default 50) is the rate picked from the
+  reference; `target_budget` (default 2 000 000 drawn values per target file) grows the stride for a huge target, and every
+  chart says the rate it draws.
+- **Signals beyond the joints** (`docs/NAVIGATION.md` C1). A series' `JointTrajectory.channels` travel with it:
+  `channels["current"]` (N, J) in A (or (N,) on one joint) is the run report's motor current; every other channel is drawn
+  in its *What else was measured?* tab. `write_dataset_report(..., signals={"contact_force_n": Signal("Contact force", "N")})`
+  names and units them; it is stored in every manifest, so a drill-down built later still has it. A wrong-shape current
+  raises when the dataset is written, never at drill-down.
 - `Run(name, reference, measured, tags, pairs, time_offset_s, title, media, media_start_s)`: `measured` holds any number
   of series (`"reference"` is the target's reserved name). `pairs=None` is `default_pairs(series)`: the target to each series,
   then every series to every later one. A pair (a, b) is taken with `time_offset_s[b] - time_offset_s[a]`.
@@ -327,16 +339,22 @@ write_dataset_report(runs, "out/", title="Wrist coverage", group_by=("tape",), t
   alias nor named `<alias>_...` (3 pairs, not 6); the page's **show all pairs** switch and `rows.json` keep the rest.
 - **Files**: `index.html` (self-contained: answer line, your `summary` page, runs x pairs table with sort, a filter per tag,
   verdict and shaded cells, joint x run heatmap, peak-time strip, ISO 9283 cards per group x series, per-row **Open run** and
-  **Open in Rerun**); `rows.json` and `rows.parquet` (with the `export` extra): one row per run x pair x metric x stat
-  `{run, pair, metric, stat, value, unit, <each tag>}` in SI; `runs/<slug>/manifest.json`, `reference.npz`, `<series>.npz`
-  (`robot_msgs.load_npz`), `media/<key>.<ext>`.
+  **Open in Rerun**); `targets/<slug>.js` (the drawn series, above); `rows.json` and `rows.parquet` (with the `export`
+  extra): one row per run x pair x metric x stat `{run, pair, metric, stat, value, unit, <each tag>}` in SI, choose with
+  `rows=("parquet",)` (or `()`, `("json",)`; default both when pyarrow imports; one not chosen is deleted);
+  `references/<digest>.npz`, each distinct reference once (a run's manifest names it as `../../references/<digest>.npz`);
+  `runs/<slug>/manifest.json`, `<series>.npz` (`robot_msgs.load_npz`), `<series>.torques.npz`, `media/<key>.<ext>`.
+  Every `.npz` is deflated, values bit-identical (`docs/NAVIGATION.md` C2, C6).
 - **Drill-down** (`build_drill_down(out, run_name)`, or `python -m traj_compare.dataset drill <out> "<run name>"`): one
   `Comparison` per pair (first element is the reference), one tab per pair, `runs/<slug>/report.html` plus a `.rrd` per pair.
   A media key equal to a series name is that situation's synced video (`Situation.video_start_s`: trajectory time at video time
   0); any other key is an extra clip on the page.
 - **Lazy vs eager**: `"lazy"` (default) writes nothing heavy; `python -m traj_compare.serve <out>` builds a run's report, or its
   `.rrd` when you press **Open in Rerun**, on the first request and caches it. `"eager"` builds all now. WHY lazy: 387 runs x 3
-  pairs of `.rrd` is about 2 GB up front. From `file://` the buttons copy the command instead.
+  pairs of `.rrd` is about 2 GB up front. From `file://` the buttons copy the command instead. One server serves every site
+  below its root (a site is a folder with `index.html` and `runs/`, at any depth): `python -m traj_compare.serve dashboard/`
+  holds `dashboard/ur5e/`, `dashboard/pendulum/`, ... and answers `/` with a page linking each site (title, run count) when
+  the root has no `index.html`. It builds a run straight from its folder (`traj_compare.build_run_folder(folder)`).
 - `examples/dataset_demo.py --out DIR [--eager]` writes twelve synthetic runs of the planar 2R arm.
 
 - **Torque breakdown.** `Run(..., torques={"real": {"tau_ff": ff, "tau_fb": fb}})` takes any of `tau_cmd` / `tau_ff` /
@@ -390,7 +408,8 @@ same payload as the HTML and the .rrd, so no metric is recomputed; install the e
 
 - **Parquet** — tidy long rows `comparison, situation, reference, channel, column, t, value`. `channel` is the payload's
   plot key (`q`, `qd`, `qdd`, `tau`, `tau_cmd`, `tau_ff`, `tau_fb`, `err_q`, `err_x`.., `lag`, `cross_track`, `contour`, `lag_time`, `vec0_d`,
-  `err_axes`, ...), `column` the joint name / `error_axes` label or `""` for a scalar channel, `t` seconds from the
+  `err_axes`, ..., and `channels/<name>` for each recorded channel), `column` the joint name / `error_axes` label / the
+  channel's column label or `""` for a scalar channel, `t` seconds from the
   reference's first sample on the plot grid, `value` NaN where the payload has null. The target's rows carry its own name
   as `reference`.
 - **MCAP** — JSON messages with a jsonschema schema per topic `/traj_compare/<situation>/<channel>`; one message per

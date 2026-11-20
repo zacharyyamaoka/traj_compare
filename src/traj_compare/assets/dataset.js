@@ -653,7 +653,7 @@
   buildFilters();
   buildHeatControls();
   renderAll();
-  $('ds-foot').textContent = 'traj_compare dataset view · rows.json holds every pair, run and statistic in SI units';
+  $('ds-foot').textContent = 'traj_compare dataset view · the row files beside this page (rows.json / rows.parquet, as written) hold every pair, run and statistic in SI units';
 
   // ══ Dataset → Target levels (docs/NAVIGATION.md Part A) ══════════════════════
   //

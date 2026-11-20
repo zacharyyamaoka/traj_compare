@@ -101,13 +101,15 @@ Module `traj_compare.dataset`; exports `Run`, `default_pairs`, `write_dataset_re
 | Input | Meaning |
 | --- | --- |
 | `Run` | `name`, `reference` (JointTrajectory), `measured` (series name -> JointTrajectory), `tags` (str/int/float/bool), `pairs` (default `default_pairs`), `time_offset_s` per series, `title`, `media` + `media_start_s` per key |
-| `write_dataset_report(runs, out, title=, group_by=, tolerances=, poses=, robot=, summary=, primary=, drill_down=, data_ui=)` | `poses` / `robot` are `"module:function"` specs; `primary` is alias -> series; `drill_down` is `"lazy"` or `"eager"` |
+| `write_dataset_report(runs, out, title=, group_by=, tolerances=, poses=, robot=, summary=, primary=, drill_down=, data_ui=, rows=, signals=, target_by=, config_by=, display_hz=, target_budget=)` | `poses` / `robot` are `"module:function"` specs; `primary` is alias -> series; `drill_down` is `"lazy"` or `"eager"`; `rows` a subset of `("json", "parquet")`; `signals` channel name -> `Signal` (docs/NAVIGATION.md Part C) |
 
 | Output | Content |
 | --- | --- |
 | `out/index.html` | self-contained page; payload in `<script id="traj-compare-dataset">`: `rows` (run x pair: tags, `verdict`, `peak_t`, per-joint and TCP stats), `aggregates` (`"k=v, ..."` -> series -> `{runs, accuracy, repeatability}` or `{"status": "references differ"}`), `default_pairs`, `labels`, `angle_unit: "deg"` |
 | `out/rows.json`, `rows.parquet` | one row per run x pair x metric x stat, SI, `unit`, every tag its own column (a tag may not be named `run`, `pair`, `metric`, `stat`, `value` or `unit`); extra metrics `coverage` and `latency` (stat `value`) |
-| `out/runs/<slug>/` | `manifest.json`, `reference.npz`, `<series>.npz` (robot_msgs `save_npz`), `media/`, and `report.html` + `rerun/<a>--<b>.rrd` once built |
+| `out/references/<digest>.npz` | each distinct reference once, deflated; a manifest names it as `../../references/<digest>.npz` |
+| `out/targets/<slug>.js` | one target's drawn series per line (`window.trajCompareTarget(...)`), loaded by the page on demand |
+| `out/runs/<slug>/` | `manifest.json`, `<series>.npz` (robot_msgs npz layout, deflated; channels ride inside), `<series>.torques.npz`, `media/`, and `report.html` + `rerun/<a>--<b>.rrd` once built |
 
 Drill-down: one tab per pair, built from the files alone. `Situation.video_start_s` (new, default 0) is the trajectory time at
 video time 0 and reaches the viewer's transport and the .rrd. A pair whose two series never overlap is recorded as a row with an
