@@ -139,3 +139,133 @@ sections move into a left stage pane `[data-tc-stage]` that drags (`[data-tc-sta
   - **Bimanual, 46 motors**: parts Left arm (7), Right arm (7), Left hand (16: thumb 4, index 3, middle 3, ring 3,
     little 3), Right hand (16); a part selector of 4; a ranking of 46 bars; a hand part draws 5 finger rows.
 - Out of scope here: one tool frame per arm (the model has one `tcp_frame`); the `where` / `timing` tabs follow it.
+
+---
+
+## Part C: scale and signals (frozen 2026-11-20)
+
+Source: the arm_motion_bench Trajectory Tracking Agent, 2026-11-20. It ran the dataset view on three robots (UR5e 1006
+targets / 4932 runs, BAM FB 504 / 1648, pendulum 465 / 2301 sim + real) and listed seven gaps it had worked around.
+Measured on its UR5e site:
+- the index was 38 MB at 3 Hz: line torque series 13.4 MB, line `e_deg` 6.7 MB, the runs table's rows 10.9 MB;
+- `rows.json` was 460 MB;
+- `runs/` held 2.4 GB, of which 0.81 GB was `reference.npz`, for only 974 distinct references across 4932 runs.
+
+Parts A and B stay in force; this part adds to them.
+
+### C1. Signals beyond the joints (gaps 1, 2)
+
+- **Carrier: each series' `JointTrajectory.channels`.** These are robot_msgs-native and already saved in its `.npz`,
+  so `Run` gains nothing.
+- **`channels["current"]`, shaped (N, J):** motor current in A, columns in that series' `joint_names` order.
+  - The drill-down hands it over as `Situation.current`, reordered onto the reference's joints exactly as `effort` is.
+  - The HTML `signals` tab draws it in its existing `joint-current` section.
+  - Rerun's `signals` tab gets a **Motor current [A]** sub-tab when any situation has current.
+  - A `"current"` channel of any other shape raises `ValueError` from `write_dataset_report` (naming run, series and
+    shape), never at drill-down time.
+- **Every other channel** becomes `Situation.channels[name]`: float, (N,) or (N, k), on that situation's own samples.
+  - `Situation.__post_init__` raises `ValueError` (naming the situation and the channel) for:
+    - another dimensionality;
+    - a first dimension that differs from `len(t)`;
+    - the key `"current"` (use `Situation.current`).
+- **Description: `traj_compare.Signal`.** A frozen dataclass in `model.py`, exported from `traj_compare`:
+  `Signal(title: str = "", unit: str = "", columns: Sequence[str] = (), per_joint: bool = False)`.
+  - It is given through `Comparison.signals: Mapping[str, Signal]` (default `{}`), or
+    `write_dataset_report(..., signals: Mapping[str, Signal] | None = None)`. The dataset form stores them in every
+    manifest under `"signals"`, so a drill-down rebuilt later still has them.
+  - A channel nobody described is still drawn: title = its name, no unit, columns `[0]`, `[1]`, …
+    WHY: truthful rendering. A recorded signal is never dropped or renamed.
+  - `per_joint=True`: shape must be (N, J); the columns are the joints, reordered with the series as `effort` is.
+  - `columns`, when given, must have length k (else `ValueError`).
+
+**The run view's tab for them**, after `signals` and before the check tabs:
+
+| id | Tab title (exact) | Heading inside the tab (exact) | HTML sections | Rerun `questions` layout | Shown when |
+| --- | --- | --- | --- | --- | --- |
+| `channels` | **What else was measured?** | How did every other recorded signal change over the run? | one per channel, `[data-tc-section="channel-<slug>"]` | one TimeSeriesView per channel | any situation (target included) has a channel |
+
+- `<slug>` is the channel name lowercased, with every run of characters outside `[a-z0-9]` replaced by `-` and
+  leading or trailing `-` stripped (`contact_force_n` → `contact-force-n`).
+- **Plot titles name the signal and its unit:** `Contact force [N]` for a 1-D channel; `Contact force, x [N]` for one
+  column of a 2-D channel, which gets one plot per column.
+  - Every situation that has the channel is drawn in its run colour, the target as the target is drawn elsewhere.
+  - A missing unit drops the brackets: `contact_force_n`, never `contact_force_n []`.
+- **Rerun:**
+  - Entities: `/channels/<name>/<column>/<situation>` (a 1-D channel's column is `value`).
+  - The tab title is exact. One view per channel holds all its columns and situations; the view is titled
+    `<title> [<unit>]`.
+- `traj_compare.tabs.tabs_for(payload)` drops the tab when no situation has a channel, in both viewers.
+- Out of scope: drawing channels on the Dataset or Target level. A per-run scalar (peak force) stays a run tag.
+
+### C2. Row files (gap 3)
+
+`write_dataset_report(..., rows: Sequence[str] | None = None)` picks which row files to write, a subset of
+`("json", "parquet")`:
+- `None` (the default) is today's behaviour: `rows.json` always, `rows.parquet` when pyarrow imports.
+- `()` writes neither; `("parquet",)` writes only `rows.parquet`.
+- An unknown name raises `ValueError`. Naming `"parquet"` without pyarrow raises `ModuleNotFoundError`. Both are raised
+  before any file is written.
+- A row file not chosen this time is deleted if an earlier write left one, so no stale rows outlive their data.
+- The rows' content and columns are unchanged.
+
+### C3. One server for many sites (gap 4)
+
+- A **site** is a directory holding `index.html` and `runs/`. `python -m traj_compare.serve <dir>` lazily builds
+  `<site>/runs/<slug>/report.html` and `<site>/runs/<slug>/rerun/<pair>.rrd`:
+  - for every site at any depth below the served root, the root included, as it does for the root site today;
+  - from `<site>/runs/<slug>/manifest.json`;
+  - under the one existing build lock.
+- **The build goes straight to that run's folder** through the new public
+  `traj_compare.dataset.build_run_folder(folder) -> Path`, never through a scan of every manifest.
+  `build_drill_down(output_dir, run_name)` keeps its signature.
+- **`GET /` (or `/index.html`) when the served root has no `index.html` of its own** answers a landing page listing every
+  site up to 3 levels deep, in path order:
+  - one link per site, `<a data-tc-site="<site path>" href="<site path>/index.html">`;
+  - its text holds the site's `<title>` and its run count (the number of `runs/*/manifest.json`).
+- **Open in Rerun from a dataset page** posts the `.rrd`'s path resolved against the page's own URL, relative to the
+  served root (`ur5e/runs/<slug>/rerun/<pair>.rrd` for a site at `ur5e/`), as the run report already does.
+
+### C4. Config colours (gap 5)
+
+- Grey `#5f5e5a` marks a sim-only config only in the **twin case**: exactly one config has no real line, and at least
+  one config has real lines.
+- Every other config, sim-only or not, takes the next named hue in config order; past the named hues it takes distinct
+  generated ones.
+- In one dataset every config colour is distinct, for up to 24 configs. None is the torque blue `#2a78d6` or the
+  orange `#eb6834` (CONTRACT.md).
+- Sim lines are still dashed, with the hollow sim swatch. Kind is never shown by colour alone.
+
+### C5. Per-level detail and the index's size (gap 6)
+
+- **`index.html` embeds no line's time series.**
+  - Each line keeps only its scalars: `rms`, `worst_rms`, `worst_joint`, `coverage`, `ok`, and the torque scalars
+    `fb_share` / drive gap / per-joint shares when present.
+  - The runs table's per-row repeats are built in the page from one template, never stored per row. The template
+    holds the run name and the folder (e.g. `rerun_command`).
+- **Every line's drawn series live in one file per target, `targets/<slug>.js`**, holding the joint error `e_deg` and
+  the torque display series.
+  - It is a classic script calling `window.trajCompareTarget("<slug>", {...})`, so it loads with a `<script>` tag from
+    `file://` and from http alike.
+  - The Target level loads it when `#/target/<slug>` opens.
+  - The Dataset level's cards and league rows load it when they scroll into view: cards and charts render lazily,
+    with a placeholder until the file arrives.
+  - A file the write did not produce this time is deleted.
+- **Rate.** A target's series are picked at `display_hz` (default 50), never averaged.
+  - `write_dataset_report(..., target_budget: int = 2_000_000)` caps one target's file at that many drawn values
+    (lines × joints × samples × drawn series). Over the cap, the stride grows until the file fits.
+  - Every Target-level chart and every card says what it draws in a `[data-tc-drawn-rate]` element whose text contains
+    `<rate> Hz`, the rate actually drawn.
+  - `display_hz` and `target_budget` must be positive (else `ValueError`).
+
+### C6. Files on disk (gap 7)
+
+- **One reference per distinct reference.** Each is written once as `references/<digest>.npz` beside `runs/`. The digest
+  is a SHA-1 over the reference message's saved content (its JSON tree and every array's bytes), so two references
+  differing anywhere are two files.
+  - A run's `manifest.json` names it relatively: `files.reference = "../../references/<digest>.npz"`, and nothing
+    writes `runs/<slug>/reference.npz`.
+  - After the write, any `references/*.npz` that no `runs/*/manifest.json` names is deleted.
+  - A manifest written before 2026-11-20 (`"reference.npz"`) still builds.
+- **Every `.npz` the dataset writes is compressed** (`np.savez_compressed`): references, series and `.torques.npz`.
+  - `robot_msgs._core.load_npz` and `np.load` read it unchanged.
+  - The saved values are bit-identical to the inputs.
