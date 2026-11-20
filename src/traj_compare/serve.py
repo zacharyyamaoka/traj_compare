@@ -2,9 +2,12 @@
 
     python -m traj_compare.serve <dir> [--port 8767] [--host 127.0.0.1]
 
-A plain static server plus two behaviours. A request for a dataset run's ``runs/<slug>/report.html``
-(or its ``rerun/*.rrd``) that was never built is built on the spot from that run's manifest
-(``traj_compare.dataset.build_drill_down``) and cached on disk; and one endpoint, ``POST /__rerun/open?rrd=<path relative to the root>[&layout=questions|evo]``,
+A plain static server plus three behaviours. A request for a dataset run's ``<site>/runs/<slug>/report.html``
+(or its ``rerun/*.rrd``) that was never built is built on the spot from that run folder's manifest
+(``traj_compare.dataset.build_run_folder``) and cached on disk; a *site* (a directory holding ``index.html`` and
+``runs/``) may sit at the root or at any depth below it, so one server serves several robots' sites. WHY: the
+arm_motion_bench agent writes one site per robot and should not need one server each. When the root has no
+``index.html`` of its own, ``GET /`` answers a landing page linking every site up to 3 levels deep. And one endpoint, ``POST /__rerun/open?rrd=<path relative to the root>[&layout=questions|evo]``,
 which is what the report's "Open in Rerun" button calls. WHY an endpoint and not a custom URL
 scheme: a browser page cannot start a process, and a registered ``rerun://`` handler would be one
 more thing to install per machine; this is the same ``uvx`` command the "Copy command" button
@@ -14,6 +17,7 @@ shows, started for you. Standard library only.
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import re
 import subprocess
@@ -21,14 +25,14 @@ import threading
 from collections.abc import Callable
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from .rerun_export import LAYOUTS, blueprint_path, viewer_argv, viewer_command
 
 DEFAULT_PORT = 8767
 OPEN_PATH = "/__rerun/open"
-# runs/<slug>/report.html or runs/<slug>/rerun/<pair>.rrd, relative to the served root
-_LAZY_BUILD = re.compile(r"^runs/([A-Za-z0-9][A-Za-z0-9._-]*)/(?:report\.html|rerun/[A-Za-z0-9._-]+\.rrd)$")
+# [<site>/]runs/<slug>/report.html or [<site>/]runs/<slug>/rerun/<pair>.rrd, relative to the served root
+_LAZY_BUILD = re.compile(r"^((?:[^/]+/)*)runs/([A-Za-z0-9][A-Za-z0-9._-]*)/(?:report\.html|rerun/[A-Za-z0-9._-]+\.rrd)$")
 
 
 def _spawn_detached(argv: list[str]) -> None:
@@ -40,6 +44,46 @@ def _spawn_detached(argv: list[str]) -> None:
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+    )
+
+
+_SITE_DEPTH = 3
+_TITLE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
+
+
+def find_sites(root: Path) -> list[Path]:
+    """Every site (a dir holding index.html and runs/) 1 to 3 levels below ``root``, in posix path order."""
+    found: list[str] = []
+
+    def walk(directory: Path, depth: int) -> None:
+        for child in sorted(directory.iterdir()):
+            if not child.is_dir() or child.is_symlink() or child.name == "runs":
+                continue
+            if (child / "index.html").is_file() and (child / "runs").is_dir():
+                found.append(child.relative_to(root).as_posix())
+            if depth < _SITE_DEPTH:
+                walk(child, depth + 1)
+
+    walk(root, 1)
+    return [root / path for path in sorted(found)]
+
+
+def landing_page(root: Path) -> str:
+    """The page ``GET /`` answers when the root has no index.html: one link per site, with its title and run count."""
+    items = []
+    for site in find_sites(root):
+        path = site.relative_to(root).as_posix()
+        match = _TITLE.search((site / "index.html").read_text("utf-8", "replace"))
+        title = html.unescape(match.group(1)).strip() if match else path
+        runs = len(list((site / "runs").glob("*/manifest.json")))
+        text = html.escape(f"{title} \u2014 {runs} {'run' if runs == 1 else 'runs'}")
+        items.append(
+            f'<li><a data-tc-site="{html.escape(path)}" href="{html.escape(quote(path))}/index.html">{text}</a></li>'
+        )
+    body = "<ul>" + "".join(items) + "</ul>" if items else "<p>No sites found.</p>"
+    return (
+        '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sites</title></head>'
+        f"<body><h1>Sites</h1>{body}</body></html>"
     )
 
 
@@ -58,15 +102,18 @@ def make_handler(
         match = _LAZY_BUILD.match(relative)
         if match is None or (root / relative).is_file():
             return
-        manifest = root / "runs" / match.group(1) / "manifest.json"
-        if not manifest.is_file():
+        site = match.group(1)
+        if ".." in PurePosixPath(site).parts:
+            return
+        folder = (root / site / "runs" / match.group(2)).resolve()
+        if not folder.is_relative_to(root) or not (folder / "manifest.json").is_file():
             return
         with build_lock:
             if (root / relative).is_file():  # another request built it while this one waited
                 return
-            from .dataset import build_drill_down
+            from .dataset import build_run_folder
 
-            build_drill_down(root, json.loads(manifest.read_text("utf-8"))["name"])
+            build_run_folder(folder)
 
     class Handler(SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs) -> None:
@@ -100,11 +147,26 @@ def make_handler(
                 return
             serve()
 
+        def _landing(self, head: bool) -> bool:
+            """Answer the landing page when the root has no index.html of its own."""
+            if unquote(urlsplit(self.path).path) not in ("/", "/index.html") or (root / "index.html").is_file():
+                return False
+            data = landing_page(root).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            if not head:
+                self.wfile.write(data)
+            return True
+
         def do_GET(self) -> None:  # noqa: N802
-            self._serve_built(super().do_GET)
+            if not self._landing(head=False):
+                self._serve_built(super().do_GET)
 
         def do_HEAD(self) -> None:  # noqa: N802
-            self._serve_built(super().do_HEAD)
+            if not self._landing(head=True):
+                self._serve_built(super().do_HEAD)
 
         def _json(self, status: int, body: dict) -> None:
             data = json.dumps(body).encode("utf-8")

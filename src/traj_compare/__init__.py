@@ -24,7 +24,7 @@ from .report import write_comparison_report
 
 # WHY lazy: ``python -m traj_compare.dataset`` runs dataset.py as __main__; importing it here eagerly
 # would load it twice and print runpy's "found in sys.modules" warning on every CLI call.
-_DATASET_EXPORTS = ("Run", "build_drill_down", "default_pairs", "write_dataset_report")
+_DATASET_EXPORTS = ("Run", "build_drill_down", "build_run_folder", "default_pairs", "write_dataset_report")
 
 
 def __getattr__(name: str):
@@ -51,6 +51,7 @@ __all__ = [
     "TableRow",
     "analyze_comparison",
     "build_drill_down",
+    "build_run_folder",
     "default_pairs",
     "write_comparison_report",
     "write_dataset_report",

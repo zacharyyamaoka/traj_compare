@@ -1282,7 +1282,17 @@ def build_drill_down(output_dir: Path | str, run_name: str) -> Path:
     ``write_dataset_report``, in another process.
     """
 
-    return _build_run_report(_find_run_folder(Path(output_dir), run_name))
+    return build_run_folder(_find_run_folder(Path(output_dir), run_name))
+
+
+def build_run_folder(folder: Path | str) -> Path:
+    """Build ``<folder>/report.html`` (and its .rrd per pair) from that run folder's manifest alone and return its path.
+
+    WHY public and folder-only: ``python -m traj_compare.serve`` serves many sites at once and must build a run
+    where the request names it, without scanning every manifest of a site to find it.
+    """
+
+    return _build_run_report(Path(folder))
 
 
 def main(argv: Sequence[str] | None = None) -> None:

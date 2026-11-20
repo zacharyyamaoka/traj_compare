@@ -419,7 +419,10 @@
       return;
     }
     setStatus('Building ' + name + ' and opening it in Rerun…');
-    fetch(location.origin + '/__rerun/open?rrd=' + encodeURIComponent(row.rrd), { method: 'POST' })
+    // WHY resolved against the page URL: one server holds several sites (ur5e/, pendulum/, ...), and the
+    // endpoint wants the path from the served root, not from this site.
+    var relative = decodeURIComponent(new URL(row.rrd, location.href).pathname.replace(/^\//, ''));
+    fetch(location.origin + '/__rerun/open?rrd=' + encodeURIComponent(relative), { method: 'POST' })
       .then(function (response) {
         return response.json().then(function (body) { return { ok: response.ok && body.ok, body: body, status: response.status }; },
           function () { return { ok: false, body: {}, status: response.status }; });
