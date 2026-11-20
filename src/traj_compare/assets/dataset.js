@@ -72,8 +72,17 @@
   D.runs.forEach(function (run, index) { runIndex[run.name] = index; });
   var spanOf = {};
   D.runs.forEach(function (run) { spanOf[run.name] = run.t_span; });
+  var pairFile = {};
+  (D.pair_files || []).forEach(function (item) { pairFile[pk([item[0], item[1]])] = item[2]; });
 
   rowsAll.forEach(function (row) {
+    // WHY built here (NAVIGATION.md C5): a row's tags, folder and files are its run's and its pair's, so the index stores
+    // them once (D.runs, D.pair_files) instead of once per row, where they were most of the UR5e index's runs table.
+    var run = D.runs[runIndex[row.run]] || {};
+    if (!row.tags) row.tags = run.tags || {};
+    if (!row.slug) row.slug = run.slug;
+    if (!row.report) row.report = 'runs/' + row.slug + '/report.html';
+    if (!row.rrd) row.rrd = 'runs/' + row.slug + '/rerun/' + pairFile[pk(row.pair)] + '.rrd';
     var worst = null, worstJoint = '', worstMax = null, worstMaxJoint = '';
     D.joint_names.forEach(function (joint) {
       var stats = row.joints && row.joints[joint];
@@ -405,13 +414,28 @@
     status.className = 'ds-status' + (bad ? ' bad' : '');
   }
 
+  // Python's shlex.quote, so a row's command is the one dataset.py would have written for it.
+  function shellQuote(text) {
+    text = String(text);
+    if (!text) return "''";
+    if (/^[\w@%+=:,.\/-]+$/.test(text)) return text;
+    return "'" + text.replace(/'/g, "'\"'\"'") + "'";
+  }
+  // One template for every row (NAVIGATION.md C5): build the run's drill-down, then open its pair's .rrd in the pinned
+  // viewer. The viewer half is rerun_export's command around the row's .rrd path, which needs no quoting of its own.
+  function rerunCommand(row) {
+    var template = D.command_template;
+    return template.drill + shellQuote(row.run) + ' && ' + template.viewer[0] + row.rrd + template.viewer[1];
+  }
+
   // WHY POST to the serve endpoint and fall back to the command: a page cannot start a process;
   // `python -m traj_compare.serve` can (same as the run report's button), a file:// page cannot.
   function openRerun(row) {
     var name = row.run + ' · ' + pairLabel(row.pair);
+    var command = rerunCommand(row);
     function fallback(reason) {
-      copyText(row.rerun_command).then(function (copied) {
-        setStatus((copied ? 'Copied the command for ' : 'Command for ') + name + ' (' + reason + '): ' + row.rerun_command, !copied);
+      copyText(command).then(function (copied) {
+        setStatus((copied ? 'Copied the command for ' : 'Command for ') + name + ' (' + reason + '): ' + command, !copied);
       });
     }
     if (location.protocol !== 'http:' && location.protocol !== 'https:') {
@@ -691,6 +715,99 @@
   var tagsOf = {};
   D.runs.forEach(function (run) { tagsOf[run.name] = run.tags; });
   var LEVEL_TAGS = [LV.target_by, LV.config_by, LV.date_tag];
+
+  // ── per-target files: every line's drawn series, loaded when its target is shown (NAVIGATION.md C5) ──
+  //
+  // The index carries each line's scalars only; targets/<slug>.js carries its lines' e_deg and torque display series and
+  // calls window.trajCompareTarget(slug, data). Arriving, they are merged into the index's own line objects, so every chart
+  // below reads line.e_deg / line.torque.tau_fb as it always has, and only after target.ready.
+  var files = { requested: {}, waiting: {} };
+  function settle(target, failure) {
+    if (failure) target.failed = failure;
+    var waiting = files.waiting[target.slug] || [];
+    delete files.waiting[target.slug];
+    waiting.forEach(function (done) { done(target); });
+  }
+  window.trajCompareTarget = function (slug, data) {
+    var target = targetOf[slug];
+    if (!target || target.ready || !data) return;
+    if (data.points !== undefined && data.points !== target.t.length) {
+      settle(target, 'targets/' + slug + '.js is from another write of this dataset (' + data.points + ' instants, this page draws ' +
+        target.t.length + '); reload the page');
+      return;
+    }
+    var byId = {};
+    target.lines.forEach(function (line) { byId[line.id] = line; });
+    var entries = Array.isArray(data.lines) ? data.lines
+      : Object.keys(data.lines || {}).map(function (id) { return Object.assign({ id: id }, data.lines[id]); });
+    entries.forEach(function (entry) {
+      var line = byId[entry.id];
+      if (!line) return;
+      line.e_deg = entry.e_deg;
+      if (entry.torque) line.torque = Object.assign({}, line.torque || {}, entry.torque);
+    });
+    target.ready = true;
+    settle(target, null);
+  };
+  // Call done(target) once its file has arrived (target.ready) or could not (target.failed: why).
+  // WHY a <script> tag, not fetch(): fetch() of a file:// URL is refused, and index.html opens from file:// as well as
+  // over http; a classic script loads from both. The write id keeps a served page from reusing an earlier write's file.
+  function withTarget(target, done) {
+    if (target.ready || target.failed) { done(target); return; }
+    (files.waiting[target.slug] = files.waiting[target.slug] || []).push(done);
+    if (files.requested[target.slug]) return;
+    files.requested[target.slug] = true;
+    var script = document.createElement('script');
+    var path = 'targets/' + encodeURIComponent(target.slug) + '.js';
+    script.src = path + (D.write_id ? '?v=' + encodeURIComponent(D.write_id) : '');
+    script.onload = function () {
+      script.remove();
+      if (!target.ready && !target.failed) settle(target, path + ' loaded but drew nothing');
+    };
+    script.onerror = function () {
+      script.remove();
+      settle(target, path + ' did not load: write the dataset again (it sits beside index.html)');
+    };
+    document.head.appendChild(script);
+  }
+  // What a chart or card draws, stated where it draws it ([data-tc-drawn-rate]): the rate of its target's file.
+  function fmtHz(hz) { return hz >= 100 ? hz.toFixed(0) : String(+hz.toPrecision(3)); }
+  function ordinal(n) {
+    var tail = n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th');
+    return n + tail;
+  }
+  function rateHtml(target) {
+    if (!target.drawn_hz) return '<span class="ds-rate" data-tc-drawn-rate>one sample drawn</span>';
+    var how = (target.stride > 1 ? 'every ' + ordinal(target.stride) + ' sample' : 'every sample') + ' of the ' + fmtHz(target.rate_hz) +
+      ' Hz reference, picked, never averaged' + (target.capped ? '; thinned below display_hz ' + fmtHz(LV.display_hz) +
+      ' Hz so this target’s file holds at most target_budget values' : '');
+    return '<span class="ds-rate" data-tc-drawn-rate title="' + esc(how) + '">drawn at ' + fmtHz(target.drawn_hz) + ' Hz</span>';
+  }
+  // A chart's place while its target's file is on its way: the chart's own height, so nothing below it moves.
+  function waitHtml(target, height, text) {
+    return '<div class="ds-plot ds-wait' + (target.failed ? ' ds-wait-bad' : '') + '" style="height:' + height + 'px">' +
+      esc(target.failed || text || 'drawn when it comes into view') + '</div>';
+  }
+  // Cards and league rows render when they come into view; a target's file loads with its first one.
+  var observers = {};
+  function stopObserving(scope) {
+    if (observers[scope]) observers[scope].disconnect();
+    delete observers[scope];
+  }
+  function whenVisible(scope, elements, show) {
+    stopObserving(scope);
+    if (!window.IntersectionObserver) { elements.forEach(show); return; }
+    // WHY a 300 px margin: a card just below the fold is ready as it scrolls in, while one far below never loads.
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        observer.unobserve(entry.target);
+        show(entry.target);
+      });
+    }, { rootMargin: '300px 0px' });
+    elements.forEach(function (element) { observer.observe(element); });
+    observers[scope] = observer;
+  }
 
   // ── statistics of compare's numbers (display summaries, never a new metric) ──
 
@@ -1014,7 +1131,8 @@
   }
 
   // A line's drawn series for one joint: its joint error (°, the default), its feedback torque (N·m) or its FB share (%).
-  function errorSeries(line, jointIndex) { return line.e_deg[jointIndex]; }
+  // Each reads the series its target's file brought (null before it arrives, or for a line it does not draw).
+  function errorSeries(line, jointIndex) { return line.e_deg ? line.e_deg[jointIndex] || null : null; }
   function feedbackSeries(line, jointIndex) {
     return line.torque && line.torque.tau_fb ? line.torque.tau_fb[jointIndex] : null;
   }
@@ -1045,18 +1163,22 @@
     return worst;
   }
 
-  // The layers one joint's chart draws for these lines, and what each config draws (the [data-tc-draw] statements).
+  // What each config draws for these lines (the [data-tc-draw] statements): needs only the index's scalars.
+  function drawsOf(lines) {
+    return configGroups(lines).map(function (group) { return { group: group, mode: drawMode(group.members.length) }; });
+  }
+  // The layers one joint's chart draws for these lines (their target's file loaded), and what each config draws.
   function layersFor(lines, jointIndex, valuesOf) {
-    var layers = [], draws = [];
+    var layers = [];
     var pick = valuesOf || errorSeries;
     function series(line) { return { line: line, y: smoothed(pick(line, jointIndex), V.smooth) }; }
-    configGroups(lines).forEach(function (group) {
-      var mode = drawMode(group.members.length);
-      layers.push({ config: group.config.name, color: group.config.color, mode: mode, dash: group.kind === 'sim', lines: group.members.map(series) });
+    var draws = drawsOf(lines.filter(function (line) { return pick(line, jointIndex) !== null; }));
+    draws.forEach(function (item) {
+      var group = item.group;
+      layers.push({ config: group.config.name, color: group.config.color, mode: item.mode, dash: group.kind === 'sim', lines: group.members.map(series) });
       if (group.sims.length) {
         layers.push({ config: group.config.name, color: group.config.color, mode: 'lines', dash: true, lines: group.sims.map(series) });
       }
-      draws.push({ group: group, mode: mode });
     });
     return { layers: layers, draws: draws };
   }
@@ -1174,38 +1296,49 @@
     return html + '</div></div></div>';
   }
 
+  var CARD_PLOT_PX = 190;
+  // Every card is laid out at once from the index's scalars (title, counts, verdict, dot strip); its chart waits as a
+  // placeholder of the chart's own height until the card comes into view and its target's file arrives (NAVIGATION.md C5).
+  // WHY: with every line's series in the index, the UR5e's 1006 targets made a 38 MB page that had to drop to 3 Hz to open.
   function renderCards() {
     destroyCharts('cards');
     var holder = $('ds-view-cards');
     holder.innerHTML = '';
     var grid = make('div', 'ds-cards', holder);
-    var todo = [];
+    var cards = [];
     LV.targets.forEach(function (target) {
       var joint = V.joint || worstJoint(target);
-      var jointIndex = target.joints.indexOf(joint);
       var counts = kindCounts(target.lines);
       var groups = configGroups(target.lines);
       var card = make('article', 'ds-tcard', grid);
       card.setAttribute('data-tc-target-card', target.slug);
-      var drawn = jointIndex === -1 ? { layers: [], draws: [] } : layersFor(target.lines, jointIndex);
       card.innerHTML =
         '<div class="ds-tcard-head"><h3>' + esc(target.title) + '</h3>' +
         (target.key !== target.title ? '<span class="ds-key" title="target key">' + esc(target.key) + '</span>' : '') +
         '<span class="ds-count">' + plural(target.lines.length, 'line') + ' · ' + counts.sim + ' sim · ' + counts.real + ' real</span></div>' +
         '<div class="ds-tcard-verdict">' + verdictHtml(verdictOf(target.lines, V.joint), true) + '</div>' +
-        '<div class="ds-csec">' + esc(joint) + ': joint error, target − line [°]</div>' +
-        '<div class="ds-chips">' + drawChips(drawn.draws) + '</div><div class="ds-plot"></div><div class="ds-readout">&nbsp;</div>' +
+        '<div class="ds-csec">' + esc(joint) + ': joint error, target − line [°] ' + rateHtml(target) + '</div>' +
+        '<div class="ds-chips">' + drawChips(drawsOf(target.lines)) + '</div>' + waitHtml(target, CARD_PLOT_PX) + '<div class="ds-readout">&nbsp;</div>' +
         '<div class="ds-csec">RMS error per line, ' + esc(jointWords(V.joint)) + ' [°] <span class="ds-mut">◇ sim · ● real</span></div>' +
         stripHtml(target, V.joint, groups) +
         '<div class="ds-tcard-foot"><a class="ds-btn ds-primary" href="#/target/' + encodeURIComponent(target.slug) + '">Open target</a>' +
         '<span class="ds-mut">' + plural(target.runs, 'run') + '</span></div>';
-      var host = card.querySelector('.ds-plot'), readout = card.querySelector('.ds-readout');
-      todo.push(function () {
-        var chart = fanChart(host, { x: target.t, layers: drawn.layers, height: 190, unit: '°', readout: readout, onPick: openLine });
-        if (chart) charts.cards.push(chart);
-      });
+      card._target = target;
+      card._joint = joint;
+      cards.push(card);
     });
-    requestAnimationFrame(function () { todo.forEach(function (draw) { draw(); }); });
+    whenVisible('cards', cards, function (card) { withTarget(card._target, function () { drawCard(card); }); });
+  }
+  function drawCard(card) {
+    var target = card._target, host = card.querySelector('.ds-plot');
+    if (!card.isConnected || !host) return;
+    if (!target.ready) { host.outerHTML = waitHtml(target, CARD_PLOT_PX); return; }
+    var jointIndex = target.joints.indexOf(card._joint);
+    host.className = 'ds-plot';
+    host.removeAttribute('style');
+    var drawn = jointIndex === -1 ? { layers: [] } : layersFor(target.lines, jointIndex);
+    var chart = fanChart(host, { x: target.t, layers: drawn.layers, height: CARD_PLOT_PX, unit: '°', readout: card.querySelector('.ds-readout'), onPick: openLine });
+    if (chart) charts.cards.push(chart);
   }
 
   function repeatabilityOf(target, config, joint) {
@@ -1222,7 +1355,7 @@
   }
   function sparkSvg(lines, jointIndex, color, range) {
     var width = 120, height = 24, low = range[0], high = range[1];
-    var arrays = lines.map(function (line) { return line.e_deg[jointIndex]; });
+    var arrays = lines.map(function (line) { return errorSeries(line, jointIndex); }).filter(Boolean);
     if (!arrays.length) return '';
     var fan = bandOf(arrays);
     function path(values) {
@@ -1253,21 +1386,13 @@
       var groups = configGroups(target.lines);
       var base = groups.filter(function (group) { return group.config.name === BASELINE; })[0];
       var baseMedian = base ? median(base.members.map(function (line) { return valueOf(line, V.joint); })) : null;
-      var low = 0, high = 0;
-      groups.forEach(function (group) {
-        group.members.forEach(function (line) {
-          (line.e_deg[jointIndex] || []).forEach(function (value) {
-            if (value !== null) { low = Math.min(low, value); high = Math.max(high, value); }
-          });
-        });
-      });
       groups.forEach(function (group) {
         var values = present(group.members.map(function (line) { return valueOf(line, V.joint); }));
         var middle = median(values);
         var judged = group.lines.filter(function (line) { return line.ok === true || line.ok === false; });
         var torqued = torqueMembers(group.lines);
         rows.push({
-          target: target, group: group, values: values, median: middle, joint: joint, jointIndex: jointIndex, range: [low, high],
+          target: target, group: group, groups: groups, values: values, median: middle, joint: joint, jointIndex: jointIndex,
           delta: group === base ? 'baseline' : base && base.kind === group.kind && baseMedian ? (middle - baseMedian) / baseMedian : null,
           spread: repeatabilityOf(target, group.config.name, V.joint),
           pass: judged.length ? judged.filter(function (line) { return line.ok; }).length / judged.length : null, judged: judged.length,
@@ -1359,7 +1484,7 @@
         (tolerances ? '<td>' + (row.pass === null ? '—' : Math.round(row.pass * 100) + '%') + '</td>' : '') +
         '<td title="' + esc(row.spread.title || '') + '">' + (row.spread.value === null ? '<span class="ds-mut">—</span>' : fmtDeg(row.spread.value) +
           (row.spread.tcp !== null && row.spread.tcp !== undefined ? ' · ' + nice(mm(row.spread.tcp)) + ' mm' : '')) + '</td>' +
-        '<td>' + (row.jointIndex === -1 ? '' : sparkSvg(group.members, row.jointIndex, group.config.color, row.range)) + '</td>' +
+        '<td class="ds-spark-cell">' + (row.jointIndex === -1 ? '' : '<span class="ds-spark-wait" title="drawn when it comes into view"></span>') + '</td>' +
         '<td><a class="ds-link" href="#/target/' + encodeURIComponent(target.slug) + '" title="Open this target">↗</a></td></tr>';
       if (open) {
         group.lines.forEach(function (line) {
@@ -1372,11 +1497,34 @@
       }
     });
     html += '</tbody></table></div><p class="ds-note">One row per target × config: its real lines (its sims when it has none). ' +
+      'Its error over time draws when the row comes into view (its target’s file loads then). ' +
       'Dots while a config has ≤ ' + V.n + ' lines, a box (IQR) with min–max whiskers past that; the bar is the median. ' +
       'RT is ISO 9283 path repeatability from robot_msgs.compare.aggregate. Click a row for its lines, a header to sort.' +
       (HAS_TORQUE ? ' FB share and drive gap (RMS of commanded − applied torque) are medians over the row’s lines with a torque breakdown, ' +
         (V.joint ? esc(V.joint) : 'the share over all joints and the gap of each line’s largest joint') + '; “—” where none has one.' : '') + '</p>';
     holder.innerHTML = html;
+    var trs = Array.prototype.slice.call(holder.querySelectorAll('tr.ds-lg-row'));
+    trs.forEach(function (tr, index) { tr._row = rows[index]; });  // one tr.ds-lg-row per row, in order
+    whenVisible('table', trs, function (tr) { withTarget(tr._row.target, function () { drawSpark(tr); }); });
+  }
+  // A row's error over time: its config's median (and IQR from 3 lines) on one scale per target, so its rows compare.
+  function drawSpark(tr) {
+    var row = tr._row, cell = tr.querySelector('.ds-spark-cell');
+    if (!tr.isConnected || !cell || row.jointIndex === -1) return;
+    var target = row.target;
+    if (!target.ready) { cell.innerHTML = '<span class="ds-mut" title="' + esc(target.failed) + '">not loaded</span>'; return; }
+    var low = 0, high = 0;
+    row.groups.forEach(function (group) {
+      group.members.forEach(function (line) {
+        (errorSeries(line, row.jointIndex) || []).forEach(function (value) {
+          if (value !== null) { low = Math.min(low, value); high = Math.max(high, value); }
+        });
+      });
+    });
+    cell.innerHTML = sparkSvg(row.group.members, row.jointIndex, row.group.config.color, [low, high]);
+    var svg = cell.querySelector('svg');
+    if (svg) svg.insertAdjacentHTML('afterbegin', '<title>' + esc(row.joint + ': joint error, target − line, ' + row.group.config.name +
+      ' median' + (row.group.members.length >= 3 ? ' and IQR' : '') + ', drawn at ' + (target.drawn_hz ? fmtHz(target.drawn_hz) + ' Hz' : 'one sample')) + '</title>');
   }
   // The League table's FB share and drive gap cells; "—" where no line of the row has a breakdown (never 0 %).
   function torqueCells(share, gap, count) {
@@ -1429,6 +1577,8 @@
     $('ds-view-runs').hidden = V.view !== 'runs';
     renderDatasetControls();
     destroyCharts('cards');
+    stopObserving('cards');
+    stopObserving('table');
     if (V.view === 'cards') renderCards();
     if (V.view === 'table') renderLeague();
   }
@@ -1742,9 +1892,20 @@
 
   // ── Target level: the repeat tab ──
 
+  var REPEAT_PLOT_PX = 220;
   function renderRepeat() {
     destroyCharts('repeat');
     var target = V.target, panel = $('ds-panel-repeat');
+    if (!target.ready) {
+      // its charts draw from targets/<slug>.js (NAVIGATION.md C5); the run list, verdict and history need only the index
+      panel.innerHTML = '<h2 class="ds-panel-h" data-tc-tab-heading>' + esc(TABS[0][1]) + '</h2>' +
+        waitHtml(target, REPEAT_PLOT_PX, 'loading this target’s series…');
+      if (!target.failed && !target.awaited) {  // once, however often the list's hover redraws this placeholder
+        target.awaited = true;
+        withTarget(target, function () { if (V.target === target && V.tab === 'repeat') renderRepeat(); });
+      }
+      return;
+    }
     var lines = drawnLines(target);
     var byId = {};
     target.lines.forEach(function (line) { byId[line.id] = line; });
@@ -1752,16 +1913,25 @@
       return line && !line.error && lines.indexOf(line) !== -1;
     });
     var html = '<h2 class="ds-panel-h" data-tc-tab-heading>' + esc(TABS[0][1]) + '</h2><p class="ds-note">Each chart is one joint’s error, target − line, over the trajectory. ' +
-      'A config draws lines while it has ≤ N lines and a fan past that (' + FAN_TEXT + '); its sim lines draw dashed over it, never pooled into the fan.</p>';
+      'A config draws lines while it has ≤ N lines and a fan past that (' + FAN_TEXT + '); its sim lines draw dashed over it, never pooled into the fan. ' +
+      'Each chart states the rate it draws: the reference’s samples picked at display_hz, never averaged, further apart when this target’s lines would overrun its file’s budget.</p>';
     if (!lines.length) html += '<p class="ds-note">Every line is filtered out or unchecked.</p>';
     var todo = [];
     // One chart card per joint x signal; every chart draws its config groups exactly as the joint error does.
     function card(title, joint, index, kind, valuesOf, options) {
       var own = lines.filter(function (line) { return valuesOf(line, index) !== null; });
+      if (!own.length && kind !== 'joint-error') {
+        // WHY a note, not an empty chart stating a rate (arm_motion_bench's pendulum, 2026-11-20): a breakdown given as
+        // feedforward alone derives no feedback, so these lines have a breakdown and still no feedback series to draw.
+        return '<div class="ds-chart-card" data-tc-chart="' + kind + '" data-joint-name="' + esc(joint) + '"><div class="ds-csec"><b>' + esc(title) +
+          '</b></div><p class="ds-note">No drawn line has this series: a torque breakdown gives it only from two of commanded, ' +
+          'feedforward and feedback.</p></div>';
+      }
       var drawn = layersFor(own, index, valuesOf);
       todo.push({ drawn: drawn, index: index, valuesOf: valuesOf, options: options, own: own });
       return '<div class="ds-chart-card" data-tc-chart="' + kind + '" data-joint-name="' + esc(joint) + '"><div class="ds-csec"><b>' + esc(title) +
-        '</b></div><div class="ds-chips">' + drawChips(drawn.draws) + '</div><div class="ds-plot" data-joint="' + index + '"></div><div class="ds-readout">&nbsp;</div></div>';
+        '</b> ' + rateHtml(target) + '</div><div class="ds-chips">' + drawChips(drawn.draws) + '</div><div class="ds-plot" data-joint="' + index +
+        '"></div><div class="ds-readout">&nbsp;</div></div>';
     }
     html += '<div class="ds-charts">';
     target.joints.forEach(function (joint, index) {
@@ -1798,7 +1968,7 @@
         var overlay = highlighted.filter(function (line) { return item.own.indexOf(line) !== -1; }).map(function (line) {
           return { line: line, y: smoothed(item.valuesOf(line, item.index), V.smooth) };
         });
-        var chart = fanChart(host, Object.assign({ x: target.t, layers: item.drawn.layers, overlay: overlay, height: 220, readout: host.nextElementSibling, onPick: openLine }, item.options));
+        var chart = fanChart(host, Object.assign({ x: target.t, layers: item.drawn.layers, overlay: overlay, height: REPEAT_PLOT_PX, readout: host.nextElementSibling, onPick: openLine }, item.options));
         if (chart) charts.repeat.push(chart);
       });
     });
@@ -1932,6 +2102,8 @@
     var crumbs = $('ds-crumbs');
     destroyCharts('cards');
     destroyCharts('repeat');
+    stopObserving('cards');
+    stopObserving('table');
     if (target) {
       $('ds-level-dataset').hidden = true;
       $('ds-level-target').hidden = false;

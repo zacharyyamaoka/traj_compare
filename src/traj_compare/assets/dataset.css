@@ -319,3 +319,12 @@ body.ds-resizing { cursor: col-resize; user-select: none; }
   /* WHY: on a phone the verdict and the numbers matter more than the tags (which the filters still cover) */
   .ds-table .ds-tag { display: none; }
 }
+
+/* Lazy per-target series (NAVIGATION.md C5): a chart waits in its own footprint until its target's file arrives, and
+   every chart states the rate it draws */
+.ds-plot.ds-wait { display: flex; align-items: center; justify-content: center; box-sizing: border-box;
+                   border: 1px dashed #e6e5e0; border-radius: 6px; color: #b9b8b1; font-size: 11.5px; background: #fbfbfa; }
+.ds-plot.ds-wait-bad { color: #a4372a; border-color: #e7c4bf; background: #fbeeed; padding: 0 12px; text-align: center; }
+.ds-rate { color: #8a8983; font-weight: 400; font-size: 11px; white-space: nowrap; margin-left: 4px; }
+.ds-rate[title] { cursor: help; }
+.ds-spark-wait { display: block; width: 120px; height: 24px; box-sizing: border-box; border-bottom: 1px dashed #e6e5e0; }

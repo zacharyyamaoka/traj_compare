@@ -17,7 +17,9 @@ Target (its lines, repeatability per config, the control chart over dates), and 
 
 Files (file-first, so a dataset can be re-read, re-sorted or opened in pandas without this package)::
 
-    out/index.html                  the at-a-glance page (self-contained, hash routes, works from file://)
+    out/index.html                  the at-a-glance page (scalars only, hash routes, works from file://)
+    out/targets/<slug>.js           one target's drawn series (joint error, torque display series), at most target_budget
+                                    values: a classic script index.html loads when that target is shown
     out/rows.json, rows.parquet     one row per run x pair x metric x stat, SI, every tag its own column
     out/runs/<slug>/manifest.json   what the drill-down needs to rebuild itself
     out/runs/<slug>/reference.npz   robot_msgs ``save_npz`` per series (``load_npz`` reads them back)
@@ -459,10 +461,69 @@ def _visible(name: str, primary: Mapping[str, str]) -> bool:
 
 TARGET_TAG = "target"
 DATE_TAG = "date"
-# Config colours, fixed across every level (NAVIGATION.md): sim-only configs grey, the rest violet, green, ... WHY never
-# blue or orange: those are the feedforward / feedback torque colours of the run view (CONTRACT.md, the five torques).
-_SIM_COLOURS = ("#5f5e5a", "#8a8983", "#3f3e3b", "#a3a29c")
-_CONFIG_COLOURS = ("#7c5cc4", "#0f9d8a", "#c22f6e", "#a67c00", "#17a2b8", "#5c8a2e", "#b8457a", "#6b7a8f", "#8c6d46", "#2e7d6b")
+# Config colours, fixed across every level (NAVIGATION.md C4). WHY grey only in the twin case (exactly one config has no
+# real line, and another has real lines): there grey reads "the twin", the one sim beside the real configs. Grey for every
+# sim-only config painted arm_motion_bench's four sim-only controllers in four indistinguishable greys (2026-11-20), so
+# every other config takes the next hue, sim-only or not, and kind is told by the dashed line and hollow swatch instead.
+# WHY never blue or orange: those are the feedforward / feedback torque colours of the run view (CONTRACT.md).
+_TWIN_GREY = "#5f5e5a"
+_CONFIG_COLOURS = ("#7c5cc4", "#0f9d8a", "#c22f6e", "#a67c00", "#17a2b8", "#5c8a2e", "#b8457a", "#8c6d46", "#2e7d6b")
+_TORQUE_COLOURS = ("#2a78d6", "#eb6834")
+_HUES: list[str] = list(_CONFIG_COLOURS)  # the named hues, then generated ones appended as a dataset needs them
+
+
+def _lab(colour: str) -> tuple[float, float, float]:
+    """CIELAB (D65) of an sRGB ``#rrggbb``."""
+    channels = [int(colour[i : i + 2], 16) / 255.0 for i in (1, 3, 5)]
+    r, g, b = (c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in channels)
+    x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047
+    y = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883
+
+    def f(t: float) -> float:
+        return t ** (1.0 / 3.0) if t > 0.008856 else 7.787 * t + 16.0 / 116.0
+
+    return 116.0 * f(y) - 16.0, 500.0 * (f(x) - f(y)), 200.0 * (f(y) - f(z))
+
+
+def _hex_of_lab(lightness: float, a: float, b: float) -> str | None:
+    """The sRGB ``#rrggbb`` of a CIELAB colour, or None when it lies outside sRGB."""
+    fy = (lightness + 16.0) / 116.0
+    fx, fz = fy + a / 500.0, fy - b / 200.0
+
+    def inverse(t: float) -> float:
+        return t**3 if t**3 > 0.008856 else (t - 16.0 / 116.0) / 7.787
+
+    x, y, z = 0.95047 * inverse(fx), inverse(fy), 1.08883 * inverse(fz)
+    linear = (3.2406 * x - 1.5372 * y - 0.4986 * z, -0.9689 * x + 1.8758 * y + 0.0415 * z, 0.0557 * x - 0.2040 * y + 1.0570 * z)
+    if any(value < -1e-4 or value > 1.0 + 1e-4 for value in linear):
+        return None
+    encoded = [min(1.0, max(0.0, v)) for v in linear]
+    encoded = [12.92 * v if v <= 0.0031308 else 1.055 * v ** (1.0 / 2.4) - 0.055 for v in encoded]
+    return "#" + "".join(f"{round(v * 255):02x}" for v in encoded)
+
+
+def _config_hues(count: int) -> list[str]:
+    """The first ``count`` hues configs take: the named ones, then generated ones, each the in-gamut colour (mid lightness,
+    clear chroma, far from the torque blue and orange) farthest in CIELAB from every hue before it, the torque colours
+    and the twin grey. Deterministic, so a config keeps its colour from one write to the next."""
+    if len(_HUES) < count:
+        avoid = [_lab(colour) for colour in (*_TORQUE_COLOURS, _TWIN_GREY)]
+        candidates = []
+        for lightness in (40.0, 48.0, 56.0, 64.0):  # WHY not lighter: a line must read on the near-white page
+            for chroma_value in (38.0, 52.0, 66.0):
+                for hue in range(0, 360, 10):
+                    angle = math.radians(hue)
+                    colour = _hex_of_lab(lightness, chroma_value * math.cos(angle), chroma_value * math.sin(angle))
+                    if colour and min(math.dist(_lab(colour), torque) for torque in avoid[:2]) >= 30.0:
+                        candidates.append(colour)
+        taken = [_lab(colour) for colour in _HUES] + avoid
+        while len(_HUES) < count:
+            free = [colour for colour in candidates if colour not in _HUES] or candidates
+            best = max(free, key=lambda colour: min(math.dist(_lab(colour), other) for other in taken))
+            _HUES.append(best)
+            taken.append(_lab(best))
+    return _HUES[:count]
 
 
 def _kind(series: str) -> str:
@@ -564,23 +625,28 @@ def _config_tag(runs: Sequence[Run], group_by: Sequence[str], config_by: str | N
     return others[0] if others else None
 
 
-def _degrees_on(grid: np.ndarray, times: np.ndarray, values: np.ndarray) -> list[float | None]:
-    """``values`` (rad) at the grid's instants in degrees, 4 decimals; None outside the line's own samples.
+def _picked_on(grid: np.ndarray, times: np.ndarray, values: np.ndarray | None, scale: float = 1.0) -> np.ndarray:
+    """``values`` (on the line's own ``times``) at the grid's instants times ``scale``; NaN outside the line's samples,
+    where a value is not finite, and everywhere when ``values`` is None (a joint the line does not have).
 
     WHY interpolate: every line of a target is drawn on that target's display grid (the reference's samples, picked at
     ``display_hz``) so a percentile fan can be taken per instant; when a line was sampled on the reference's instants
     (the usual case) this is exact picking, never averaging. Outside the line's span it is missing, never extrapolated.
     """
-    return _picked_on(grid, times, values, scale=180.0 / math.pi)
-
-
-def _picked_on(grid: np.ndarray, times: np.ndarray, values: np.ndarray, scale: float = 1.0) -> list[float | None]:
-    """``values`` at the grid's instants times ``scale``, 4 decimals; None outside the line's own samples (see above)."""
-    if len(times) == 0:
-        return [None] * len(grid)
+    if values is None or len(times) == 0:
+        return np.full(len(grid), np.nan)
     inside = (grid >= times[0] - 1e-9) & (grid <= times[-1] + 1e-9)
-    picked = np.interp(grid, times, values) * scale
-    return [round(float(value), 4) if ok and math.isfinite(value) else None for value, ok in zip(picked, inside, strict=True)]
+    picked = np.interp(grid, times, np.asarray(values, dtype=float)) * scale
+    return np.where(inside & np.isfinite(picked), picked, np.nan)
+
+
+def _series_json(rows: Sequence[np.ndarray]) -> str:
+    """One list per row, 4 decimals, ``null`` for NaN: the target file's layout of a per-joint series.
+
+    WHY through numpy and one ``json.dumps``: a site's target files hold millions of values (UR5e: 4932 lines), and a
+    Python ``round`` per value was the slow part of the old index; NaN is the only token ``json.dumps`` writes as ``NaN``.
+    """
+    return json.dumps(np.round(np.asarray(rows, dtype=float), 4).tolist(), separators=(",", ":")).replace("NaN", "null")
 
 
 # The FB share over time (Zach 2026-11-19, torque breakdown in the dataset view; CONTRACT.md addendum): Σ|fb| / (Σ|ff| +
@@ -621,15 +687,15 @@ def _fb_share(feedforward: np.ndarray, feedback: np.ndarray) -> float | None:
 
 
 def _line_torque(
-    series: str, measured: JointTrajectory, given: Mapping[str, np.ndarray], joints: Sequence[str], grid: np.ndarray,
-    times: np.ndarray,
-) -> dict[str, Any]:
-    """One line's torque breakdown for the Dataset and Target levels (``line["torque"]``).
+    series: str, measured: JointTrajectory, given: Mapping[str, np.ndarray], joints: Sequence[str]
+) -> tuple[dict[str, Any], dict[str, list[np.ndarray | None]]]:
+    """One line's torque breakdown: its scalars for the index (``line["torque"]``) and its display series for its target
+    file, before they are picked on the target's grid.
 
     The missing third comes from the run view's two-of-three rule (``analysis._torque_breakdown``); the drive gap is
     ``robot_msgs.compare.error_stats``' RMS of commanded − applied (applied = the series' ``effort``); the shares are
-    plain sums. ``tau_fb`` and ``fb_share_over_time`` are display series, per joint in ``joints`` order on the target's
-    grid (``times`` = the line's samples on the target clock), None outside the line's span.
+    plain sums. The display series ``tau_fb`` and ``fb_share_over_time`` are per joint in ``joints`` order on the line's
+    own samples (None for a joint it does not have); a series the breakdown cannot give is absent.
     """
     situation = Situation(name=series, t=measured.t, q=measured.positions, tau=measured.effort, **given)
     breakdown, _ = _torque_breakdown(situation)
@@ -637,43 +703,70 @@ def _line_torque(
     applied = situation.tau
     column_of = {name: index for index, name in enumerate(measured.joint_names)}
     t = np.asarray(measured.t, dtype=float)
+    both = feedforward is not None and feedback is not None
     per_joint: dict[str, dict[str, float | None]] = {}
-    tau_fb: list[list[float | None]] = []
-    over_time: list[list[float | None]] = []
+    drawn: dict[str, list[np.ndarray | None]] = {}
+    if feedback is not None:
+        drawn["tau_fb"] = []
+    if both:
+        drawn["fb_share_over_time"] = []
     for name in joints:
         column = column_of.get(name)
         share = gap = None
-        if column is not None and feedforward is not None and feedback is not None:
+        if column is not None and both:
             share = _fb_share(feedforward[:, column], feedback[:, column])
         if column is not None and command is not None and applied is not None:
             gap = _finite(error_stats(command[:, column] - applied[:, column], t).rms)
         per_joint[name] = {"fb_share": share, "drive_gap_rms": gap}
         if feedback is not None:
-            tau_fb.append(_picked_on(grid, times, feedback[:, column]) if column is not None else [None] * len(grid))
-        if feedforward is not None and feedback is not None:
-            shares = _share_over_time(t, feedforward[:, column], feedback[:, column]) if column is not None else None
-            over_time.append(_picked_on(grid, times, shares) if shares is not None else [None] * len(grid))
-    both = feedforward is not None and feedback is not None
-    return {
-        "fb_share": _fb_share(feedforward, feedback) if both else None,
-        "joints": per_joint,
-        "tau_fb": tau_fb if feedback is not None else None,
-        "fb_share_over_time": over_time if both else None,
-    }
+            drawn["tau_fb"].append(None if column is None else feedback[:, column])
+        if both:
+            drawn["fb_share_over_time"].append(
+                None if column is None else _share_over_time(t, feedforward[:, column], feedback[:, column])
+            )
+    scalars = {"fb_share": _fb_share(feedforward, feedback) if both else None, "joints": per_joint}
+    return scalars, drawn
+
+
+def _target_stride(
+    reference: JointTrajectory, display_hz: float, per_sample: int, budget: int, key: str
+) -> tuple[int, int, float | None]:
+    """(rows of the reference to step by, the rows ``display_hz`` alone steps by, its native rate) for one target's file
+    (NAVIGATION.md C5).
+
+    data_ui's ``_stride`` at ``display_hz`` (picked, never averaged), grown to the smallest stride at which the file's
+    ``per_sample`` drawn values per grid instant fit ``budget``, so a target draws as many samples as its budget allows.
+    """
+    from .data_ui import _stride  # lazy: data_ui imports this module
+
+    stride, rate = _stride(reference, display_hz)
+    display_stride, samples = stride, len(reference.t)
+    if per_sample > 0:
+        fits = budget // per_sample  # grid instants the budget holds
+        if fits < 1:
+            warnings.warn(
+                f"target {key!r}: {per_sample} drawn values per instant exceed target_budget={budget}; its file draws "
+                "one instant", stacklevel=3,
+            )  # fmt: skip
+            fits = 1
+        stride = max(stride, -(-samples // fits))  # ceil: the first stride whose ceil(samples / stride) <= fits
+    return stride, display_stride, rate
 
 
 def _levels_payload(
     runs: Sequence[Run], targets: Sequence[_Target], slugs: Mapping[str, str], config_tag: str | None,
     joint_errors: Mapping[tuple[str, str], Any], entries: Sequence[Mapping[str, Any]], options: _Analysis,
     poses: Mapping[str, Mapping[str, PoseTrajectory]], display_hz: float, labels: Mapping[str, str],
+    target_budget: int, write_target: Callable[[str, str], None],
 ) -> dict[str, Any]:
     """What the Dataset and Target levels draw: targets, configs and one line per measured series of every run.
 
-    Scalars stay SI (rad, like ``rows``); the drawn series ``e_deg`` is the joint error target − line in degrees on the
-    target's display grid (the display edge, like data_ui's tables). Every number is robot_msgs.compare's.
+    The index keeps each line's scalars only, SI (rad, like ``rows``). Every line's drawn series go to its target's file
+    through ``write_target(slug, text)`` (NAVIGATION.md C5): ``e_deg``, the joint error target − line in degrees, and the
+    torque display series, on the target's display grid (the display edge, like data_ui's tables), picked at
+    ``display_hz`` and thinned further until the file holds at most ``target_budget`` values. Every number is
+    robot_msgs.compare's.
     """
-    from .data_ui import _stride  # lazy: data_ui imports this module
-
     analysed = {(entry["run"], entry["pair"][1]): entry for entry in entries if entry["pair"][0] == REFERENCE}
     order = {run.name: index for index, run in enumerate(runs)}
     configs: dict[str, dict[str, int]] = {}
@@ -681,10 +774,12 @@ def _levels_payload(
     target_rows: list[dict[str, Any]] = []
     for target in targets:
         reference = target.reference
-        stride, _ = _stride(reference, display_hz)
-        grid = np.asarray(reference.t, dtype=float)[::stride]
+        reference_t = np.asarray(reference.t, dtype=float)
         joints = list(reference.joint_names)
         members: dict[str, dict[str, list[tuple[Run, str]]]] = {}
+        own_lines: list[dict[str, Any]] = []
+        # (line id, its samples on the target clock, error per joint (rad), its samples for torque, torque series)
+        series_of: list[tuple[str, np.ndarray, list[np.ndarray | None], np.ndarray | None, dict[str, list]]] = []
         for run in target.runs:
             for series, measured in run.measured.items():
                 kind = _kind(series)
@@ -710,7 +805,7 @@ def _levels_payload(
                 try:
                     joint = joint_errors.get((run.name, series)) or compare(reference, measured, time_offset_s=offset)
                 except ValueError as error:  # e.g. no overlap: the line is listed and says why, it draws nothing
-                    lines.append({**line, "error": str(error)})
+                    own_lines.append({**line, "error": str(error)})
                     continue
                 entry = analysed.get((run.name, series))
                 rms = {name: _finite(joint.metrics[f"positions/{name}"].rms) for name in joint.error.joint_names}
@@ -723,14 +818,36 @@ def _levels_payload(
                     worst_joint=worst,
                     coverage=_finite(joint.coverage),
                     ok=(entry or {}).get("verdict", {}).get("ok") if options.tolerances is not None else None,
-                    e_deg=[_degrees_on(grid, times, joint.error.positions[:, columns[name]]) for name in joints],
                 )
+                errors = [joint.error.positions[:, columns[name]] if name in columns else None for name in joints]
+                torque_times, drawn = None, {}
                 # WHY only when given (Zach 2026-11-19, torque breakdown in the dataset view; CONTRACT.md addendum): a
                 # line without a breakdown carries no torque key at all, so a dataset without one is today's payload.
                 if run.torques.get(series):
-                    on_target_clock = np.asarray(measured.absolute_times, dtype=float) - offset - float(reference.header.stamp)
-                    line["torque"] = _line_torque(series, measured, run.torques[series], joints, grid, on_target_clock)
-                lines.append(line)
+                    torque_times = np.asarray(measured.absolute_times, dtype=float) - offset - float(reference.header.stamp)
+                    line["torque"], drawn = _line_torque(series, measured, run.torques[series], joints)
+                series_of.append((line["id"], times, errors, torque_times, drawn))
+                own_lines.append(line)
+        # One drawn value per joint per series per grid instant: e_deg, then tau_fb and fb_share_over_time if given.
+        per_sample = sum(len(joints) * (1 + len(drawn)) for _, _, _, _, drawn in series_of)
+        stride, display_stride, rate = _target_stride(reference, display_hz, per_sample, target_budget, target.key)
+        grid = reference_t[::stride]
+        # The file's object, written as text one line at a time (see _series_json): {"slug", "points", "stride",
+        # "drawn_hz", "lines": [{"id", "e_deg": [per joint], "torque": {"tau_fb", "fb_share_over_time"}}]}.
+        drawn_lines = []
+        for line_id, times, errors, torque_times, drawn in series_of:
+            e_deg = _series_json([_picked_on(grid, times, values, 180.0 / math.pi) for values in errors])
+            text = f'{{"id":{json.dumps(line_id)},"e_deg":{e_deg}'
+            if drawn:
+                parts = [
+                    f"{json.dumps(key)}:{_series_json([_picked_on(grid, torque_times, v) for v in values])}"
+                    for key, values in drawn.items()
+                ]
+                text += f',"torque":{{{",".join(parts)}}}'
+            drawn_lines.append(text + "}")
+        head = {"slug": target.slug, "points": len(grid), "stride": stride, "drawn_hz": None if rate is None else rate / stride}
+        write_target(target.slug, json.dumps(head, separators=(",", ":"))[:-1] + ',"lines":[' + ",".join(drawn_lines) + "]}")
+        lines.extend(own_lines)
         target_row: dict[str, Any] = {
             "key": target.key,
             "slug": target.slug,
@@ -738,23 +855,30 @@ def _levels_payload(
             "named_by": target.named_by,
             "joints": joints,
             "t": [round(float(value), 4) for value in grid],
+            # the rate the target's file draws (NAVIGATION.md C5): its reference's, picked every ``stride``-th sample;
+            # ``capped`` when target_budget thinned it below display_hz
+            "rate_hz": rate,
+            "stride": stride,
+            "drawn_hz": None if rate is None else rate / stride,
+            "capped": stride > display_stride,
             "runs": len(target.runs),
             "repeatability": {
                 config: _repeatability(reference, kinds["real"] or kinds["sim"], poses, options)
                 for config, kinds in members.items()
             },
         }
-        target_row["has_torque_breakdown"] = any(line.get("torque") for line in lines if line["target"] == target.slug)
+        target_row["has_torque_breakdown"] = any(line.get("torque") for line in own_lines)
         target_rows.append(target_row)
     any_breakdown = any(row["has_torque_breakdown"] for row in target_rows)
     if not any_breakdown:
         for row in target_rows:
             del row["has_torque_breakdown"]
     config_rows = []
-    sim_colours, colours = iter(_SIM_COLOURS), iter(_CONFIG_COLOURS)
+    sim_only = [name for name, kinds in configs.items() if kinds["real"] == 0]
+    twin = sim_only[0] if len(sim_only) == 1 and len(configs) > 1 else None  # see _TWIN_GREY
+    hues = iter(_config_hues(len(configs) - (twin is not None)))
     for name, kinds in configs.items():
-        palette = sim_colours if kinds["real"] == 0 else colours
-        row = {"name": name, "color": next(palette, "#52514e"), **kinds}
+        row = {"name": name, "color": _TWIN_GREY if name == twin else next(hues), **kinds}
         if any_breakdown:
             row["fb_share_median"] = _fb_share_median([line for line in lines if line["config"] == name])
         config_rows.append(row)
@@ -931,6 +1055,12 @@ def _write_rows(output_dir: Path, rows: list[dict[str, Any]]) -> None:
     pq.write_table(pa.table(arrays), output_dir / "rows.parquet")
 
 
+_TARGETS_DIR = "targets"
+# A row's fields the page derives from its run (D.runs) and pair (pair_files), never stored per row (NAVIGATION.md C5).
+_ROW_REPEATS = frozenset({"slug", "tags", "report", "rrd"})
+_RRD_STAND_IN = "traj-compare-rrd-stand-in"
+
+
 def _asset(name: str) -> str:
     return importlib.resources.files("traj_compare").joinpath("assets", name).read_text("utf-8")
 
@@ -951,6 +1081,7 @@ def write_dataset_report(
     target_by: str | None = None,
     config_by: str | None = None,
     display_hz: float = 50.0,
+    target_budget: int = 2_000_000,
 ) -> Path:
     """Write ``output_dir/index.html`` (many runs at a glance), ``rows.json``/``rows.parquet`` and ``runs/<slug>/``.
 
@@ -960,8 +1091,10 @@ def write_dataset_report(
     - ``config_by``: the tag naming a line's robot config (its colour on every level). Default: the first ``group_by``
       tag that does not name the target, else the series name. A line is one measured series of one run, its kind
       ``real`` when the series name starts with "real", else ``sim``; a run's ``"date"`` tag orders the control chart.
-    - ``display_hz``: the rate of the error series the index embeds for its charts (reference samples picked, never
+    - ``display_hz``: the rate of the series the Dataset and Target levels draw (reference samples picked, never
       averaged); rows.json and the drill-down keep every sample.
+    - ``target_budget``: the most drawn values (lines x joints x samples x drawn series) one ``targets/<slug>.js`` holds;
+      over it, that target's samples are picked further apart until its file fits. Every chart states the rate it draws.
     - ``group_by``: tag names; runs sharing their values are one group for the ISO 9283 cards.
     - ``tolerances``: a ``robot_msgs.compare.Tolerances``; every run x pair gets ``check``'s verdict.
     - ``poses`` / ``robot``: ``"module:function"`` import specs, stored in each manifest so the drill-down
@@ -985,6 +1118,8 @@ def write_dataset_report(
         raise ValueError(f"drill_down is one of {_DRILL_DOWNS}, got {drill_down!r}")
     if display_hz <= 0:
         raise ValueError(f"display_hz must be positive, got {display_hz}")
+    if isinstance(target_budget, bool) or not isinstance(target_budget, (int, np.integer)) or target_budget <= 0:
+        raise ValueError(f"target_budget must be a positive whole number of drawn values, got {target_budget!r}")
     _validate(runs, group_by, primary)
     target_tag = _target_tag(runs, group_by, target_by)
     targets = _resolve_targets(runs, target_tag, explicit=target_by is not None)
@@ -1032,11 +1167,6 @@ def write_dataset_report(
                 "tags": tags,
                 "report": f"runs/{slug}/report.html",
                 "rrd": rrd,
-                "rerun_command": (
-                    f"python -m traj_compare.dataset drill {shlex.quote(str(output_dir.resolve()))} "
-                    f"{shlex.quote(run.name)} && "
-                    + rerun_export.viewer_command(output_dir.resolve() / rrd)
-                ),
             }
             try:
                 analysis, metrics = _analyze_pair(run, first, second, options, pose_cache[run.name], joint_errors)
@@ -1063,16 +1193,50 @@ def write_dataset_report(
     aggregates = _group_aggregates(runs, group_by, options, pose_cache)
     joint_names = list(dict.fromkeys(name for entry in entries for name in entry.get("joints", {})))
     labels = {series: alias for alias, series in primary.items()}
+    targets_dir = output_dir / _TARGETS_DIR
+    targets_dir.mkdir(exist_ok=True)
+    written_targets: set[str] = set()
+
+    def write_target(slug: str, data: str) -> None:
+        # WHY a classic script calling a global, not JSON for fetch(): fetch() of a file:// URL is refused, and index.html
+        # must open from file:// (NAVIGATION.md Part A); a <script src> loads from file:// and http alike (C5).
+        path = targets_dir / f"{slug}.js"
+        path.write_text(
+            f"// traj_compare: the drawn series of target {slug}, loaded by ../index.html when it is shown (NAVIGATION.md C5)\n"
+            f"window.trajCompareTarget({json.dumps(slug)}, {data});\n",
+            encoding="utf-8",
+        )
+        written_targets.add(path.name)
+
     levels = _levels_payload(
-        runs, targets, slugs, config_tag, joint_errors, entries, options, pose_cache, display_hz, labels
+        runs, targets, slugs, config_tag, joint_errors, entries, options, pose_cache, display_hz, labels,
+        target_budget, write_target,
     )
+    for stale in targets_dir.glob("*.js"):  # a target an earlier write had and this one does not
+        if stale.name not in written_targets:
+            stale.unlink()
+    folder = output_dir.resolve()
+    # The runs table's command, built in the page per row (NAVIGATION.md C5): rerun_command repeated the folder twice per
+    # row, 10.9 MB of the UR5e index. The viewer half is rerun_export's own command around a stand-in for the row's .rrd,
+    # which the page splices in; WHY that is the row's exact command: the stand-in and every .rrd path below the folder
+    # (runs/<slug>/rerun/<pair>.rrd, all [a-z0-9./-]) need no shell quoting, so quoting the whole path quotes only the folder.
+    viewer_before, _, viewer_after = rerun_export.viewer_command(folder / _RRD_STAND_IN).partition(_RRD_STAND_IN)
+    # WHY a write id on each target file's URL: a page served over http may keep an earlier write's targets/<slug>.js
+    # in its cache; a new id per write makes the browser fetch this write's files.
+    write_id = datetime.now().strftime("%Y%m%d%H%M%S%f")
     payload = {
         "title": title,
         "generated": datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z"),
         "angle_unit": "deg",
         "group_by": list(group_by),
         "drill_down": drill_down,
+        "write_id": write_id,
         "serve_command": f"python -m traj_compare.serve {shlex.quote(str(output_dir.resolve()))}",
+        "command_template": {
+            "drill": f"python -m traj_compare.dataset drill {shlex.quote(str(folder))} ",
+            "viewer": [viewer_before, viewer_after],
+        },
+        "pair_files": [[first, second, _pair_name(first, second)] for first, second in pair_order],
         "labels": {series: alias for alias, series in primary.items()},
         "series": series_order,
         "default_pairs": [list(pair) for pair in default_view],
@@ -1089,7 +1253,7 @@ def write_dataset_report(
             }
             for run in runs
         ],
-        "rows": _clean(entries),
+        "rows": _clean([{key: value for key, value in entry.items() if key not in _ROW_REPEATS} for entry in entries]),
         "aggregates": _clean(aggregates),
         "summary": summary.to_payload() if summary is not None else None,
         "levels": {
