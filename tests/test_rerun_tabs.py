@@ -126,7 +126,8 @@ def test_a_tab_opens_by_its_id_its_title_or_its_pre_2026_11_19_title():
 
 def test_signals_sub_tabs_name_signal_and_unit():
     with_torque = _tab(_questions(_payload("3dof")), "signals")
-    assert any(_names(tabs) == SIGNAL_TABS for tabs in _find_tabs(with_torque))
+    # the torque fixture also records motor current, which gets its own sub-tab (NAVIGATION.md C1, 2026-11-20)
+    assert any(_names(tabs) == [*SIGNAL_TABS, "Motor current [A]"] for tabs in _find_tabs(with_torque))
     without = _tab(_questions(_payload("3dof", torque=False)), "signals")
     assert any(_names(tabs) == SIGNAL_TABS[:2] for tabs in _find_tabs(without))  # no applied torque logged
 
