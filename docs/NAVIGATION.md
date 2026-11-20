@@ -158,6 +158,7 @@ Parts A and B stay in force; this part adds to them.
 - **Carrier: each series' `JointTrajectory.channels`.** These are robot_msgs-native and already saved in its `.npz`,
   so `Run` gains nothing.
 - **`channels["current"]`, shaped (N, J):** motor current in A, columns in that series' `joint_names` order.
+  On a one-joint series (N,) is accepted too, as `Run.torques` promotes 1-D (amended 2026-11-20 for the pendulum).
   - The drill-down hands it over as `Situation.current`, reordered onto the reference's joints exactly as `effort` is.
   - The HTML `signals` tab draws it in its existing `joint-current` section.
   - Rerun's `signals` tab gets a **Motor current [A]** sub-tab when any situation has current.

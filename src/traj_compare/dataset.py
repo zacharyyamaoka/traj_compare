@@ -883,7 +883,9 @@ def _validate_channels(runs: Sequence[Run], signals: Mapping[str, Signal]) -> No
             for key, values in trajectory.channels.items():
                 shape = tuple(np.shape(values))
                 if key == "current":
-                    if shape != (len(trajectory.t), len(joints)):
+                    # WHY (N,) too on one joint: a 1-DOF rig (the bench's pendulum) logs current flat, and Run.torques
+                    # already promotes 1-D to one column; on two or more joints a flat current names no joint.
+                    if shape != (len(trajectory.t), len(joints)) and not (len(joints) == 1 and shape == (len(trajectory.t),)):
                         raise ValueError(
                             f"run {run.name!r}: series {series!r} has channels['current'] of shape {shape}; motor current "
                             f"is (N, J) = {(len(trajectory.t), len(joints))}, amperes, one column per joint of {joints}"
@@ -1420,6 +1422,8 @@ def _build_run_report(folder: Path) -> Path:
         # reference's (select() keeps channels whole); any other channel's columns (x, y, z) are no joints, never moved.
         recorded = {str(key): np.asarray(values) for key, values in trajectory.channels.items()}
         current = recorded.pop("current", None)
+        if current is not None and current.ndim == 1 and len(columns) == 1:  # one joint's current, logged flat
+            current = current[:, None]
         if current is not None and current.shape != (len(trajectory.t), len(columns)):  # a manifest from before C1
             not_drawn["current"] = f"shape {current.shape}, not (N, {len(columns)})"
             current = None
