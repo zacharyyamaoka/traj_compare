@@ -170,6 +170,8 @@ table.tc-metrics tr.tone-muted { color: #8a8983; }
                        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tc-plotcard .ptitle .unit { color: #8a8983; }
 .tc-plotcard .ptitle .pnote { color: #8a8983; font-style: italic; }
+/* a channel's columns (NAVIGATION.md C1): auto-fit, so a 1-D channel's one plot takes the whole row */
+.tc-grid.tc-channel-grid { grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); }
 
 /* torque breakdown: the budget table sits inside the section, the component legend keys every card */
 .tc-tableblock.embedded { border: 0; background: transparent; padding: 0; margin: 0 0 12px; }

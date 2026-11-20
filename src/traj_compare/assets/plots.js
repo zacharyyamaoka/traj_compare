@@ -40,6 +40,8 @@ var TrajCompare = (function () {
     pct: { label: '%' },
     pct_s: { label: '%/s' },
     pct_s2: { label: '%/s²' },
+    // a recorded channel (NAVIGATION.md C1): drawn as recorded, its unit the caller's own text (spec.unit)
+    raw: { label: '' },
   };
 
   var PLOT_HEIGHT = 150;
@@ -486,13 +488,19 @@ var TrajCompare = (function () {
       return Math.max(160, card.clientWidth - 18);
     }
 
+    // ``spec.unit`` (a channel's own unit text) wins over the kind's; an empty unit draws no brackets (C1)
+    function unitText() {
+      return spec.unit !== undefined ? spec.unit : unitLabel(spec.kind);
+    }
+
     function paintTitle() {
+      var unit = unitText();
       titleEl.innerHTML = '';
-      titleEl.appendChild(document.createTextNode(spec.title + ' '));
-      el('span', 'unit', titleEl, '[' + unitLabel(spec.kind) + ']');
+      titleEl.appendChild(document.createTextNode(spec.title + (unit ? ' ' : '')));
+      if (unit) el('span', 'unit', titleEl, '[' + unit + ']');
       if (spec.note) el('span', 'pnote', titleEl, ' · ' + spec.note);
       // WHY always (Zach's rule: never truncate a name silently): the title ellipsizes, the hover has it whole
-      titleEl.title = spec.title + ' [' + unitLabel(spec.kind) + ']' + (spec.note ? ' · ' + spec.note : '');
+      titleEl.title = spec.title + (unit ? ' [' + unit + ']' : '') + (spec.note ? ' · ' + spec.note : '');
     }
 
     chart.build = function () {
@@ -747,6 +755,48 @@ var TrajCompare = (function () {
             series: withErrors(series, precomputed) });
       });
     };
+  }
+
+  /* ---------------- channels: every other recorded signal ----------------
+     docs/NAVIGATION.md C1 (the arm_motion_bench agent's gaps 1 and 2): contact force, winding temperature, a
+     collision residual. One section per channel (``data.channels``, analysis.py), one plot per column, titled by the
+     signal, its column and its unit ("Contact force, x [N]"); every situation that recorded it in its run colour,
+     the target dashed as everywhere else. WHY drawn as recorded (truthful rendering): a channel nobody described
+     keeps its own name and no unit, never dropped or renamed, and no unit draws no "[]". */
+
+  function channelSits(data, channel) {
+    return data.situations.filter(function (sit) {
+      return sit.has_data && sit.channels && sit.channels[channel.name];
+    });
+  }
+
+  function channelPlotTitle(channel, column) {
+    return channel.ndim === 1 ? channel.title : channel.title + ', ' + channel.columns[column];
+  }
+
+  function channelSectionBuilder(channel) {
+    return function (page, body) {
+      var sits = channelSits(page.data, channel);
+      var grid = el('div', 'tc-grid tc-channel-grid', body);
+      var count = channel.ndim === 1 ? 1 : channel.columns.length;
+      for (var column = 0; column < count; column++) {
+        var card = el('div', 'tc-plotcard', grid);
+        card.setAttribute('data-tc-channel-column', channel.ndim === 1 ? 'value' : channel.columns[column]);
+        makeChart(page, card, {
+          title: channelPlotTitle(channel, column), kind: 'raw', unit: channel.unit,
+          series: sits.map(function (sit) { return { sit: sit, values: sit.channels[channel.name][column] }; }),
+        });
+      }
+      observeGrid(page, grid);
+    };
+  }
+
+  function channelHint(channel, data) {
+    var who = channelSits(data, channel).map(function (sit) { return sit.title; });
+    var hint = 'recorded by ' + who.join(', ');
+    if (channel.per_joint) hint += '; one plot per joint';
+    if (!channel.described) hint += '; not described, so drawn under its recorded name';
+    return hint;
   }
 
   /* ---------------- torque breakdown ----------------
@@ -1323,6 +1373,12 @@ var TrajCompare = (function () {
     if (data.has_cartesian) {
       defs.push({ id: 'viewer3d', label: '3D view: robot and ' + frame + ' paths', on: sectionStartsOn(data, 'viewer3d', true), build: viewer3dBuilder });
     }
+    // WHY always on (NAVIGATION.md C1): the channels tab exists to show them; ``default_sections`` names the fixed
+    // sections only, so it never hides a channel
+    (data.channels || []).forEach(function (channel) {
+      var units = channel.unit ? function () { return ' [' + channel.unit + ']'; } : null;
+      defs.push({ id: channel.section, label: channel.title, units: units, on: true, build: channelSectionBuilder(channel) });
+    });
     return defs;
   }
 
@@ -1337,6 +1393,8 @@ var TrajCompare = (function () {
   var DELTA_SECTIONS = ['joint-q', 'joint-qd', 'joint-qdd', 'joint-tau', 'joint-current', 'tcp-pose', 'path'];
 
   function sectionHint(id, data) {
+    var channel = (data.channels || []).filter(function (entry) { return entry.section === id; })[0];
+    if (channel) return channelHint(channel, data);
     var hint = '';
     if (id === 'path') {
       var reference = data.pct_reference === 'target' ? 'target path length' : 'own path length';

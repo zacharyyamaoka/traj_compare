@@ -12,6 +12,9 @@ Entity layout (situations are the last path part so a plot view can overlay them
     /positions|velocities/<joint>/<situation>  degrees, °/s (every joint shown as revolute, as in the HTML report)
     /effort/<joint>/<situation>         N·m         (these three, the errors, bands, links and video are
     /error/positions/<joint>/<situation>  target - run in degrees, + /tolerance   written by robot_msgs.viz.rerun)
+    /current/<joint>/<situation>        motor current, A (``Situation.current``)
+    /channels/<name>/<column>/<situation>  every other recorded signal (``Situation.channels``), as recorded; a 1-D
+                                        channel's column is ``value``, an undescribed one's ``0``, ``1``, ...
     /error/tool/<channel>/<situation>   position_mm (+ tolerance band), rotation_deg, {x,y,z}_mm, lag_mm, cross_track_mm,
                                         contour_mm (exact), lag_time_ms (+ behind)
     /worst/joint_deg/<situation>        the largest |joint error| at each instant (+ tolerance band)
@@ -1135,16 +1138,19 @@ def _torque_question_tab(payload: dict[str, Any], title: str) -> Any:
     return _per_part(payload, title, lambda part, name: _torque_part(part, context, name))
 
 
-# The signals sub-tabs: (entity field, sub-tab title, what the view draws, unit, payload plot key).
+# The signals sub-tabs: (entity field, sub-tab title, what the view draws, unit, payload plot key). Motor current comes
+# last, only when a situation has it (docs/NAVIGATION.md C1).
 _SIGNALS = (
     ("positions", "Angle [°]", "joint angle", "°", "q"),
     ("velocities", "Speed [°/s]", "joint speed", "°/s", "qd"),
     ("effort", "Applied torque [N·m]", "applied torque", "N·m", "tau"),
+    ("current", "Motor current [A]", "motor current", "A", "current"),
 )
+_OPTIONAL_SIGNALS = {"effort": "has_tau", "current": "has_current"}
 
 
 def _signals_tab(payload: dict[str, Any], title: str) -> Any:
-    signals = [signal for signal in _SIGNALS if signal[0] != "effort" or payload["has_tau"]]
+    signals = [signal for signal in _SIGNALS if signal[0] not in _OPTIONAL_SIGNALS or payload.get(_OPTIONAL_SIGNALS[signal[0]])]
 
     def part_signals(part: dict[str, Any], name: str) -> Any:
         tabs = []
@@ -1162,6 +1168,31 @@ def _signals_tab(payload: dict[str, Any], title: str) -> Any:
     return _per_part(payload, title, part_signals)
 
 
+def _channel_view_title(channel: dict[str, Any]) -> str:
+    """``<title> [<unit>]``, or the title alone without a unit (never ``[]``): NAVIGATION.md C1."""
+
+    return f"{channel['title']} [{channel['unit']}]" if channel["unit"] else channel["title"]
+
+
+def _channel_column(channel: dict[str, Any], index: int) -> str:
+    """A channel column's entity part before escaping: ``value`` for a 1-D channel, else its label."""
+
+    return "value" if channel["ndim"] == 1 else channel["columns"][index]
+
+
+def _channels_tab(payload: dict[str, Any], title: str) -> Any:
+    """One view per recorded channel, titled ``<title> [<unit>]``, holding all its columns and situations.
+
+    WHY one view per channel, not per column as in the HTML (NAVIGATION.md C1): a Rerun view overlays every entity
+    under its origin, and the legend names each line ``<run> · <column>``."""
+
+    channels = payload.get("channels") or []
+    if not channels:
+        return None
+    views = [_ts(f"/channels/{_part(channel['name'])}", _channel_view_title(channel), legend=True) for channel in channels]
+    return rrb.Vertical(*views, name=title) if len(views) < 3 else rrb.Grid(*views, grid_columns=2, name=title)
+
+
 _QUESTION_TABS: dict[str, Callable[[dict[str, Any], str], Any]] = {
     "track": _track_tab,
     "where": _where_tab,
@@ -1169,6 +1200,7 @@ _QUESTION_TABS: dict[str, Callable[[dict[str, Any], str], Any]] = {
     "timing": _timing_tab,
     "torque": _torque_question_tab,
     "signals": _signals_tab,
+    "channels": _channels_tab,
 }
 
 
@@ -1471,6 +1503,21 @@ def write_rrd(
             error = JointTrajectory(t=plot_t, joint_names=joints, positions=columns("err_q"))
             viz.log(error, entry["name"], recording=recording, degrees=True, color=color, label=label,
                     prefix="error/", t0=0.0)  # fmt: skip
+        if plot["current"] is not None:
+            # /current/<joint>/<situation>, A: the signals tab's "Motor current [A]" sub-tab (NAVIGATION.md C1)
+            for column, joint in enumerate(joints):
+                writer.series(f"/current/{_part(joint)}/{name}", plot_t, _array(plot["current"][column]), color, label)
+        # /channels/<name>/<column>/<situation>: every other recorded signal, as recorded (no unit conversion).
+        # WHY every one, described or not (NAVIGATION.md C1, truthful rendering): a recorded signal is never dropped.
+        for channel in payload.get("channels") or []:
+            recorded = (entry.get("channels") or {}).get(channel["name"])
+            if recorded is None:
+                continue
+            for index, values in enumerate(recorded):
+                column = _channel_column(channel, index)
+                series_label = label if channel["ndim"] == 1 else f"{label} · {column}"
+                writer.series(f"/channels/{_part(channel['name'])}/{_part(column)}/{name}", plot_t, _array(values),
+                              color, series_label)  # fmt: skip
         for key, channel, scale in _TOOL_ERROR_CHANNELS:
             if key in plot:
                 writer.series(f"/error/tool/{channel}/{name}", plot_t, _array(plot[key]) * scale, color, label)

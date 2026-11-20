@@ -343,6 +343,40 @@ class CameraOverlay:
         }
 
 
+@dataclass(frozen=True)
+class Signal:
+    """How the run view names one recorded channel (``Situation.channels[name]``): title, unit and column labels.
+
+    Given through ``Comparison.signals`` or ``write_dataset_report(signals=...)`` (docs/NAVIGATION.md C1):
+
+    - ``title``: what the plots call it (``"Contact force"``); empty = the channel's own name.
+    - ``unit``: shown in brackets (``"N"`` -> ``Contact force [N]``); empty draws no brackets.
+    - ``columns``: one label per column of an (N, k) channel (``("x", "y", "z")``); empty = ``0``, ``1``, ...
+    - ``per_joint``: the channel is (N, J), its columns the comparison's joints (and, in a dataset, reordered with the
+      series as ``effort`` is). Its plots are labelled by the joints; ``columns``, if given, must still number J.
+
+    WHY optional (truthful rendering): a channel nobody described is still drawn, under its own name with no unit;
+    a recorded signal is never dropped or renamed.
+    """
+
+    title: str = ""
+    unit: str = ""
+    columns: Sequence[str] = ()
+    per_joint: bool = False
+
+    def __post_init__(self) -> None:
+        # WHY a bare string is refused: "xyz" is a Sequence of letters, never one column label
+        if isinstance(self.columns, (str, bytes)) or not isinstance(self.columns, Sequence):
+            raise ValueError(f"Signal {self.title!r}: columns must be a list of labels, got {self.columns!r}")
+        object.__setattr__(self, "title", str(self.title))
+        object.__setattr__(self, "unit", str(self.unit))
+        object.__setattr__(self, "columns", tuple(str(column) for column in self.columns))
+        object.__setattr__(self, "per_joint", bool(self.per_joint))
+
+    def to_payload(self) -> dict[str, Any]:
+        return {"title": self.title, "unit": self.unit, "columns": list(self.columns), "per_joint": self.per_joint}
+
+
 @dataclass
 class Situation:
     """One recorded (or declared) execution of the trajectory."""
@@ -381,6 +415,11 @@ class Situation:
     # Trajectory time shown at video time 0 (CameraOverlay.t0_s for a plain situation video): a
     # recording rarely starts exactly when the trajectory does, so the video plays at t - video_start_s.
     video_start_s: float = 0.0
+    # Every other signal the run recorded (contact force, winding temperature, a collision residual), by name: float,
+    # (N,) or (N, k) on this situation's own samples. ``Comparison.signals`` names them; motor current is ``current``.
+    # WHY here (docs/NAVIGATION.md C1, the arm_motion_bench agent's gaps 1 and 2): they had nowhere to go in the run
+    # view, so a peak force became a run tag and the curve was lost.
+    channels: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.time_offset_s = float(self.time_offset_s)
@@ -396,8 +435,9 @@ class Situation:
         if not self.group_title:
             self.group_title = "Situations"
         if self.t is None:
-            if any(getattr(self, name) is not None for name in _TIME_SERIES_FIELDS):
+            if any(getattr(self, name) is not None for name in _TIME_SERIES_FIELDS) or self.channels:
                 raise ValueError(f"situation '{self.name}': arrays given without a time base")
+            self.channels = {}
             return
         self.t = np.asarray(self.t, dtype=float)
         if self.t.ndim != 1 or self.t.size < 2:
@@ -431,6 +471,29 @@ class Situation:
                 raise ValueError(
                     f"situation '{self.name}': poses must be (N, 4, 4) on the same grid"
                 )
+        self.channels = self._checked_channels()
+
+    def _checked_channels(self) -> dict[str, np.ndarray]:
+        """``channels`` as an owned dict of float (N,) / (N, k) arrays, or ``ValueError`` naming situation and channel."""
+
+        if not isinstance(self.channels, Mapping):
+            raise ValueError(f"situation '{self.name}': channels must map a name to its values")
+        checked: dict[str, np.ndarray] = {}
+        for key, values in self.channels.items():
+            name = str(key)
+            where = f"situation '{self.name}', channel {name!r}"
+            if name == "current":
+                raise ValueError(f"{where}: motor current is Situation.current, never a channel")
+            try:
+                array = np.array(values, dtype=float)
+            except (TypeError, ValueError) as error:
+                raise ValueError(f"{where}: values must be numbers ({error})") from None
+            if array.ndim not in (1, 2):
+                raise ValueError(f"{where}: shape {array.shape}; a channel is (N,) or (N, k)")
+            if array.shape[0] != self.t.size:
+                raise ValueError(f"{where}: {array.shape[0]} samples, but t has {self.t.size}")
+            checked[name] = array
+        return checked
 
     @property
     def has_data(self) -> bool:
@@ -509,6 +572,9 @@ class Comparison:
     # (Zach 2026-11-19, traj compare view feedback: "split the arm and the hand into separate concerns, and
     # each arm separately"): the viewers never guess arm / hand membership from joint names (tabs.py).
     parts: Mapping[str, Sequence[str] | Mapping[str, Sequence[str]]] | None = None
+    # Channel name -> its ``Signal`` (title, unit, column labels): how the "What else was measured?" tab names
+    # ``Situation.channels``. A described channel no situation has is fine (a dataset describes every run's at once).
+    signals: Mapping[str, Signal] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -589,3 +655,43 @@ class Comparison:
                 )
                 for name, value in self.parts.items()
             }
+        self.signals = self._checked_signals(everyone)
+
+    def _checked_signals(self, everyone: list[Situation]) -> dict[str, Signal]:
+        """``signals`` as an owned dict, after checking every situation's channels against it and against each other.
+
+        A channel keeps one shape across situations ((N,) everywhere, or (N, k) with one k), so each of its columns is
+        one plot; a described channel's ``columns`` number k; a ``per_joint`` one is (N, J). Else ``ValueError``.
+        """
+
+        if not isinstance(self.signals, Mapping):
+            raise ValueError(f"signals must map a channel name to its Signal, got {type(self.signals).__name__}")
+        signals: dict[str, Signal] = {}
+        for name, signal in self.signals.items():
+            if not isinstance(signal, Signal):
+                raise ValueError(f"signals[{name!r}] must be a traj_compare.Signal, got {type(signal).__name__}")
+            signals[str(name)] = signal
+        width: dict[str, tuple[int | None, str]] = {}  # channel -> (k, or None for 1-D; the first situation with it)
+        for situation in everyone:
+            for name, values in situation.channels.items():
+                k = None if values.ndim == 1 else values.shape[1]
+                if name in width and width[name][0] != k:
+                    first_k, first = width[name]
+                    raise ValueError(
+                        f"channel {name!r} is {'(N,)' if first_k is None else f'(N, {first_k})'} on situation '{first}' "
+                        f"but {values.shape} on '{situation.name}'; one channel keeps one shape"
+                    )
+                width.setdefault(name, (k, situation.name))
+                signal = signals.get(name)
+                if signal is None:
+                    continue
+                where = f"situation '{situation.name}', channel {name!r}"
+                if signal.per_joint and (values.ndim != 2 or values.shape[1] != len(self.joint_names)):
+                    raise ValueError(
+                        f"{where}: per_joint needs (N, {len(self.joint_names)}), one column per joint "
+                        f"{list(self.joint_names)}; got {values.shape}"
+                    )
+                count = 1 if k is None else k
+                if signal.columns and len(signal.columns) != count:
+                    raise ValueError(f"{where}: {count} column(s), but its Signal names {list(signal.columns)}")
+        return signals
