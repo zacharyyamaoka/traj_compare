@@ -6,9 +6,12 @@ and it writes **one self-contained static `report.html`**: no server, no CDN,
 no install at view time. Open it from disk, keep it forever next to the run
 data it describes.
 
-Built 2026-07-28 as the second generation of the trajectory comparison
-viewer (the first lives in `traj_integration_tests/report.py`), from the
-directive in [`traj_integration_tests/Logs.md`](../traj_integration_tests/Logs.md).
+Built 2026-07-28 in bam_ws as the second generation of the trajectory comparison viewer (the first lives in
+bam_ws `traj_integration_tests/report.py`). **Its own repo since 2026-11-20** (`/home/bam/traj_compare`, history from
+2026-08-24 kept; older history stays in bam_ws): a leaf on [robot_msgs](https://github.com/zacharyyamaoka/robot_msgs),
+which keeps the data types and the comparison math (`robot_msgs.compare`) while this package is the viewer. bam_ws
+links it at `src/external/traj_compare`, and its old path `src/core/mdp/agent/actor/trajectory_generation/traj_compare`
+is a symlink to that, so every existing path dependency and command keeps working.
 
 ## What the report shows
 

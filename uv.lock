@@ -967,8 +967,8 @@ wheels = [
 
 [[package]]
 name = "robot-msgs"
-version = "0.2.0"
-source = { editable = "../../../../../../external/robot_msgs" }
+version = "0.3.0"
+source = { editable = "/home/bam/robot_msgs" }
 dependencies = [
     { name = "dataclass-values" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
@@ -997,8 +997,10 @@ requires-dist = [
     { name = "rosbags", marker = "extra == 'ros'", specifier = ">=0.10" },
     { name = "rosbags", marker = "extra == 'test'", specifier = ">=0.10" },
     { name = "scipy", marker = "extra == 'test'", specifier = ">=1.11" },
+    { name = "viser", marker = "extra == 'test'", specifier = "==1.1.1" },
+    { name = "viser", marker = "extra == 'viser'", specifier = "==1.1.1" },
 ]
-provides-extras = ["viz", "ros", "rerun", "test"]
+provides-extras = ["viz", "ros", "rerun", "viser", "test"]
 
 [[package]]
 name = "scipy"
@@ -1160,8 +1162,8 @@ requires-dist = [
     { name = "pyarrow", marker = "extra == 'export'", specifier = ">=15" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8" },
     { name = "rerun-sdk", marker = "extra == 'rerun'", specifier = "==0.40.0" },
-    { name = "robot-msgs", editable = "../../../../../../external/robot_msgs" },
-    { name = "robot-msgs", extras = ["rerun"], marker = "extra == 'rerun'", editable = "../../../../../../external/robot_msgs" },
+    { name = "robot-msgs", editable = "/home/bam/robot_msgs" },
+    { name = "robot-msgs", extras = ["rerun"], marker = "extra == 'rerun'", editable = "/home/bam/robot_msgs" },
     { name = "scipy", marker = "extra == 'test'", specifier = ">=1.10" },
 ]
 provides-extras = ["test", "rerun", "export"]

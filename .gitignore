@@ -1,0 +1,9 @@
+# WHY: bam_ws's root .gitignore covered these while traj_compare lived there (moved out 2026-11-20).
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+**/out/
+# raw screenshots and GIFs of the 2026-07-29 viewer rounds: evidence, not source (kept on disk, out of history)
+docs/viewer_*/
