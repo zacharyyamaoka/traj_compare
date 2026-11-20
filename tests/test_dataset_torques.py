@@ -219,6 +219,20 @@ def target_of(levels: dict, key: str) -> dict:
     return next(target for target in levels["targets"] if target["key"] == key)
 
 
+def drawn_of(out: Path, levels: dict, plan: Plan, key: str = "probe") -> tuple[np.ndarray, dict | None]:
+    """(grid, the line's torque display series) from ``targets/<slug>.js``: since 2026-11-20 the index keeps only a line's
+    scalars and every drawn series lives in its target's file (NAVIGATION.md C5). The grid is the file's ``t`` when it
+    has one, else the index's ``levels.targets[*].t``."""
+    target = target_of(levels, key)
+    text = (out / "targets" / f"{target['slug']}.js").read_text("utf-8")
+    match = re.search(r'window\.trajCompareTarget\(\s*"(?:[^"\\]|\\.)*"\s*,\s*(.*)\)\s*;?\s*$', text, re.S)
+    assert match, f"targets/{target['slug']}.js is not one window.trajCompareTarget(...) call"
+    data = json.loads(match.group(1))
+    lines = data["lines"] if isinstance(data["lines"], dict) else {line["id"]: line for line in data["lines"]}
+    line = lines[f"{plan.name} · {SERIES}"]
+    return as_array(data.get("t", target["t"])), line.get("torque")
+
+
 def config_of(levels: dict, name: str) -> dict:
     return next(config for config in levels["configs"] if config["name"] == name)
 
@@ -398,14 +412,15 @@ def test_a_lines_drive_gap_is_the_rms_of_commanded_minus_applied_per_joint(works
 
 
 def test_the_feedback_torque_display_series_is_on_the_target_grid(workspace):
-    levels = levels_of(written(workspace, "mixed"))
+    out = written(workspace, "mixed")
+    levels = levels_of(out)
     target = target_of(levels, "probe")
-    grid = as_array(target["t"])
-    assert grid.size < T.size, "the display grid is the reference picked at display_hz"
     assert target["joints"] == list(JOINTS)
     for plan in WITH_BREAKDOWN:
-        parts, torque = truth(plan), line_of(levels, plan).get("torque")
-        assert torque, f"{plan.name}: no line['torque']"
+        grid, torque = drawn_of(out, levels, plan)
+        assert grid.size < T.size, "the display grid is the reference picked at display_hz"
+        parts = truth(plan)
+        assert torque, f"{plan.name}: no torque series in its target file"
         assert len(torque["tau_fb"]) == len(JOINTS)
         for column in range(len(JOINTS)):
             drawn = as_array(torque["tau_fb"][column])
@@ -416,14 +431,15 @@ def test_the_feedback_torque_display_series_is_on_the_target_grid(workspace):
 def test_fb_share_over_time_follows_the_local_share_and_stays_low_where_a_joint_is_parked(workspace):
     """Away from a step, any ±150 ms window sees one regime, so the share there is |fb| / (|ff| + |fb|) at that instant.
     Where the elbow is parked (no feedforward, |fb| ~ 1e-4 N·m) an unfloored ratio reads 100 %; floored, it stays low."""
-    levels = levels_of(written(workspace, "mixed"))
-    grid = as_array(target_of(levels, "probe")["t"])
-    shoulder_clear = np.abs(grid - SWITCH_S) > CLEAR_S
-    elbow_clear = (grid < PARKED[0] - CLEAR_S) | (grid > PARKED[1] + CLEAR_S)
-    elbow_parked = (grid > PARKED[0] + CLEAR_S) & (grid < PARKED[1] - CLEAR_S)
+    out = written(workspace, "mixed")
+    levels = levels_of(out)
     for plan in WITH_BREAKDOWN:
-        parts, torque = truth(plan), line_of(levels, plan).get("torque")
-        assert torque, f"{plan.name}: no line['torque']"
+        grid, torque = drawn_of(out, levels, plan)
+        shoulder_clear = np.abs(grid - SWITCH_S) > CLEAR_S
+        elbow_clear = (grid < PARKED[0] - CLEAR_S) | (grid > PARKED[1] + CLEAR_S)
+        elbow_parked = (grid > PARKED[0] + CLEAR_S) & (grid < PARKED[1] - CLEAR_S)
+        parts = truth(plan)
+        assert torque, f"{plan.name}: no torque series in its target file"
         series = [as_array(values) for values in torque["fb_share_over_time"]]
         assert len(series) == len(JOINTS) and all(values.size == grid.size for values in series), plan.name
         for values in series:
