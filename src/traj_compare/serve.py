@@ -84,8 +84,14 @@ def landing_page(root: Path) -> str:
         )
     body = "<ul>" + "".join(items) + "</ul>" if items else "<p>No sites found.</p>"
     return (
-        '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sites</title></head>'
-        f"<body><h1>Sites</h1>{body}</body></html>"
+        '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sites</title>'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        "<style>body{font:15px/1.5 system-ui,sans-serif;margin:32px auto;max-width:760px;padding:0 16px;color:#2c2c2a;"
+        "background:#fafaf8}h1{font-size:22px;margin:0 0 4px}p{color:#6b6a65;margin:0 0 18px}ul{list-style:none;padding:0}"
+        "li{margin:0 0 8px}a{display:block;padding:12px 16px;border:1px solid #deddd8;border-radius:8px;background:#fff;"
+        "color:#2c2c2a;text-decoration:none}a:hover{border-color:#7c5cc4}</style></head>"
+        "<body><h1>Sites</h1><p>Every dataset site below this folder; a run's report is built when you first open it.</p>"
+        f"{body}</body></html>"
     )
 
 
