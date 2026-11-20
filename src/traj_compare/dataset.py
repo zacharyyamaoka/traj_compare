@@ -20,11 +20,16 @@ Files (file-first, so a dataset can be re-read, re-sorted or opened in pandas wi
     out/index.html                  the at-a-glance page (self-contained, hash routes, works from file://)
     out/rows.json, rows.parquet     one row per run x pair x metric x stat, SI, every tag its own column
     out/runs/<slug>/manifest.json   what the drill-down needs to rebuild itself
-    out/runs/<slug>/reference.npz   robot_msgs ``save_npz`` per series (``load_npz`` reads them back)
-    out/runs/<slug>/<series>.npz
+    out/runs/<slug>/<series>.npz    robot_msgs's npz layout per series (``load_npz`` reads them back)
     out/runs/<slug>/<series>.torques.npz   the torque breakdown a series was given (tau_cmd / tau_ff / tau_fb), if any
     out/runs/<slug>/media/<key>.<ext>
     out/runs/<slug>/report.html     the run view, built lazily (or eagerly) from the files above
+    out/references/<digest>.npz     each distinct reference once, named by a SHA-1 of its saved content; a manifest's
+                                    ``files.reference`` is ``../../references/<digest>.npz`` (no per-run reference.npz),
+                                    and a reference no ``runs/*/manifest.json`` names is deleted after the write
+
+Every ``.npz`` is deflated (``np.savez_compressed``, values bit-identical), so ``load_npz`` and ``np.load`` read it
+unchanged. A manifest written before 2026-11-20 names ``"reference.npz"`` beside its series and still builds.
 
 Every number is ``robot_msgs.compare``'s (compare, check, aggregate, estimate_time_offset); nothing
 here re-implements a metric. Angles are SI in the data and degrees in the human view.
@@ -53,7 +58,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from robot_msgs._core import from_dict, load_npz, save_npz, to_dict
+from robot_msgs._core import from_dict, load_npz, to_dict
 from robot_msgs.compare import (
     PoseTolerance,
     Tolerances,
@@ -860,26 +865,114 @@ def _torque_file(series: str) -> str:
     return f"{_safe_name(series)}.torques.npz"
 
 
+# What robot_msgs' save_npz stores for a message: its ``__msg__`` JSON and the arrays that JSON names by key.
+_NpzContent = tuple[str, dict[str, np.ndarray]]
+
+
+def _npz_content(message: Any) -> _NpzContent:
+    arrays: dict[str, np.ndarray] = {}
+    return json.dumps(to_dict(message, arrays=arrays)), arrays
+
+
+def _save_npz(message: Any, path: Path, content: _NpzContent | None = None) -> None:
+    """robot_msgs' ``save_npz`` layout (``__msg__`` + its arrays), deflated (NAVIGATION.md C6).
+
+    ``robot_msgs._core.load_npz`` and ``np.load`` read it unchanged, values bit-identical. WHY not robot_msgs' own
+    ``save_npz``: it stores uncompressed, and the UR5e site's 0.81 GB of references were 886 KB each, 528 KB deflated.
+    """
+    tree, arrays = content if content is not None else _npz_content(message)
+    np.savez_compressed(path, __msg__=np.array(tree), **arrays)
+
+
+def _content_digest(content: _NpzContent) -> str:
+    """A SHA-1 over a message's saved content: its JSON tree, then every array's key, dtype, shape and bytes."""
+    tree, arrays = content
+    digest = hashlib.sha1(tree.encode("utf-8"))
+    for key, array in arrays.items():
+        # WHY dtype and shape too: equal bytes as float32 vs float64, or (N, 2) vs (2, N), are different references.
+        digest.update(f"\0{key}\0{array.dtype.str}\0{array.shape}\0".encode())
+        digest.update(array.tobytes())
+    return digest.hexdigest()
+
+
+# A run folder is output/runs/<slug>, so this is output/references as its manifest names it.
+_REFERENCES_FROM_RUN = "../../references"
+
+
+class _References:
+    """``references/<digest>.npz``: each distinct reference written once per write (NAVIGATION.md C6).
+
+    WHY shared: the UR5e site copied ``reference.npz`` into all 4932 run folders (0.81 GB) for only 974 distinct
+    references. Named by content, so equal references in new objects, another run order or another site share a name.
+    """
+
+    def __init__(self, directory: Path) -> None:
+        self.directory = directory
+        # id(reference) -> (the reference, its manifest path); holding the object keeps its id from being reused.
+        self._by_object: dict[int, tuple[JointTrajectory, str]] = {}
+        self._written: set[str] = set()
+
+    def save(self, reference: JointTrajectory) -> str:
+        """The manifest's ``files.reference`` for ``reference``, writing its file the first time this write sees it."""
+        known = self._by_object.get(id(reference))
+        if known is not None and known[0] is reference:
+            return known[1]
+        content = _npz_content(reference)
+        name = f"{_content_digest(content)}.npz"
+        if name not in self._written:
+            self.directory.mkdir(parents=True, exist_ok=True)
+            # WHY rewritten once per write rather than skipped when present: a file a killed write truncated would
+            # otherwise be trusted for as long as its name stays the same.
+            _save_npz(reference, self.directory / name, content)
+            self._written.add(name)
+        relative = f"{_REFERENCES_FROM_RUN}/{name}"
+        self._by_object[id(reference)] = (reference, relative)
+        return relative
+
+    def prune(self, runs_dir: Path) -> None:
+        """Delete every ``references/*.npz`` that no ``runs/*/manifest.json`` on disk names, an earlier write's too.
+
+        WHY every manifest on disk, not only this write's: a run folder an earlier write left still builds, so the
+        reference it names must outlive this write.
+        """
+        if not self.directory.is_dir():
+            return
+        named: set[Path] = set()
+        for manifest_path in runs_dir.glob("*/manifest.json"):
+            try:
+                files = json.loads(manifest_path.read_text("utf-8"))["files"]
+                named.update((manifest_path.parent / relative).resolve() for relative in files.values())
+            except (OSError, ValueError, KeyError, TypeError, AttributeError):
+                continue  # a manifest that does not parse names nothing a drill-down could build from
+        for path in self.directory.glob("*.npz"):
+            if path.resolve() not in named:
+                path.unlink()
+
+
 def _write_run_files(
     run: Run, folder: Path, slug: str, options: _Analysis, specs: Mapping[str, str | None], import_roots: list[str],
     primary: Mapping[str, str], visible_pairs: Sequence[tuple[str, str]], target: _Target | None = None,
+    *, references: _References,
 ) -> None:
     folder.mkdir(parents=True, exist_ok=True)
     # WHY: a drill-down cached by an earlier write describes the old data; lazy mode would serve it.
     (folder / "report.html").unlink(missing_ok=True)
     shutil.rmtree(folder / "rerun", ignore_errors=True)
-    files = {REFERENCE: "reference.npz"}
-    save_npz(run.reference, folder / "reference.npz")
+    # WHY: a write before 2026-11-20 copied the reference into every run folder; this manifest names references/.
+    (folder / "reference.npz").unlink(missing_ok=True)
+    files = {REFERENCE: references.save(run.reference)}
     for name, trajectory in run.measured.items():
         files[name] = f"{_safe_name(name)}.npz"
-        save_npz(trajectory, folder / files[name])
+        _save_npz(trajectory, folder / files[name])
     # The torque breakdown beside its series (CONTRACT.md addendum): <series>.torques.npz holds only the keys given, so
     # the drill-down derives the third exactly as the run view does. WHY unlink first: a breakdown an earlier write
     # left behind would otherwise outlive the run that no longer carries it.
     for stale in folder.glob("*.torques.npz"):
         stale.unlink()
     for name, parts in run.torques.items():
-        np.savez(folder / _torque_file(name), **{key: np.asarray(values, dtype=float) for key, values in parts.items()})
+        np.savez_compressed(
+            folder / _torque_file(name), **{key: np.asarray(values, dtype=float) for key, values in parts.items()}
+        )
     media: dict[str, str] = {}
     for key, source in run.media.items():
         source = Path(source)
@@ -913,13 +1006,51 @@ def _write_run_files(
     (folder / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
 
-def _write_rows(output_dir: Path, rows: list[dict[str, Any]]) -> None:
-    (output_dir / "rows.json").write_text(json.dumps(rows, separators=(",", ":")), encoding="utf-8")
-    try:
-        import pyarrow as pa
-        import pyarrow.parquet as pq
-    except ModuleNotFoundError:  # the optional `export` extra
+_ROW_FILES = ("json", "parquet")
+
+
+def _row_files(rows: Sequence[str] | None) -> frozenset[str]:
+    """Which row files this write produces (NAVIGATION.md C2); raises before any file is written.
+
+    WHY a choice: the UR5e site's 460 MB ``rows.json`` was never read once ``rows.parquet`` existed.
+    """
+    if rows is None:  # rows.json always, rows.parquet when pyarrow (the optional `export` extra) imports
+        try:
+            import pyarrow.parquet  # noqa: F401
+        except ModuleNotFoundError:
+            return frozenset({"json"})
+        return frozenset(_ROW_FILES)
+    if isinstance(rows, str):  # "json" would otherwise read as the names "j", "s", "o", "n"
+        raise ValueError(f"rows is a sequence of row file names from {_ROW_FILES}, e.g. ('json',), not {rows!r}")
+    chosen = list(dict.fromkeys(rows))
+    unknown = [name for name in chosen if name not in _ROW_FILES]
+    if unknown:
+        raise ValueError(f"rows names unknown row files {unknown}; choose from {_ROW_FILES}")
+    if "parquet" in chosen:
+        try:
+            import pyarrow  # noqa: F401
+            import pyarrow.parquet  # noqa: F401
+        except ModuleNotFoundError as error:
+            raise ModuleNotFoundError(
+                "rows.parquet needs pyarrow (traj-compare's `export` extra); install it or leave 'parquet' out of rows",
+                name=error.name,
+            ) from error
+    return frozenset(chosen)
+
+
+def _write_rows(output_dir: Path, rows: list[dict[str, Any]], files: frozenset[str]) -> None:
+    """Write the row files ``files`` names (from ``_row_files``) and delete the other one, so no stale rows outlive
+    their data."""
+    if "json" in files:
+        (output_dir / "rows.json").write_text(json.dumps(rows, separators=(",", ":")), encoding="utf-8")
+    else:
+        (output_dir / "rows.json").unlink(missing_ok=True)
+    if "parquet" not in files:
+        (output_dir / "rows.parquet").unlink(missing_ok=True)
         return
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
     columns = list(dict.fromkeys(key for row in rows for key in row))
     arrays = {}
     for column in columns:
@@ -948,6 +1079,7 @@ def write_dataset_report(
     primary: Mapping[str, str] | None = None,
     drill_down: str = "lazy",
     data_ui: bool = False,
+    rows: Sequence[str] | None = None,
     target_by: str | None = None,
     config_by: str | None = None,
     display_hz: float = 50.0,
@@ -976,11 +1108,15 @@ def write_dataset_report(
     - ``data_ui``: also write ``output_dir/data-ui/`` (``traj_compare.data_ui.write_tables``): data-ui's trajectory-contract
       tables over the same runs (the TCP from ``poses``, the links from ``robot``) and a ``views.base`` dashboard whose run
       rows link back to the drill-down. Open it in data-ui; see the README's "data-ui" section.
+    - ``rows``: which row files to write, a subset of ``("json", "parquet")``. ``None`` is ``rows.json`` plus
+      ``rows.parquet`` when pyarrow imports, ``()`` neither; one not chosen is deleted. An unknown name (``ValueError``)
+      or ``"parquet"`` without pyarrow (``ModuleNotFoundError``) raises before any file is written.
     """
 
     runs = list(runs)
     primary = dict(primary or {})
     group_by = tuple(group_by)
+    row_files = _row_files(rows)  # NAVIGATION.md C2: refused before anything is written, the output directory included
     if drill_down not in _DRILL_DOWNS:
         raise ValueError(f"drill_down is one of {_DRILL_DOWNS}, got {drill_down!r}")
     if display_hz <= 0:
@@ -1011,14 +1147,16 @@ def write_dataset_report(
     pair_order = list(dict.fromkeys(pair for run in runs for pair in run.resolved_pairs()))
     default_view = [pair for pair in pair_order if all(_visible(name, primary) for name in pair)]
 
-    rows: list[dict[str, Any]] = []
+    tidy_rows: list[dict[str, Any]] = []  # WHY not `rows`: that name is the row-file choice (C2)
     entries: list[dict[str, Any]] = []
     pose_cache: dict[str, dict[str, PoseTrajectory]] = {}
     joint_errors: dict[tuple[str, str], Any] = {}
+    references = _References(output_dir / "references")
     for run in runs:
         slug = slugs[run.name]
         _write_run_files(
-            run, output_dir / "runs" / slug, slug, options, specs, import_roots, primary, default_view, target_of[run.name]
+            run, output_dir / "runs" / slug, slug, options, specs, import_roots, primary, default_view, target_of[run.name],
+            references=references,
         )
         tags = {key: _tag_value(value) for key, value in run.tags.items()}
         pose_cache[run.name] = options.pose_trajectories(run)
@@ -1050,15 +1188,16 @@ def write_dataset_report(
             for metric, stats in metrics:
                 unit = _metric_unit(metric)
                 for stat, value in stats.as_dict().items():
-                    rows.append(
+                    tidy_rows.append(
                         {**base, "metric": metric, "stat": stat, "value": _finite(value), "unit": _stat_unit(unit, stat), **tags}
                     )  # fmt: skip
             for metric, stat, value, unit in (
                 ("coverage", "value", analysis["coverage"], ""),
                 ("latency", "value", analysis["latency_s"], "s"),
             ):
-                rows.append({**base, "metric": metric, "stat": stat, "value": value, "unit": unit, **tags})
-    _write_rows(output_dir, rows)
+                tidy_rows.append({**base, "metric": metric, "stat": stat, "value": value, "unit": unit, **tags})
+    _write_rows(output_dir, tidy_rows, row_files)
+    references.prune(output_dir / "runs")
 
     aggregates = _group_aggregates(runs, group_by, options, pose_cache)
     joint_names = list(dict.fromkeys(name for entry in entries for name in entry.get("joints", {})))
