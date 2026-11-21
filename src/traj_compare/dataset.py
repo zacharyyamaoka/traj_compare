@@ -20,8 +20,10 @@ Files (file-first, so a dataset can be re-read, re-sorted or opened in pandas wi
     out/index.html                  the at-a-glance page (scalars only, hash routes, works from file://)
     out/targets/<slug>.js           one target's drawn series (joint error, torque display series), at most target_budget
                                     values: a classic script index.html loads when that target is shown
+    out/targets/<slug>.cache.json   that target's index entry and lines, under the key a later write reuses them by
     out/rows.json, rows.parquet     one row per run x pair x metric x stat, SI, every tag its own column
-    out/runs/<slug>/manifest.json   what the drill-down needs to rebuild itself
+    out/runs/<slug>/manifest.json   what the drill-down needs to rebuild itself, and the run's digest; written last
+    out/runs/<slug>/analysis.json   the run's index entries and tidy rows, under its digest, for a later write to reuse
     out/runs/<slug>/<series>.npz    robot_msgs's npz layout per series (``load_npz`` reads them back)
     out/runs/<slug>/<series>.torques.npz   the torque breakdown a series was given (tau_cmd / tau_ff / tau_fb), if any
     out/runs/<slug>/media/<key>.<ext>
@@ -32,6 +34,11 @@ Files (file-first, so a dataset can be re-read, re-sorted or opened in pandas wi
 
 Every ``.npz`` is deflated (``np.savez_compressed``, values bit-identical), so ``load_npz`` and ``np.load`` read it
 unchanged. A manifest written before 2026-11-20 names ``"reference.npz"`` beside its series and still builds.
+
+Writes are incremental (NAVIGATION.md Part D): a run whose digest matches its folder's is reused, files untouched, and a
+target whose key matches its ``.cache.json`` likewise; the output equals a ``reuse=False`` write. Every file goes to a
+temporary name and is renamed into place (``_files``), so a hard-linked copy of a site can be rewritten without touching
+the original, and ``progress(phase, done, total)`` reports the runs, reused, targets, index and drill phases.
 
 Every number is ``robot_msgs.compare``'s (compare, check, aggregate, estimate_time_offset); nothing
 here re-implements a metric. Angles are SI in the data and degrees in the human view.
@@ -72,7 +79,7 @@ from robot_msgs.compare import (
 )
 from robot_msgs.trajectory import JointTrajectory, PoseTrajectory
 
-from . import rerun_export
+from . import _files, rerun_export
 from .analysis import _BREAKDOWN_KEYS, _torque_breakdown
 from .model import Comparison, ReportPage, RobotDisplay, Signal, Situation
 from .report import write_comparison_report
@@ -318,6 +325,23 @@ class _Analysis:
         return {name: self.poses(trajectory) for name, trajectory in run.series().items()}
 
 
+class _Poses(dict):
+    """Run name -> that run's pose trajectories (``_Analysis.pose_trajectories``), each taken when first asked for.
+
+    WHY lazy (NAVIGATION.md D1): a reused run's TCP is needed only by what this write recomputes (a target that is not
+    reused, a ``group_by`` card over one reference), and the poses function was 1.5 s of the bench's 600-run build.
+    """
+
+    def __init__(self, runs: Sequence[Run], options: _Analysis) -> None:
+        super().__init__()
+        self._runs = {run.name: run for run in runs}
+        self._options = options
+
+    def __missing__(self, name: str) -> dict[str, PoseTrajectory]:
+        poses = self[name] = self._options.pose_trajectories(self._runs[name])
+        return poses
+
+
 def _violation(violation: Any) -> dict[str, Any]:
     return {
         "phase": violation.phase,
@@ -394,6 +418,52 @@ def _analyze_pair(
         judged = (poses[first], poses[second]) if options.pose_tolerances else (series[first], series[second])
         entry["verdict"] = _verdict(check(*judged, options.tolerances, time_offset_s=offset))
     return entry, metrics
+
+
+def _analyze_run(
+    run: Run, slug: str, options: _Analysis, poses: Mapping[str, PoseTrajectory],
+    joint_errors: dict[tuple[str, str], Any],
+) -> dict[str, list[dict[str, Any]]]:
+    """One run's ``entries`` (its rows of the index payload, one per pair, error entries included) and its tidy ``rows``
+    for rows.json: what its ``analysis.json`` keeps (NAVIGATION.md D1). JSON-clean, so a reused run's equal a fresh
+    one's."""
+    tags = {key: _tag_value(value) for key, value in run.tags.items()}
+    entries: list[dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
+    for first, second in run.resolved_pairs():
+        entry: dict[str, Any] = {
+            "run": run.name,
+            "slug": slug,
+            "pair": [first, second],
+            "tags": tags,
+            "report": f"runs/{slug}/report.html",
+            "rrd": f"runs/{slug}/rerun/{_pair_name(first, second)}.rrd",
+        }
+        try:
+            analysis, metrics = _analyze_pair(run, first, second, options, poses, joint_errors)
+        except ValueError as error:  # e.g. the two series never overlap in time
+            # WHY recorded, not raised: one broken run must not hide the other 386; the row says why.
+            warnings.warn(_pair_warning(run.name, first, second, error), stacklevel=3)
+            entries.append({**entry, "error": str(error)})
+            continue
+        entries.append({**entry, **analysis})
+        base = {"run": run.name, "pair": [first, second]}
+        for metric, stats in metrics:
+            unit = _metric_unit(metric)
+            for stat, value in stats.as_dict().items():
+                rows.append(
+                    {**base, "metric": metric, "stat": stat, "value": _finite(value), "unit": _stat_unit(unit, stat), **tags}
+                )  # fmt: skip
+        for metric, stat, value, unit in (
+            ("coverage", "value", analysis["coverage"], ""),
+            ("latency", "value", analysis["latency_s"], "s"),
+        ):
+            rows.append({**base, "metric": metric, "stat": stat, "value": value, "unit": unit, **tags})
+    return {"entries": _clean(entries), "rows": rows}
+
+
+def _pair_warning(run_name: str, first: str, second: str, error: Any) -> str:
+    return f"{run_name}: {first} -> {second}: {error}"
 
 
 # ── ISO 9283 per group and series ────────────────────────────────────────────
@@ -758,122 +828,124 @@ def _target_stride(
     return stride, display_stride, rate
 
 
-def _levels_payload(
-    runs: Sequence[Run], targets: Sequence[_Target], slugs: Mapping[str, str], config_tag: str | None,
-    joint_errors: Mapping[tuple[str, str], Any], entries: Sequence[Mapping[str, Any]], options: _Analysis,
-    poses: Mapping[str, Mapping[str, PoseTrajectory]], display_hz: float, labels: Mapping[str, str],
-    target_budget: int, write_target: Callable[[str, str], None],
-) -> dict[str, Any]:
-    """What the Dataset and Target levels draw: targets, configs and one line per measured series of every run.
+def _target_level(
+    target: _Target, order: Mapping[str, int], slugs: Mapping[str, str], config_tag: str | None,
+    joint_errors: Mapping[tuple[str, str], Any], analysed: Mapping[tuple[str, str], Mapping[str, Any]], options: _Analysis,
+    poses: Mapping[str, Mapping[str, PoseTrajectory]], display_hz: float, labels: Mapping[str, str], target_budget: int,
+) -> tuple[dict[str, Any], list[dict[str, Any]], str]:
+    """What the Dataset and Target levels draw of one target: its entry in ``levels.targets`` (with its own
+    ``has_torque_breakdown``, before ``_site_levels``), its lines in ``levels.lines`` (one per measured series of each of
+    its runs), and the data of its file ``targets/<slug>.js``.
 
-    The index keeps each line's scalars only, SI (rad, like ``rows``). Every line's drawn series go to its target's file
-    through ``write_target(slug, text)`` (NAVIGATION.md C5): ``e_deg``, the joint error target − line in degrees, and the
-    torque display series, on the target's display grid (the display edge, like data_ui's tables), picked at
-    ``display_hz`` and thinned further until the file holds at most ``target_budget`` values. Every number is
-    robot_msgs.compare's.
+    The index keeps each line's scalars only, SI (rad, like ``rows``). Every line's drawn series go to the target's file
+    (NAVIGATION.md C5): ``e_deg``, the joint error target − line in degrees, and the torque display series, on the
+    target's display grid (the display edge, like data_ui's tables), picked at ``display_hz`` and thinned further until the
+    file holds at most ``target_budget`` values. Every number is robot_msgs.compare's. ``analysed`` holds the index
+    entry of each (reference, series) pair by (run name, series); ``order`` each run's place in this write.
     """
-    analysed = {(entry["run"], entry["pair"][1]): entry for entry in entries if entry["pair"][0] == REFERENCE}
-    order = {run.name: index for index, run in enumerate(runs)}
+    reference = target.reference
+    reference_t = np.asarray(reference.t, dtype=float)
+    joints = list(reference.joint_names)
+    members: dict[str, dict[str, list[tuple[Run, str]]]] = {}
+    own_lines: list[dict[str, Any]] = []
+    # (line id, its samples on the target clock, error per joint (rad), its samples for torque, torque series)
+    series_of: list[tuple[str, np.ndarray, list[np.ndarray | None], np.ndarray | None, dict[str, list]]] = []
+    for run in target.runs:
+        for series, measured in run.measured.items():
+            kind = _kind(series)
+            if config_tag is None:
+                config = series
+            else:
+                config = str(_tag_value(run.tags[config_tag])) if config_tag in run.tags else f"no {config_tag}"
+            members.setdefault(config, {"sim": [], "real": []})[kind].append((run, series))
+            line: dict[str, Any] = {
+                "id": f"{run.name} · {series}",
+                "run": run.name,
+                "series": series,
+                "label": labels.get(series, series),
+                "target": target.slug,
+                "config": config,
+                "kind": kind,
+                "date": str(_tag_value(run.tags[DATE_TAG])) if DATE_TAG in run.tags else "",
+                "order": order[run.name],
+                "report": f"runs/{slugs[run.name]}/report.html",
+            }
+            offset = run.relative_offset_s(REFERENCE, series)
+            try:
+                joint = joint_errors.get((run.name, series)) or compare(reference, measured, time_offset_s=offset)
+            except ValueError as error:  # e.g. no overlap: the line is listed and says why, it draws nothing
+                own_lines.append({**line, "error": str(error)})
+                continue
+            entry = analysed.get((run.name, series))
+            rms = {name: _finite(joint.metrics[f"positions/{name}"].rms) for name in joint.error.joint_names}
+            worst = max((name for name in rms if rms[name] is not None), key=lambda name: rms[name], default=None)
+            times = joint.error.absolute_times - offset - float(reference.header.stamp)
+            columns = {name: index for index, name in enumerate(joint.error.joint_names)}
+            line.update(
+                rms=rms,
+                worst_rms=None if worst is None else rms[worst],
+                worst_joint=worst,
+                coverage=_finite(joint.coverage),
+                ok=(entry or {}).get("verdict", {}).get("ok") if options.tolerances is not None else None,
+            )
+            errors = [joint.error.positions[:, columns[name]] if name in columns else None for name in joints]
+            torque_times, drawn = None, {}
+            # WHY only when given (Zach 2026-11-19, torque breakdown in the dataset view; CONTRACT.md addendum): a
+            # line without a breakdown carries no torque key at all, so a dataset without one is today's payload.
+            if run.torques.get(series):
+                torque_times = np.asarray(measured.absolute_times, dtype=float) - offset - float(reference.header.stamp)
+                line["torque"], drawn = _line_torque(series, measured, run.torques[series], joints)
+            series_of.append((line["id"], times, errors, torque_times, drawn))
+            own_lines.append(line)
+    # One drawn value per joint per series per grid instant: e_deg, then tau_fb and fb_share_over_time if given.
+    per_sample = sum(len(joints) * (1 + len(drawn)) for _, _, _, _, drawn in series_of)
+    stride, display_stride, rate = _target_stride(reference, display_hz, per_sample, target_budget, target.key)
+    grid = reference_t[::stride]
+    # The file's object, written as text one line at a time (see _series_json): {"slug", "points", "stride",
+    # "drawn_hz", "lines": [{"id", "e_deg": [per joint], "torque": {"tau_fb", "fb_share_over_time"}}]}.
+    drawn_lines = []
+    for line_id, times, errors, torque_times, drawn in series_of:
+        e_deg = _series_json([_picked_on(grid, times, values, 180.0 / math.pi) for values in errors])
+        text = f'{{"id":{json.dumps(line_id)},"e_deg":{e_deg}'
+        if drawn:
+            parts = [
+                f"{json.dumps(key)}:{_series_json([_picked_on(grid, torque_times, v) for v in values])}"
+                for key, values in drawn.items()
+            ]
+            text += f',"torque":{{{",".join(parts)}}}'
+        drawn_lines.append(text + "}")
+    head = {"slug": target.slug, "points": len(grid), "stride": stride, "drawn_hz": None if rate is None else rate / stride}
+    data = json.dumps(head, separators=(",", ":"))[:-1] + ',"lines":[' + ",".join(drawn_lines) + "]}"
+    target_row: dict[str, Any] = {
+        "key": target.key,
+        "slug": target.slug,
+        "title": target.title,
+        "named_by": target.named_by,
+        "joints": joints,
+        "t": [round(float(value), 4) for value in grid],
+        # the rate the target's file draws (NAVIGATION.md C5): its reference's, picked every ``stride``-th sample;
+        # ``capped`` when target_budget thinned it below display_hz
+        "rate_hz": rate,
+        "stride": stride,
+        "drawn_hz": None if rate is None else rate / stride,
+        "capped": stride > display_stride,
+        "runs": len(target.runs),
+        "repeatability": {
+            config: _repeatability(reference, kinds["real"] or kinds["sim"], poses, options)
+            for config, kinds in members.items()
+        },
+    }
+    target_row["has_torque_breakdown"] = any(line.get("torque") for line in own_lines)
+    return target_row, own_lines, data
+
+
+def _site_levels(target_rows: list[dict[str, Any]], lines: list[dict[str, Any]]) -> dict[str, Any]:
+    """``levels`` from every target's entry and lines, in target order: the site-wide pieces no one target decides,
+    recomputed on every write (NAVIGATION.md D1b): each config's line counts and colour (C4), its ``fb_share_median``,
+    and the ``has_torque_breakdown`` flags, which stay only when some target has a breakdown."""
     configs: dict[str, dict[str, int]] = {}
-    lines: list[dict[str, Any]] = []
-    target_rows: list[dict[str, Any]] = []
-    for target in targets:
-        reference = target.reference
-        reference_t = np.asarray(reference.t, dtype=float)
-        joints = list(reference.joint_names)
-        members: dict[str, dict[str, list[tuple[Run, str]]]] = {}
-        own_lines: list[dict[str, Any]] = []
-        # (line id, its samples on the target clock, error per joint (rad), its samples for torque, torque series)
-        series_of: list[tuple[str, np.ndarray, list[np.ndarray | None], np.ndarray | None, dict[str, list]]] = []
-        for run in target.runs:
-            for series, measured in run.measured.items():
-                kind = _kind(series)
-                if config_tag is None:
-                    config = series
-                else:
-                    config = str(_tag_value(run.tags[config_tag])) if config_tag in run.tags else f"no {config_tag}"
-                configs.setdefault(config, {"sim": 0, "real": 0})[kind] += 1
-                members.setdefault(config, {"sim": [], "real": []})[kind].append((run, series))
-                line: dict[str, Any] = {
-                    "id": f"{run.name} · {series}",
-                    "run": run.name,
-                    "series": series,
-                    "label": labels.get(series, series),
-                    "target": target.slug,
-                    "config": config,
-                    "kind": kind,
-                    "date": str(_tag_value(run.tags[DATE_TAG])) if DATE_TAG in run.tags else "",
-                    "order": order[run.name],
-                    "report": f"runs/{slugs[run.name]}/report.html",
-                }
-                offset = run.relative_offset_s(REFERENCE, series)
-                try:
-                    joint = joint_errors.get((run.name, series)) or compare(reference, measured, time_offset_s=offset)
-                except ValueError as error:  # e.g. no overlap: the line is listed and says why, it draws nothing
-                    own_lines.append({**line, "error": str(error)})
-                    continue
-                entry = analysed.get((run.name, series))
-                rms = {name: _finite(joint.metrics[f"positions/{name}"].rms) for name in joint.error.joint_names}
-                worst = max((name for name in rms if rms[name] is not None), key=lambda name: rms[name], default=None)
-                times = joint.error.absolute_times - offset - float(reference.header.stamp)
-                columns = {name: index for index, name in enumerate(joint.error.joint_names)}
-                line.update(
-                    rms=rms,
-                    worst_rms=None if worst is None else rms[worst],
-                    worst_joint=worst,
-                    coverage=_finite(joint.coverage),
-                    ok=(entry or {}).get("verdict", {}).get("ok") if options.tolerances is not None else None,
-                )
-                errors = [joint.error.positions[:, columns[name]] if name in columns else None for name in joints]
-                torque_times, drawn = None, {}
-                # WHY only when given (Zach 2026-11-19, torque breakdown in the dataset view; CONTRACT.md addendum): a
-                # line without a breakdown carries no torque key at all, so a dataset without one is today's payload.
-                if run.torques.get(series):
-                    torque_times = np.asarray(measured.absolute_times, dtype=float) - offset - float(reference.header.stamp)
-                    line["torque"], drawn = _line_torque(series, measured, run.torques[series], joints)
-                series_of.append((line["id"], times, errors, torque_times, drawn))
-                own_lines.append(line)
-        # One drawn value per joint per series per grid instant: e_deg, then tau_fb and fb_share_over_time if given.
-        per_sample = sum(len(joints) * (1 + len(drawn)) for _, _, _, _, drawn in series_of)
-        stride, display_stride, rate = _target_stride(reference, display_hz, per_sample, target_budget, target.key)
-        grid = reference_t[::stride]
-        # The file's object, written as text one line at a time (see _series_json): {"slug", "points", "stride",
-        # "drawn_hz", "lines": [{"id", "e_deg": [per joint], "torque": {"tau_fb", "fb_share_over_time"}}]}.
-        drawn_lines = []
-        for line_id, times, errors, torque_times, drawn in series_of:
-            e_deg = _series_json([_picked_on(grid, times, values, 180.0 / math.pi) for values in errors])
-            text = f'{{"id":{json.dumps(line_id)},"e_deg":{e_deg}'
-            if drawn:
-                parts = [
-                    f"{json.dumps(key)}:{_series_json([_picked_on(grid, torque_times, v) for v in values])}"
-                    for key, values in drawn.items()
-                ]
-                text += f',"torque":{{{",".join(parts)}}}'
-            drawn_lines.append(text + "}")
-        head = {"slug": target.slug, "points": len(grid), "stride": stride, "drawn_hz": None if rate is None else rate / stride}
-        write_target(target.slug, json.dumps(head, separators=(",", ":"))[:-1] + ',"lines":[' + ",".join(drawn_lines) + "]}")
-        lines.extend(own_lines)
-        target_row: dict[str, Any] = {
-            "key": target.key,
-            "slug": target.slug,
-            "title": target.title,
-            "named_by": target.named_by,
-            "joints": joints,
-            "t": [round(float(value), 4) for value in grid],
-            # the rate the target's file draws (NAVIGATION.md C5): its reference's, picked every ``stride``-th sample;
-            # ``capped`` when target_budget thinned it below display_hz
-            "rate_hz": rate,
-            "stride": stride,
-            "drawn_hz": None if rate is None else rate / stride,
-            "capped": stride > display_stride,
-            "runs": len(target.runs),
-            "repeatability": {
-                config: _repeatability(reference, kinds["real"] or kinds["sim"], poses, options)
-                for config, kinds in members.items()
-            },
-        }
-        target_row["has_torque_breakdown"] = any(line.get("torque") for line in own_lines)
-        target_rows.append(target_row)
+    for line in lines:  # error lines too; configs in order of first appearance, so a config keeps its colour
+        configs.setdefault(line["config"], {"sim": 0, "real": 0})[line["kind"]] += 1
     any_breakdown = any(row["has_torque_breakdown"] for row in target_rows)
     if not any_breakdown:
         for row in target_rows:
@@ -1053,7 +1125,7 @@ def _save_npz(message: Any, path: Path, content: _NpzContent | None = None) -> N
     ``save_npz``: it stores uncompressed, and the UR5e site's 0.81 GB of references were 886 KB each, 528 KB deflated.
     """
     tree, arrays = content if content is not None else _npz_content(message)
-    np.savez_compressed(path, __msg__=np.array(tree), **arrays)
+    _files.save_npz(path, {"__msg__": np.array(tree), **arrays})
 
 
 def _content_digest(content: _NpzContent) -> str:
@@ -1067,66 +1139,232 @@ def _content_digest(content: _NpzContent) -> str:
     return digest.hexdigest()
 
 
+class _Contents:
+    """Each message's saved content (``_npz_content``) and its C6 digest, taken once per write.
+
+    WHY once (NAVIGATION.md D1): a run's digest, its reference's file name and its series' ``.npz`` all need the same
+    content, and the reference every run of a target shares would otherwise be hashed once per run.
+    """
+
+    def __init__(self) -> None:
+        # id(message) -> (the message, its content, its digest); holding the message keeps its id from being reused.
+        self._by_object: dict[int, tuple[Any, _NpzContent, str]] = {}
+
+    def of(self, message: Any) -> tuple[_NpzContent, str]:
+        known = self._by_object.get(id(message))
+        if known is None or known[0] is not message:
+            content = _npz_content(message)
+            known = self._by_object[id(message)] = (message, content, _content_digest(content))
+        return known[1], known[2]
+
+
 # A run folder is output/runs/<slug>, so this is output/references as its manifest names it.
 _REFERENCES_FROM_RUN = "../../references"
 
 
+def _reference_names(files: Mapping[str, str]) -> set[str]:
+    """The ``references/*.npz`` a manifest's ``files`` names (a manifest from before 2026-11-20 names none)."""
+    prefix = f"{_REFERENCES_FROM_RUN}/"
+    return {relative[len(prefix) :] for relative in files.values() if relative.startswith(prefix)}
+
+
 class _References:
-    """``references/<digest>.npz``: each distinct reference written once per write (NAVIGATION.md C6).
+    """``references/<digest>.npz``: each distinct reference written once (NAVIGATION.md C6).
 
     WHY shared: the UR5e site copied ``reference.npz`` into all 4932 run folders (0.81 GB) for only 974 distinct
     references. Named by content, so equal references in new objects, another run order or another site share a name.
     """
 
-    def __init__(self, directory: Path) -> None:
+    def __init__(self, directory: Path, contents: _Contents, rewrite: bool) -> None:
         self.directory = directory
-        # id(reference) -> (the reference, its manifest path); holding the object keeps its id from being reused.
-        self._by_object: dict[int, tuple[JointTrajectory, str]] = {}
+        self.contents = contents
+        self.rewrite = rewrite
         self._written: set[str] = set()
 
     def save(self, reference: JointTrajectory) -> str:
-        """The manifest's ``files.reference`` for ``reference``, writing its file the first time this write sees it."""
-        known = self._by_object.get(id(reference))
-        if known is not None and known[0] is reference:
-            return known[1]
-        content = _npz_content(reference)
-        name = f"{_content_digest(content)}.npz"
-        if name not in self._written:
-            self.directory.mkdir(parents=True, exist_ok=True)
-            # WHY rewritten once per write rather than skipped when present: a file a killed write truncated would
-            # otherwise be trusted for as long as its name stays the same.
-            _save_npz(reference, self.directory / name, content)
-            self._written.add(name)
-        relative = f"{_REFERENCES_FROM_RUN}/{name}"
-        self._by_object[id(reference)] = (reference, relative)
-        return relative
+        """The manifest's ``files.reference`` for ``reference``, writing its file unless it is already there.
 
-    def prune(self, runs_dir: Path) -> None:
+        WHY an existing file is kept (``rewrite`` False, i.e. ``reuse=True``): its name is its content, and D2 writes it
+        whole or not at all, so it already holds this reference; rewriting it would also give a hard-linked copy of the
+        site a new inode for nothing. ``reuse=False`` rewrites it once per write, so a file a write from before D2
+        truncated is never trusted past one.
+        """
+        content, digest = self.contents.of(reference)
+        name = f"{digest}.npz"
+        if name not in self._written:
+            path = self.directory / name
+            if self.rewrite or not path.is_file():
+                self.directory.mkdir(parents=True, exist_ok=True)
+                _save_npz(reference, path, content)
+            self._written.add(name)
+        return f"{_REFERENCES_FROM_RUN}/{name}"
+
+    def prune(self, runs_dir: Path, known: Mapping[str, Mapping[str, str]]) -> None:
         """Delete every ``references/*.npz`` that no ``runs/*/manifest.json`` on disk names, an earlier write's too.
 
-        WHY every manifest on disk, not only this write's: a run folder an earlier write left still builds, so the
-        reference it names must outlive this write.
+        ``known`` is the ``files`` of each manifest this write already holds, by run folder name; every other manifest is
+        read once here. WHY every manifest on disk, not only this write's: a run folder an earlier write left still
+        builds, so the reference it names must outlive this write.
         """
         if not self.directory.is_dir():
             return
-        named: set[Path] = set()
+        named: set[str] = set()
+        for files in known.values():
+            named |= _reference_names(files)
         for manifest_path in runs_dir.glob("*/manifest.json"):
+            if manifest_path.parent.name in known:
+                continue
             try:
-                files = json.loads(manifest_path.read_text("utf-8"))["files"]
-                named.update((manifest_path.parent / relative).resolve() for relative in files.values())
+                named |= _reference_names(json.loads(manifest_path.read_text("utf-8"))["files"])
             except (OSError, ValueError, KeyError, TypeError, AttributeError):
                 continue  # a manifest that does not parse names nothing a drill-down could build from
         for path in self.directory.glob("*.npz"):
-            if path.resolve() not in named:
+            if path.name not in named:
                 path.unlink()
+
+
+# ── incremental writes: digests and reuse (NAVIGATION.md Part D) ─────────────
+
+
+def _code_digest(functions: Sequence[Callable[..., Any] | None]) -> str:
+    """A SHA-1 over the code that decides a run's files and analysis: every file of this package (``.py`` and
+    ``assets/``), every ``.py`` of robot_msgs, and the source file defining each of ``functions`` (poses, robot).
+
+    WHY files, not ``__version__``: the version does not move on a commit, and a cache that outlives a code change serves
+    stale numbers. Read on every write, since a module edited on disk is not re-imported. Data such a function loads (a
+    URDF, a MuJoCo model) is not covered: pass ``reuse=False`` after changing it.
+    """
+    import robot_msgs
+
+    package = Path(__file__).parent
+    robot_package = Path(robot_msgs.__file__).parent
+    sources = [
+        (f"traj_compare/{path.relative_to(package).as_posix()}", path)
+        for path in sorted(package.rglob("*"))
+        if path.is_file() and "__pycache__" not in path.parts
+        and (path.suffix == ".py" or path.relative_to(package).parts[0] == "assets")
+    ]  # fmt: skip
+    sources += [
+        (f"robot_msgs/{path.relative_to(robot_package).as_posix()}", path) for path in sorted(robot_package.rglob("*.py"))
+    ]
+    for function in functions:
+        if function is None:
+            continue
+        try:
+            source = inspect.getsourcefile(function)
+        except TypeError:  # a builtin or a C extension: no source file to read
+            source = None
+        source = source or getattr(sys.modules.get(getattr(function, "__module__", "")), "__file__", None)
+        if source:
+            sources.append((f"function/{getattr(function, '__qualname__', function)}", Path(source)))
+    digest = hashlib.sha1()
+    for label, path in sources:
+        data = path.read_bytes()
+        digest.update(f"\0{label}\0{len(data)}\0".encode())
+        digest.update(data)
+    return digest.hexdigest()
+
+
+def _run_digest(run: Run, slug: str, target: _Target, contents: _Contents, shared: str) -> str:
+    """The SHA-1 hex string of everything that decides one run's files and analysis (NAVIGATION.md D1): ``shared`` (the
+    write's code and per-run options), the run (name, title, tags, series, pairs, offsets, media, torques), the C6
+    digest of its reference and of every measured series, and its place in this write (slug, its target's key, slug
+    and title). Dict orders count: a tag's order is a column's order in rows.parquet."""
+    media = []
+    for key, source in run.media.items():
+        source = Path(source)
+        try:
+            status = source.stat()
+        except OSError as error:
+            raise FileNotFoundError(f"run {run.name!r}: media {key!r} is not a file: {source}") from error
+        # WHY its size and mtime, not its bytes: hashing every clip on every write costs about what copying it does. Its
+        # suffix too, since it names the copy (media/<key><suffix>).
+        media.append([str(key), source.suffix.lower(), status.st_size, status.st_mtime_ns])
+    described = {
+        "name": run.name,
+        "title": run.title,
+        "tags": [[str(key), _tag_value(value)] for key, value in run.tags.items()],
+        "series": list(run.measured),
+        "pairs": run.resolved_pairs(),
+        "time_offset_s": [[str(key), float(value)] for key, value in run.time_offset_s.items()],
+        "media_start_s": [[str(key), float(value)] for key, value in run.media_start_s.items()],
+        "media": media,
+        "slug": slug,
+        "target": [target.key, target.slug, target.title],
+    }
+    digest = hashlib.sha1(shared.encode())
+    digest.update(json.dumps(described).encode())
+    for name, message in run.series().items():
+        digest.update(f"\0{name}\0{contents.of(message)[1]}".encode())
+    for series, parts in run.torques.items():
+        for key, values in parts.items():
+            digest.update(f"\0{series}\0{key}\0{values.dtype.str}\0{values.shape}\0".encode())
+            digest.update(np.ascontiguousarray(values).tobytes())
+    return digest.hexdigest()
+
+
+def _reusable_run(folder: Path, digest: str) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """(manifest, analysis) of a run folder D1 reuses: both parse and hold ``digest``, and every file the manifest names
+    (series, reference, torques, media) exists. None when any of that fails: the folder is then rewritten."""
+    try:
+        manifest = json.loads((folder / "manifest.json").read_text("utf-8"))
+        if manifest.get("digest") != digest:
+            return None
+        analysis = json.loads((folder / "analysis.json").read_text("utf-8"))
+        if analysis.get("digest") != digest or not {"entries", "rows"} <= set(analysis):
+            return None
+        named = [*manifest["files"].values(), *manifest["media"].values()]
+        named += [_torque_file(name) for name in manifest["torques"]]
+        if not all((folder / relative).is_file() for relative in named):
+            return None
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+    return manifest, analysis
+
+
+def _target_key(
+    target: _Target, digests: Mapping[str, str], config_tag: str | None, labels: Mapping[str, str], display_hz: float,
+    target_budget: int,
+) -> str:
+    """The SHA-1 hex string D1b reuses a target by: its runs' digests in order, its key, slug and title, and the config
+    tag, labels, ``display_hz`` and ``target_budget``. Also ``named_by``, which the target's entry carries."""
+    described = {
+        "runs": [digests[run.name] for run in target.runs],
+        "target": [target.key, target.slug, target.title, target.named_by],
+        "config_tag": config_tag,
+        "labels": [[series, alias] for series, alias in labels.items()],
+        "display_hz": float(display_hz),
+        "target_budget": int(target_budget),
+    }
+    return hashlib.sha1(json.dumps(described).encode()).hexdigest()
+
+
+def _reusable_target(targets_dir: Path, slug: str, key: str) -> dict[str, Any] | None:
+    """A target's ``.cache.json`` when D1b reuses it: it parses, holds ``key``, and its ``<slug>.js`` exists."""
+    try:
+        cache = json.loads((targets_dir / f"{slug}.cache.json").read_text("utf-8"))
+        if cache.get("key") != key or not isinstance(cache.get("target"), dict):
+            return None
+        if not isinstance(cache.get("lines"), list):
+            return None
+    except (OSError, ValueError, AttributeError):
+        return None
+    return cache if (targets_dir / f"{slug}.js").is_file() else None
 
 
 def _write_run_files(
     run: Run, folder: Path, slug: str, options: _Analysis, specs: Mapping[str, str | None], import_roots: list[str],
     primary: Mapping[str, str], visible_pairs: Sequence[tuple[str, str]], target: _Target | None = None,
-    *, references: _References,
-) -> None:
+    *, references: _References, digest: str, analysis: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Rewrite one run's folder (NAVIGATION.md D1) and return its manifest: the series and torque ``.npz``, the media
+    copies, ``analysis.json`` (``analysis``'s entries and rows under ``digest``), then ``manifest.json``.
+
+    WHY the manifest is deleted first and written last: a write stopped midway then leaves no manifest naming
+    half-written data, so the next write rewrites this folder instead of reusing it.
+    """
     folder.mkdir(parents=True, exist_ok=True)
+    (folder / "manifest.json").unlink(missing_ok=True)
     # WHY: a drill-down cached by an earlier write describes the old data; lazy mode would serve it.
     (folder / "report.html").unlink(missing_ok=True)
     shutil.rmtree(folder / "rerun", ignore_errors=True)
@@ -1135,16 +1373,15 @@ def _write_run_files(
     files = {REFERENCE: references.save(run.reference)}
     for name, trajectory in run.measured.items():
         files[name] = f"{_safe_name(name)}.npz"
-        _save_npz(trajectory, folder / files[name])
+        _save_npz(trajectory, folder / files[name], references.contents.of(trajectory)[0])
     # The torque breakdown beside its series (CONTRACT.md addendum): <series>.torques.npz holds only the keys given, so
     # the drill-down derives the third exactly as the run view does. WHY unlink first: a breakdown an earlier write
     # left behind would otherwise outlive the run that no longer carries it.
     for stale in folder.glob("*.torques.npz"):
         stale.unlink()
     for name, parts in run.torques.items():
-        np.savez_compressed(
-            folder / _torque_file(name), **{key: np.asarray(values, dtype=float) for key, values in parts.items()}
-        )
+        arrays = {key: np.asarray(values, dtype=float) for key, values in parts.items()}
+        _files.save_npz(folder / _torque_file(name), arrays)
     media: dict[str, str] = {}
     for key, source in run.media.items():
         source = Path(source)
@@ -1152,7 +1389,7 @@ def _write_run_files(
             raise FileNotFoundError(f"run {run.name!r}: media {key!r} is not a file: {source}")
         relative = f"media/{_safe_name(key)}{source.suffix.lower()}"
         (folder / "media").mkdir(exist_ok=True)
-        shutil.copy2(source, folder / relative)
+        _files.copy_file(source, folder / relative)
         media[key] = relative
     manifest = {
         "name": run.name,
@@ -1176,8 +1413,12 @@ def _write_run_files(
         "target": None if target is None else {"key": target.key, "slug": target.slug, "title": target.title},
         # how the run view names each channel (traj_compare.Signal), so a drill-down rebuilt later still has them (C1)
         "signals": {name: signal.to_payload() for name, signal in getattr(options, "signals", {}).items()},
+        # what decided this folder (NAVIGATION.md D1): a later write whose digest for the run is the same reuses it
+        "digest": digest,
     }
-    (folder / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    _files.write_text(folder / "analysis.json", json.dumps({"digest": digest, **analysis}, separators=(",", ":")))
+    _files.write_text(folder / "manifest.json", json.dumps(manifest, indent=2) + "\n")
+    return manifest
 
 
 _ROW_FILES = ("json", "parquet")
@@ -1216,7 +1457,7 @@ def _write_rows(output_dir: Path, rows: list[dict[str, Any]], files: frozenset[s
     """Write the row files ``files`` names (from ``_row_files``) and delete the other one, so no stale rows outlive
     their data."""
     if "json" in files:
-        (output_dir / "rows.json").write_text(json.dumps(rows, separators=(",", ":")), encoding="utf-8")
+        _files.write_text(output_dir / "rows.json", json.dumps(rows, separators=(",", ":")))
     else:
         (output_dir / "rows.json").unlink(missing_ok=True)
     if "parquet" not in files:
@@ -1233,7 +1474,8 @@ def _write_rows(output_dir: Path, rows: list[dict[str, Any]], files: frozenset[s
             arrays[column] = pa.array(values)
         except (pa.ArrowInvalid, pa.ArrowTypeError):  # a tag whose type differs between runs: keep it as text
             arrays[column] = pa.array([None if value is None else str(value) for value in values])
-    pq.write_table(pa.table(arrays), output_dir / "rows.parquet")
+    with _files.replacing(output_dir / "rows.parquet") as temporary, open(temporary, "xb") as handle:
+        pq.write_table(pa.table(arrays), handle)
 
 
 _TARGETS_DIR = "targets"
@@ -1265,6 +1507,8 @@ def write_dataset_report(
     display_hz: float = 50.0,
     signals: Mapping[str, Signal] | None = None,
     target_budget: int = 2_000_000,
+    reuse: bool = True,
+    progress: Callable[[str, int, int], None] | None = None,
 ) -> Path:
     """Write ``output_dir/index.html`` (many runs at a glance), ``rows.json``/``rows.parquet`` and ``runs/<slug>/``.
 
@@ -1298,6 +1542,13 @@ def write_dataset_report(
     - ``signals``: channel name -> ``traj_compare.Signal`` (title, unit, column labels, ``per_joint``) for the series'
       ``JointTrajectory.channels``, stored in every manifest; the drill-down draws ``channels["current"]`` ((N, J), A)
       as motor current and every other channel, described or not, in its "What else was measured?" tab.
+    - ``reuse``: reuse what an earlier write left in ``output_dir`` where nothing that decides it changed (NAVIGATION.md
+      Part D). A run whose folder holds its digest (its data, its place in the write, the per-run options and the code)
+      keeps its folder untouched, its drill-down included; a target whose ``.cache.json`` holds its key keeps its files.
+      The output equals a ``reuse=False`` write, which rewrites every run and target. Run folders not in this write stay.
+    - ``progress``: ``progress(phase, done, total)`` for the phases ``"runs"``, ``"reused"`` (once: runs reused of all),
+      ``"targets"``, ``"index"`` and, with ``drill_down="eager"``, ``"drill"``. An exception it raises stops the write;
+      every file is written under a temporary name and renamed into place, so each is left whole, old or new.
     """
 
     runs = list(runs)
@@ -1332,84 +1583,109 @@ def write_dataset_report(
             import_roots.append(root)
     options = _Analysis(tolerances, _import_spec(poses, import_roots) if poses else None)
     options.signals = signals  # the channel descriptions travel with the write's other options into every manifest
-    if robot:
-        _import_spec(robot, import_roots)  # fail now, not on the first drill-down
+    robot_function = _import_spec(robot, import_roots) if robot else None  # fail now, not on the first drill-down
 
     series_order = list(dict.fromkeys(name for run in runs for name in run.measured))
     pair_order = list(dict.fromkeys(pair for run in runs for pair in run.resolved_pairs()))
     default_view = [pair for pair in pair_order if all(_visible(name, primary) for name in pair)]
 
+    def report(phase: str, done: int, total: int) -> None:
+        if progress is not None:
+            progress(phase, done, total)
+
+    # NAVIGATION.md D1: what every run's digest shares, taken once per write
+    per_run_options = {
+        "poses": poses,
+        "robot": robot,
+        "import_roots": import_roots,
+        "tolerances": None if tolerances is None else to_dict(tolerances),
+        "signals": {name: signal.to_payload() for name, signal in signals.items()},
+        "primary": primary,
+    }
+    shared = _code_digest([options.poses, robot_function]) + json.dumps(per_run_options)
+    contents = _Contents()
+    references = _References(output_dir / "references", contents, rewrite=not reuse)
+    runs_dir = output_dir / "runs"
     tidy_rows: list[dict[str, Any]] = []  # WHY not `rows`: that name is the row-file choice (C2)
     entries: list[dict[str, Any]] = []
-    pose_cache: dict[str, dict[str, PoseTrajectory]] = {}
+    pose_cache = _Poses(runs, options)
     joint_errors: dict[tuple[str, str], Any] = {}
-    references = _References(output_dir / "references")
-    for run in runs:
+    digests: dict[str, str] = {}
+    run_files: dict[str, Mapping[str, str]] = {}  # run folder name -> its manifest's files, for references.prune
+    reused: set[str] = set()
+    report("runs", 0, len(runs))
+    for done, run in enumerate(runs, start=1):
         slug = slugs[run.name]
-        _write_run_files(
-            run, output_dir / "runs" / slug, slug, options, specs, import_roots, primary, default_view, target_of[run.name],
-            references=references,
-        )
-        tags = {key: _tag_value(value) for key, value in run.tags.items()}
-        pose_cache[run.name] = options.pose_trajectories(run)
-        for first, second in run.resolved_pairs():
-            pair_name = _pair_name(first, second)
-            rrd = f"runs/{slug}/rerun/{pair_name}.rrd"
-            entry: dict[str, Any] = {
-                "run": run.name,
-                "slug": slug,
-                "pair": [first, second],
-                "tags": tags,
-                "report": f"runs/{slug}/report.html",
-                "rrd": rrd,
-            }
-            try:
-                analysis, metrics = _analyze_pair(run, first, second, options, pose_cache[run.name], joint_errors)
-            except ValueError as error:  # e.g. the two series never overlap in time
-                # WHY recorded, not raised: one broken run must not hide the other 386; the row says why.
-                warnings.warn(f"{run.name}: {first} -> {second}: {error}", stacklevel=2)
-                entries.append({**entry, "error": str(error)})
-                continue
-            entries.append({**entry, **analysis})
-            base = {"run": run.name, "pair": [first, second]}
-            for metric, stats in metrics:
-                unit = _metric_unit(metric)
-                for stat, value in stats.as_dict().items():
-                    tidy_rows.append(
-                        {**base, "metric": metric, "stat": stat, "value": _finite(value), "unit": _stat_unit(unit, stat), **tags}
-                    )  # fmt: skip
-            for metric, stat, value, unit in (
-                ("coverage", "value", analysis["coverage"], ""),
-                ("latency", "value", analysis["latency_s"], "s"),
-            ):
-                tidy_rows.append({**base, "metric": metric, "stat": stat, "value": value, "unit": unit, **tags})
+        folder = runs_dir / slug
+        digest = digests[run.name] = _run_digest(run, slug, target_of[run.name], contents, shared)
+        kept = _reusable_run(folder, digest) if reuse else None
+        if kept is not None:
+            manifest, analysis = kept
+            reused.add(run.name)
+            for entry in analysis["entries"]:
+                if "error" in entry:  # as the write that made it warned
+                    warnings.warn(_pair_warning(run.name, *entry["pair"], entry["error"]), stacklevel=2)
+        else:
+            analysis = _analyze_run(run, slug, options, pose_cache[run.name], joint_errors)
+            manifest = _write_run_files(
+                run, folder, slug, options, specs, import_roots, primary, default_view, target_of[run.name],
+                references=references, digest=digest, analysis=analysis,
+            )
+        run_files[slug] = manifest["files"]
+        entries.extend(analysis["entries"])
+        tidy_rows.extend(analysis["rows"])
+        report("runs", done, len(runs))
+    report("reused", len(reused), len(runs))
     _write_rows(output_dir, tidy_rows, row_files)
-    references.prune(output_dir / "runs")
+    references.prune(runs_dir, run_files)
 
     aggregates = _group_aggregates(runs, group_by, options, pose_cache)
     joint_names = list(dict.fromkeys(name for entry in entries for name in entry.get("joints", {})))
     labels = {series: alias for alias, series in primary.items()}
     targets_dir = output_dir / _TARGETS_DIR
     targets_dir.mkdir(exist_ok=True)
-    written_targets: set[str] = set()
-
-    def write_target(slug: str, data: str) -> None:
-        # WHY a classic script calling a global, not JSON for fetch(): fetch() of a file:// URL is refused, and index.html
-        # must open from file:// (NAVIGATION.md Part A); a <script src> loads from file:// and http alike (C5).
-        path = targets_dir / f"{slug}.js"
-        path.write_text(
-            f"// traj_compare: the drawn series of target {slug}, loaded by ../index.html when it is shown (NAVIGATION.md C5)\n"
-            f"window.trajCompareTarget({json.dumps(slug)}, {data});\n",
-            encoding="utf-8",
-        )
-        written_targets.add(path.name)
-
-    levels = _levels_payload(
-        runs, targets, slugs, config_tag, joint_errors, entries, options, pose_cache, display_hz, labels,
-        target_budget, write_target,
-    )
-    for stale in targets_dir.glob("*.js"):  # a target an earlier write had and this one does not
-        if stale.name not in written_targets:
+    analysed = {(entry["run"], entry["pair"][1]): entry for entry in entries if entry["pair"][0] == REFERENCE}
+    order = {run.name: index for index, run in enumerate(runs)}
+    target_rows: list[dict[str, Any]] = []
+    lines: list[dict[str, Any]] = []
+    kept_files: set[str] = set()
+    report("targets", 0, len(targets))
+    for done, target in enumerate(targets, start=1):
+        key = _target_key(target, digests, config_tag, labels, display_hz, target_budget)
+        kept = _reusable_target(targets_dir, target.slug, key) if reuse else None
+        if kept is not None:  # NAVIGATION.md D1b: neither file is written, nothing of it recomputed
+            target_row, own_lines = kept["target"], kept["lines"]
+            for line in own_lines:
+                line["order"] = order[line["run"]]
+        else:
+            target_row, own_lines, data = _target_level(
+                target, order, slugs, config_tag, joint_errors, analysed, options, pose_cache, display_hz, labels,
+                target_budget,
+            )  # fmt: skip
+            # WHY clean before the cache and the site-wide pass alike: a reused target's lines are read back from JSON,
+            # so a fresh one's must be the same values, or fb_share_median could differ between the two.
+            target_row, own_lines = _clean(target_row), _clean(own_lines)
+            # WHY the cache is deleted first and written last, on reuse=False too: it vouches for its .js, so a .js
+            # this write replaces never sits beside the cache of an older one, even when the write stops in between.
+            cache_path = targets_dir / f"{target.slug}.cache.json"
+            cache_path.unlink(missing_ok=True)
+            # WHY a classic script calling a global, not JSON for fetch(): fetch() of a file:// URL is refused, and
+            # index.html must open from file:// (NAVIGATION.md Part A); a <script src> loads from file:// and http
+            # alike (C5).
+            _files.write_text(
+                targets_dir / f"{target.slug}.js",
+                f"// traj_compare: the drawn series of target {target.slug}, loaded by ../index.html when it is shown "
+                f"(NAVIGATION.md C5)\nwindow.trajCompareTarget({json.dumps(target.slug)}, {data});\n",
+            )
+            cache = {"key": key, "target": target_row, "lines": own_lines}
+            _files.write_text(cache_path, json.dumps(cache, separators=(",", ":")))
+        kept_files |= {f"{target.slug}.js", f"{target.slug}.cache.json"}
+        target_rows.append(target_row)
+        lines.extend(own_lines)
+        report("targets", done, len(targets))
+    levels = _site_levels(target_rows, lines)
+    for stale in [*targets_dir.glob("*.js"), *targets_dir.glob("*.cache.json")]:  # a target this write does not have
+        if stale.name not in kept_files:
             stale.unlink()
     folder = output_dir.resolve()
     # The runs table's command, built in the page per row (NAVIGATION.md C5): rerun_command repeated the folder twice per
@@ -1483,7 +1759,9 @@ def write_dataset_report(
 </html>
 """
     index = output_dir / "index.html"
-    index.write_text(document, encoding="utf-8")
+    report("index", 0, 1)
+    _files.write_text(index, document)
+    report("index", 1, 1)
 
     if data_ui:
         from .data_ui import links_from_robot, stage_viewer, write_tables  # lazy: data_ui imports this module
@@ -1492,12 +1770,17 @@ def write_dataset_report(
             runs,
             output_dir / "data-ui",
             poses=options.poses,
-            links=links_from_robot(_import_spec(robot, import_roots)) if robot else None,
+            links=links_from_robot(robot_function) if robot_function is not None else None,
         )
         stage_viewer(output_dir, title=title)  # data-ui.html + kit link when a built data-ui is on this machine
     if drill_down == "eager":
-        for run in runs:
-            build_drill_down(output_dir, run.name)
+        report("drill", 0, len(runs))
+        for done, run in enumerate(runs, start=1):
+            folder = runs_dir / slugs[run.name]
+            # WHY by folder, not build_drill_down's name scan: that reads every manifest once per run
+            if run.name not in reused or not (folder / "report.html").is_file():
+                build_run_folder(folder)
+            report("drill", done, len(runs))
     return index
 
 
