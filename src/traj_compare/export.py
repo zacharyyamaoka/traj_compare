@@ -28,6 +28,7 @@ from typing import Any
 
 import numpy as np
 
+from . import _files
 from .analysis import analyze_comparison
 from .model import Comparison
 from .rerun_export import _reference_start
@@ -155,7 +156,8 @@ def write_parquet(comparison: Comparison, path: Path | str, *, payload: dict[str
             "value": pa.array(joined("value", float), type=pa.float64()),
         }
     )
-    pq.write_table(table, path, compression="zstd")
+    with _files.replacing(path) as temporary, open(temporary, "xb") as stream:  # NAVIGATION.md D2
+        pq.write_table(table, stream, compression="zstd")
     return path
 
 
@@ -199,7 +201,7 @@ def write_mcap(comparison: Comparison, path: Path | str, *, payload: dict[str, A
     payload, time_s = _prepared(comparison, payload)
     log_time = np.rint(time_s * _NS).astype(np.int64)
 
-    with open(path, "wb") as stream:
+    with _files.replacing(path) as temporary, open(temporary, "xb") as stream:  # NAVIGATION.md D2
         writer = McapWriter(stream)
         writer.start(profile="", library="traj_compare")
         topics = []  # (channel id, field names, (samples, fields) values)

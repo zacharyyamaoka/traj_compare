@@ -15,6 +15,7 @@ from pathlib import Path
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from . import _files
 from .analysis import analyze_comparison
 from .model import Comparison, ReportPage
 
@@ -231,5 +232,5 @@ def write_comparison_report(
 </body>
 </html>
 """
-    report_path.write_text(document, encoding="utf-8")
+    _files.write_text(report_path, document)  # NAVIGATION.md D2: a hard-linked copy's report is its own
     return report_path

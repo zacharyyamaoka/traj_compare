@@ -46,6 +46,7 @@ from robot_msgs.geometry.rotations import (
 from robot_msgs.std import Header
 from robot_msgs.trajectory import JointTrajectory, PoseTrajectory
 
+from . import _files
 from .dataset import Run, _import_spec, _safe_name, _slug, _spec_import_root, _unique_slugs
 
 CONTRACT_VERSION = 1
@@ -312,7 +313,7 @@ def _write_table(
     body = {"title": title, "source": source, "schema": {"fields": declared}}
     one = lambda value: json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)  # noqa: E731
     head = one(body)
-    path.write_text(head[:-1] + ',"rows":[\n' + ",\n".join(one(row) for row in rows) + "\n]}\n", encoding="utf-8")
+    _files.write_text(path, head[:-1] + ',"rows":[\n' + ",\n".join(one(row) for row in rows) + "\n]}\n")
 
 
 # ── rows from the runs ───────────────────────────────────────────────────────
@@ -404,10 +405,13 @@ def _poster(video: Path, target: Path) -> bool:
     if shutil.which("ffmpeg") is None:
         return False
     try:
-        subprocess.run(  # noqa: S603 - fixed argv
-            ["ffmpeg", "-y", "-loglevel", "error", "-i", str(video), "-frames:v", "1", "-q:v", "4", str(target)],
-            check=True, timeout=60,
-        )  # fmt: skip
+        # -f image2 -update 1: one JPEG under a temporary name with no extension to infer it from (NAVIGATION.md D2)
+        with _files.replacing(target) as temporary:
+            subprocess.run(  # noqa: S603 - fixed argv
+                ["ffmpeg", "-y", "-loglevel", "error", "-i", str(video), "-frames:v", "1", "-q:v", "4",
+                 "-f", "image2", "-update", "1", str(temporary)],
+                check=True, timeout=60,
+            )  # fmt: skip
     except (subprocess.SubprocessError, OSError):
         return False
     return target.is_file()
@@ -647,7 +651,8 @@ def write_tables(
             [{"name": "err_rot_deg", "type": "number", "unit": "deg", "description": "the rotation from a to b in degrees: err_rot_mrad's display unit (this producer's own column)"}],
         )  # fmt: skip
 
-    (out / "views.base").write_text(
+    _files.write_text(
+        out / "views.base",
         _views_base(
             joints=list(devices),
             has_poses=pose_of is not None,
@@ -655,7 +660,6 @@ def write_tables(
             tag_columns=list(dict.fromkeys(tag_columns.values())),
             has_labels=any(row["label"] != row["run"] for row in run_rows),
         ),
-        encoding="utf-8",
     )
     return out
 
@@ -682,12 +686,10 @@ def stage_viewer(dataset_dir: Path | str, kit: Path | str = DATA_UI_KIT, title: 
         return None
     folder = Path(dataset_dir)
     link = folder / "kit"
-    if link.is_symlink():
-        link.unlink()
-    if not link.exists():
-        link.symlink_to(kit.resolve())
+    if link.is_symlink() or not link.exists():  # a real kit/ directory someone put there is left alone
+        _files.symlink(kit.resolve(), link)
     page = folder / "data-ui.html"
-    page.write_text(_VIEWER.format(title=title.replace("<", "&lt;")), encoding="utf-8")
+    _files.write_text(page, _VIEWER.format(title=title.replace("<", "&lt;")))
     return page
 
 

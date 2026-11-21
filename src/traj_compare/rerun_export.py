@@ -56,6 +56,7 @@ from typing import Any, Callable
 
 import numpy as np
 
+from . import _files
 from .analysis import analyze_comparison
 from .model import Comparison, RobotDisplay, Situation
 from .tabs import normalize_parts, resolve_tab, tabs_for
@@ -709,9 +710,11 @@ def _composite_overlay(overlay: Any, video_root: Path, out: Path) -> Path | None
     command = [ffmpeg, "-y", "-loglevel", "error", "-i", str(real)]
     for sim in sims:
         command += ["-i", str(sim)]
-    command += ["-filter_complex", ";".join(graph), "-map", "[v]", "-c:v", "libx264", "-bf", "0", "-crf", "20", str(out)]
+    # -f mp4: the temporary name it is written under (NAVIGATION.md D2) has no extension to infer it from
+    command += ["-filter_complex", ";".join(graph), "-map", "[v]", "-c:v", "libx264", "-bf", "0", "-crf", "20", "-f", "mp4"]
     try:
-        subprocess.run(command, check=True, capture_output=True, timeout=600)
+        with _files.replacing(out) as temporary:
+            subprocess.run([*command, str(temporary)], check=True, capture_output=True, timeout=600)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
         warnings.warn(f"camera overlay '{overlay.name}': ffmpeg failed ({error}); skipped", stacklevel=3)
         return None
@@ -1485,105 +1488,109 @@ def write_rrd(
     # WHY embedded: the blueprint travels inside the .rrd (default_blueprint), so the layout opens
     # the same in any viewer of the pinned version, with no sidecar file.
     embedded = blueprint(payload, videos) if blueprint else layout_blueprint(layout, payload, videos, list(overlays), checks=checks)
-    recording.save(path, default_blueprint=embedded)
-    writer = _Writer(recording, t0)
+    # WHY under a temporary name, renamed into place once whole (NAVIGATION.md D2): a drill-down rebuilt in a
+    # hard-linked copy of a site must not write through to the original's .rrd, nor leave a torn one when stopped.
+    with _files.replacing(path) as temporary:
+        recording.save(temporary, default_blueprint=embedded)
+        writer = _Writer(recording, t0)
 
-    plot_t = _array(payload["plot_t"]) - t0 if payload["plot_t"] is not None else None
-    for entry in payload["situations"]:
-        if not entry["has_data"] or plot_t is None:
-            continue
-        name = _part(entry["name"])
-        color = _hex_to_rgb(entry["color"])
-        label = entry["title"]
-        plot = entry["plot"]
-        joints = list(payload["joint_names"])
-        columns = lambda key: np.array([_array(row) for row in plot[key]]).T  # (samples, joints)
-        signals = JointTrajectory(
-            t=plot_t, joint_names=joints, positions=columns("q"), velocities=columns("qd"),
-            effort=columns("tau") if plot["tau"] is not None else None,
-        )  # fmt: skip
-        # /positions, /velocities (degrees: every joint shown as revolute, as in the HTML report), /effort
-        viz.log(signals, entry["name"], recording=recording, degrees=True, color=color, label=label, t0=0.0)
-        if "err_q" in plot:
-            # WHY from the payload: target - run, straight from robot_msgs.compare, so the HTML and the
-            # .rrd can never disagree; at /error/positions/<joint>/<run>, in degrees (the display edge).
-            error = JointTrajectory(t=plot_t, joint_names=joints, positions=columns("err_q"))
-            viz.log(error, entry["name"], recording=recording, degrees=True, color=color, label=label,
-                    prefix="error/", t0=0.0)  # fmt: skip
-        if plot["current"] is not None:
-            # /current/<joint>/<situation>, A: the signals tab's "Motor current [A]" sub-tab (NAVIGATION.md C1)
-            for column, joint in enumerate(joints):
-                writer.series(f"/current/{_part(joint)}/{name}", plot_t, _array(plot["current"][column]), color, label)
-        # /channels/<name>/<column>/<situation>: every other recorded signal, as recorded (no unit conversion).
-        # WHY every one, described or not (NAVIGATION.md C1, truthful rendering): a recorded signal is never dropped.
-        for channel in payload.get("channels") or []:
-            recorded = (entry.get("channels") or {}).get(channel["name"])
-            if recorded is None:
+        plot_t = _array(payload["plot_t"]) - t0 if payload["plot_t"] is not None else None
+        for entry in payload["situations"]:
+            if not entry["has_data"] or plot_t is None:
                 continue
-            for index, values in enumerate(recorded):
-                column = _channel_column(channel, index)
-                series_label = label if channel["ndim"] == 1 else f"{label} · {column}"
-                writer.series(f"/channels/{_part(channel['name'])}/{_part(column)}/{name}", plot_t, _array(values),
-                              color, series_label)  # fmt: skip
-        for key, channel, scale in _TOOL_ERROR_CHANNELS:
-            if key in plot:
-                writer.series(f"/error/tool/{channel}/{name}", plot_t, _array(plot[key]) * scale, color, label)
-        for axis in "xyz":
-            if axis in plot:
-                writer.series(f"/tcp/{axis}_mm/{name}", plot_t, _array(plot[axis]) * 1000.0, color, label)
-        for index, axis_label in enumerate(payload["error_axes"]):
-            if "err_axes" in plot:
-                writer.series(
-                    f"/error/axes/{_part(f'{axis_label}_mm')}/{name}",
-                    plot_t, _array(plot["err_axes"][index]) * 1000.0, color, label,
-                )  # fmt: skip
-        for index, vec_label in enumerate(payload["vec_labels"]):
-            if f"vec{index}_d" in plot:
-                writer.series(f"/vec/{_part(vec_label)}/{name}", plot_t, _array(plot[f"vec{index}_d"]), color, label)
-        if payload.get("has_torque_breakdown"):
-            # /torque/<joint>/target and /torque/<joint>/<run>/<component> (CONTRACT.md, 2026-11-19), N·m
-            for column, joint in enumerate(joints):
-                torque = f"/torque/{_part(joint)}"
-                if entry["role"] == "target":
-                    if plot["tau"] is not None:
-                        writer.series(f"{torque}/target", plot_t, _array(plot["tau"][column]),
-                                      _hex_to_rgb(TARGET_TORQUE_COLOR),
-                                      f"{label} · applied" if payload.get("reference_kind") == "run" else f"{label} · target",
-                                      _TORQUE_WIDTHS["target"])
+            name = _part(entry["name"])
+            color = _hex_to_rgb(entry["color"])
+            label = entry["title"]
+            plot = entry["plot"]
+            joints = list(payload["joint_names"])
+            columns = lambda key: np.array([_array(row) for row in plot[key]]).T  # (samples, joints)
+            signals = JointTrajectory(
+                t=plot_t, joint_names=joints, positions=columns("q"), velocities=columns("qd"),
+                effort=columns("tau") if plot["tau"] is not None else None,
+            )  # fmt: skip
+            # /positions, /velocities (degrees: every joint shown as revolute, as in the HTML report), /effort
+            viz.log(signals, entry["name"], recording=recording, degrees=True, color=color, label=label, t0=0.0)
+            if "err_q" in plot:
+                # WHY from the payload: target - run, straight from robot_msgs.compare, so the HTML and the
+                # .rrd can never disagree; at /error/positions/<joint>/<run>, in degrees (the display edge).
+                error = JointTrajectory(t=plot_t, joint_names=joints, positions=columns("err_q"))
+                viz.log(error, entry["name"], recording=recording, degrees=True, color=color, label=label,
+                        prefix="error/", t0=0.0)  # fmt: skip
+            if plot["current"] is not None:
+                # /current/<joint>/<situation>, A: the signals tab's "Motor current [A]" sub-tab (NAVIGATION.md C1)
+                for column, joint in enumerate(joints):
+                    writer.series(f"/current/{_part(joint)}/{name}", plot_t, _array(plot["current"][column]), color, label)
+            # /channels/<name>/<column>/<situation>: every other recorded signal, as recorded (no unit conversion).
+            # WHY every one, described or not (NAVIGATION.md C1, truthful rendering): a recorded signal is never dropped.
+            for channel in payload.get("channels") or []:
+                recorded = (entry.get("channels") or {}).get(channel["name"])
+                if recorded is None:
                     continue
-                if not _has_breakdown(entry):
-                    continue
-                for key, leaf in _TORQUE_COMPONENTS:
-                    if plot[key] is None:
+                for index, values in enumerate(recorded):
+                    column = _channel_column(channel, index)
+                    series_label = label if channel["ndim"] == 1 else f"{label} · {column}"
+                    writer.series(f"/channels/{_part(channel['name'])}/{_part(column)}/{name}", plot_t, _array(values),
+                                  color, series_label)  # fmt: skip
+            for key, channel, scale in _TOOL_ERROR_CHANNELS:
+                if key in plot:
+                    writer.series(f"/error/tool/{channel}/{name}", plot_t, _array(plot[key]) * scale, color, label)
+            for axis in "xyz":
+                if axis in plot:
+                    writer.series(f"/tcp/{axis}_mm/{name}", plot_t, _array(plot[axis]) * 1000.0, color, label)
+            for index, axis_label in enumerate(payload["error_axes"]):
+                if "err_axes" in plot:
+                    writer.series(
+                        f"/error/axes/{_part(f'{axis_label}_mm')}/{name}",
+                        plot_t, _array(plot["err_axes"][index]) * 1000.0, color, label,
+                    )  # fmt: skip
+            for index, vec_label in enumerate(payload["vec_labels"]):
+                if f"vec{index}_d" in plot:
+                    writer.series(f"/vec/{_part(vec_label)}/{name}", plot_t, _array(plot[f"vec{index}_d"]), color, label)
+            if payload.get("has_torque_breakdown"):
+                # /torque/<joint>/target and /torque/<joint>/<run>/<component> (CONTRACT.md, 2026-11-19), N·m
+                for column, joint in enumerate(joints):
+                    torque = f"/torque/{_part(joint)}"
+                    if entry["role"] == "target":
+                        if plot["tau"] is not None:
+                            writer.series(f"{torque}/target", plot_t, _array(plot["tau"][column]),
+                                          _hex_to_rgb(TARGET_TORQUE_COLOR),
+                                          f"{label} · applied" if payload.get("reference_kind") == "run" else f"{label} · target",
+                                          _TORQUE_WIDTHS["target"])
                         continue
-                    tone = {"feedforward": _hex_to_rgb(FEEDFORWARD_COLOR), "feedback": _hex_to_rgb(FEEDBACK_COLOR)}.get(leaf, color)
-                    derived = " (derived)" if key in entry["derived"] else ""  # the other two gave it
-                    writer.series(f"{torque}/{name}/{leaf}", plot_t, _array(plot[key][column]), tone,
-                                  f"{label} · {leaf}{derived}", _TORQUE_WIDTHS[leaf])
+                    if not _has_breakdown(entry):
+                        continue
+                    for key, leaf in _TORQUE_COMPONENTS:
+                        if plot[key] is None:
+                            continue
+                        tone = {"feedforward": _hex_to_rgb(FEEDFORWARD_COLOR), "feedback": _hex_to_rgb(FEEDBACK_COLOR)}.get(leaf, color)
+                        derived = " (derived)" if key in entry["derived"] else ""  # the other two gave it
+                        writer.series(f"{torque}/{name}/{leaf}", plot_t, _array(plot[key][column]), tone,
+                                      f"{label} · {leaf}{derived}", _TORQUE_WIDTHS[leaf])
 
-        if entry["three"] is not None:
-            writer.tcp(f"/world/{name}/tcp", entry["three"], color)
-        robot = by_name[entry["name"]].robot or comparison.robot
-        if robot is not None and entry["robot_track"] is not None:
-            viz.links(_robot_links(robot, entry["robot_track"]), entry["name"], recording=recording,
-                      color=_link_colors(robot, color), t0=t0)  # fmt: skip
-        if entry["name"] in videos:
-            # a video plays at video time = trajectory time - video_start_s, as in the HTML viewer
-            viz.video(videos[entry["name"]], entry["name"], recording=recording, start_s=entry.get("video_start_s", 0.0) - t0)
-    for overlay_name, (baked, start_s) in overlays.items():
-        viz.video(baked, _overlay_entity(overlay_name), recording=recording, start_s=start_s - t0)
+            if entry["three"] is not None:
+                writer.tcp(f"/world/{name}/tcp", entry["three"], color)
+            robot = by_name[entry["name"]].robot or comparison.robot
+            if robot is not None and entry["robot_track"] is not None:
+                viz.links(_robot_links(robot, entry["robot_track"]), entry["name"], recording=recording,
+                          color=_link_colors(robot, color), t0=t0)  # fmt: skip
+            if entry["name"] in videos:
+                # a video plays at video time = trajectory time - video_start_s, as in the HTML viewer
+                viz.video(videos[entry["name"]], entry["name"], recording=recording, start_s=entry.get("video_start_s", 0.0) - t0)
+        for overlay_name, (baked, start_s) in overlays.items():
+            viz.video(baked, _overlay_entity(overlay_name), recording=recording, start_s=start_s - t0)
 
-    recording.log(
-        "/notes",
-        rr.TextDocument(_notes_markdown(payload), media_type=rr.MediaType.MARKDOWN),
-        static=True,
-    )
-    _log_review_entities(recording, writer, comparison, payload, t0, checks=checks)
-    if extra is not None:
-        extra(recording, payload, t0)
-    recording.flush()
-    recording.disconnect()
+        recording.log(
+            "/notes",
+            rr.TextDocument(_notes_markdown(payload), media_type=rr.MediaType.MARKDOWN),
+            static=True,
+        )
+        _log_review_entities(recording, writer, comparison, payload, t0, checks=checks)
+        if extra is not None:
+            extra(recording, payload, t0)
+        recording.flush()
+        recording.disconnect()
     # every named layout beside the file, so the user's other preference is one argument away
     for name in LAYOUTS:
-        layout_blueprint(name, payload, videos, list(overlays), checks=checks).save(application_id, blueprint_path(path, name))
+        with _files.replacing(blueprint_path(path, name)) as temporary:
+            layout_blueprint(name, payload, videos, list(overlays), checks=checks).save(application_id, temporary)
     return path
