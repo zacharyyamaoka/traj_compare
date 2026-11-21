@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>V3 Small multiples</title>
+<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/dataset.css">
+<link rel="stylesheet" href="assets/uplot.min.css">
+<link rel="stylesheet" href="common.css">
+<style>
+  /* V3 Small multiples: the scorecard's 20 bar charts as one screen of line charts — rows = KPI, columns = dataset,
+     x = speed, one line per config, one shared legend, one y scale per row. */
+  .v3-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 0 0 4px; }
+  .v3-legend .chip { font-size: 12px; padding: 2px 9px; }
+  .v3-legend .chip.on { background: #eef3fa; border-color: #9dbde4; color: #0b0b0b; font-weight: 600; }
+  .v3-legend .chip.faded { opacity: 0.45; }
+  .v3-read { font-size: 12px; color: #52514e; min-height: 18px; margin: 0 0 4px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .v3-read b { color: #22211f; }
+  .v3-grid { display: grid; gap: 4px 8px; align-items: stretch; }
+  .v3-colhead { font-size: 12px; font-weight: 650; color: #22211f; text-align: center; padding: 2px 0; }
+  .v3-rowhead { font-size: 12px; color: #22211f; font-weight: 600; display: flex; flex-direction: column; justify-content: center; line-height: 1.3; padding-right: 4px; }
+  .v3-rowhead span { font-weight: 400; color: #8a8983; font-size: 11px; }
+  .v3-cell { background: #fff; border: 1px solid #e6e5e0; border-radius: 6px; cursor: pointer; position: relative; overflow: hidden; }
+  .v3-cell:hover { border-color: #9dbde4; }
+  .v3-cell.empty { background: repeating-linear-gradient(45deg, #f4f4f2, #f4f4f2 3px, #ebeae5 3px, #ebeae5 4px); cursor: default; display: flex; align-items: center; justify-content: center; color: #8a8983; font-size: 11px; }
+  .v3-cell .u-legend { display: none; }
+  .v3-best { position: absolute; right: 6px; top: 3px; font-size: 10.5px; color: #52514e; background: rgba(255,255,255,0.85); padding: 0 3px; border-radius: 3px; pointer-events: none; }
+</style>
+</head>
+<body>
+<script src="assets/uplot.iife.min.js"></script>
+<script src="common.js"></script>
+<script>
+(function () {
+  'use strict';
+  var esc = OV.esc;
+
+  // Rows: every (KPI, split) the scorecard carries; columns: its datasets. Generic over the scorecard's own titles.
+  function layout() {
+    var M = OV.M, datasets = [], splits = [];
+    M.scoreGroups.forEach(function (g) {
+      if (datasets.indexOf(g.dataset) < 0) datasets.push(g.dataset);
+      if (splits.indexOf(g.split) < 0) splits.push(g.split);
+    });
+    var rows = [];
+    M.kpis.forEach(function (k) {
+      splits.forEach(function (sp) {
+        var any = datasets.some(function (d) { return M.score[k.id] && M.score[k.id][(d + ' ' + sp).trim()]; });
+        if (any) rows.push({ kpi: k, split: sp });
+      });
+    });
+    return { datasets: datasets, rows: rows };
+  }
+  // Best series per chart cell at each speed (lowest, or highest for gates); ties all count.
+  function winners(kpiId) {
+    var M = OV.M, k = M.kpiById[kpiId], out = {}, cells = 0;
+    Object.keys((M.score[kpiId] || {})).forEach(function (g) {
+      M.speeds.forEach(function (sp, vi) {
+        var vals = [];
+        Object.keys(M.score[kpiId][g]).forEach(function (key) { var v = M.score[kpiId][g][key][vi]; if (v !== null) vals.push({ key: key, v: v }); });
+        if (vals.length < 2) return;
+        cells++;
+        var best = k.better === 'higher' ? Math.max.apply(null, vals.map(function (x) { return x.v; })) : Math.min.apply(null, vals.map(function (x) { return x.v; }));
+        vals.forEach(function (x) { if (x.v === best) out[x.key] = (out[x.key] || 0) + 1; });
+      });
+    });
+    return { counts: out, cells: cells };
+  }
+  function winText(kpiId) {
+    var M = OV.M, w = winners(kpiId);
+    var keys = Object.keys(w.counts).sort(function (a, b) { return w.counts[b] - w.counts[a]; });
+    if (!keys.length) return '';
+    return keys.slice(0, 3).map(function (key) { var s = M.seriesByKey[key]; return OV.swatch(s) + '<b>' + esc(s.label) + '</b> ' + w.counts[key]; }).join(', ') + ' of ' + w.cells + ' cells';
+  }
+
+  function overview(main, q) {
+    var M = OV.M, L = layout();
+    var focus = M.seriesByKey[q.focus] ? q.focus : null;
+    var v = OV.el('div', 'ov-verdict', main);
+    var g0 = M.scoreGroups[0];
+    v.innerHTML = 'Best line per chart cell (each chart × speed with ≥ 2 configs): tool RMS — ' + winText('rms') + '; ' +
+      (M.kpiById.energy ? 'energy — ' + winText('energy') + '; ' : '') + (M.kpiById.jerk ? 'jerk — ' + winText('jerk') + '. ' : '') +
+      '<span class="ov-n">Every point: median over the split’s tasks (bench scorecard), e.g. ' + (g0 ? (OV.scoreN(g0.key, Object.keys((M.scoreN || {})[g0.key] || {})[0]) || [])[M.top] : '?') + ' tasks on ' + esc(g0 ? g0.key : '') + '.</span>';
+
+    // One shared legend: click to focus a config in all 20 charts (others fade); click again to clear.
+    var used = M.series.filter(function (s) {
+      return M.kpis.some(function (k) { return Object.keys(M.score[k.id] || {}).some(function (g) { return M.score[k.id][g][s.key]; }); });
+    });
+    var leg = OV.el('div', 'v3-legend', main);
+    leg.innerHTML = '<span class="ds-k" style="font-size:11px;color:#8a8983;text-transform:uppercase;letter-spacing:.04em;margin-right:4px">configs</span>' + used.map(function (s) {
+      return '<button class="chip' + (focus === s.key ? ' on' : focus ? ' faded' : '') + '" data-key="' + esc(s.key) + '">' + OV.swatch(s) + OV.name(s, 28) + '</button>';
+    }).join('') + '<span class="ds-hint" style="margin-left:8px">click a config to focus it everywhere · hover any chart: all charts follow · click a chart: its worst targets</span>';
+    leg.querySelectorAll('[data-key]').forEach(function (b) { b.addEventListener('click', function () { OV.setQuery({ focus: focus === b.dataset.key ? '' : b.dataset.key }); }); });
+    var read = OV.el('div', 'v3-read', main, '&nbsp;');
+
+    var cols = L.datasets.length, rowsN = L.rows.length;
+    var grid = OV.el('div', 'v3-grid', main);
+    // WHY measured: the 20 charts must share one 1440 x 900 screen, so the row height is what is left below the legend.
+    var avail = Math.max(420, (window.innerHeight || 900) - grid.getBoundingClientRect().top - 34);
+    var labelW = 132, gridW = Math.min(1396, main.clientWidth || 1396);
+    var cw = Math.floor((gridW - labelW - 8 * cols) / cols), ch = Math.max(84, Math.min(170, Math.floor((avail - 22) / rowsN) - 4));
+    grid.style.gridTemplateColumns = labelW + 'px repeat(' + cols + ', ' + cw + 'px)';
+    grid.appendChild(OV.el('div', ''));
+    L.datasets.forEach(function (d) { OV.el('div', 'v3-colhead', grid, esc(d)); });
+
+    var xs = M.speeds.slice(), pad = (xs[xs.length - 1] - xs[0]) * 0.04;
+    L.rows.forEach(function (row) {
+      var k = row.kpi, log = k.id === 'rms' || k.id === 'jerk';
+      // One y range per row, so a row reads left to right.
+      var vals = [];
+      L.datasets.forEach(function (d) {
+        var by = (M.score[k.id] || {})[(d + ' ' + row.split).trim()] || {};
+        Object.keys(by).forEach(function (key) { by[key].forEach(function (x) { if (x !== null && (!log || x > 0)) vals.push(x); }); });
+      });
+      var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+      var range = log ? [Math.pow(10, Math.floor(Math.log10(lo))), Math.pow(10, Math.ceil(Math.log10(hi)))] : k.id === 'gates' ? [0, 105] : [lo - 0.06 * (hi - lo || 1), hi + 0.06 * (hi - lo || 1)];
+      OV.el('div', 'v3-rowhead', grid, esc(k.name) + '<span>' + esc(row.split) + ' · ' + esc(OV.unit(k.unit)) + (log ? ' · log' : '') + (k.better === 'higher' ? ' · ↑ better' : ' · ↓ better') + '</span>');
+      L.datasets.forEach(function (d) {
+        var gkey = (d + ' ' + row.split).trim(), by = (M.score[k.id] || {})[gkey];
+        var cell = OV.el('div', 'v3-cell', grid);
+        cell.style.height = ch + 'px';
+        if (!by) { cell.classList.add('empty'); cell.textContent = 'not in the scorecard'; return; }
+        var ser = M.series.filter(function (s) { return by[s.key]; });
+        var gi = M.groups.map(function (g) { return g.key; }).indexOf(gkey);
+        var data = [xs].concat(ser.map(function (s) { return by[s.key]; }));
+        var u = OV.track(new uPlot({
+          width: cw - 2, height: ch - 2, legend: { show: false },
+          cursor: { sync: { key: 'v3' }, drag: { x: false, y: false }, points: { size: 6 }, y: false },
+          scales: { x: { time: false, range: [xs[0] - pad, xs[xs.length - 1] + pad] }, y: log ? { distr: 3, log: 10, range: function () { return range; } } : { range: function () { return range; } } },
+          axes: [
+            { size: 18, gap: 2, font: '10px -apple-system, Segoe UI, Roboto, sans-serif', stroke: '#8a8983', grid: { stroke: '#f1f0ec' }, ticks: { show: false }, splits: function () { return xs; }, values: function (u2, vv) { return vv.map(function (x) { return OV.sp(x); }); } },
+            { size: 40, gap: 2, font: '10px -apple-system, Segoe UI, Roboto, sans-serif', stroke: '#8a8983', grid: { stroke: '#f1f0ec' }, ticks: { show: false },
+              splits: log ? function () { var out = [], e0 = Math.round(Math.log10(range[0])), e1 = Math.round(Math.log10(range[1])), step = Math.max(1, Math.ceil((e1 - e0) / 4)); for (var e = e0; e <= e1; e += step) out.push(Math.pow(10, e)); return out; } : undefined,
+              filter: log ? function (u2, splits) { return splits; } : undefined,
+              values: function (u2, vv) { return vv.map(function (x) { return x === null ? '' : OV.num(x); }); } },
+          ],
+          series: [{}].concat(ser.map(function (s) {
+            return { label: s.label, stroke: s.color, width: focus === s.key ? 2.6 : 1.7, dash: OV.dash(s.domain) || undefined, alpha: focus && focus !== s.key ? 0.18 : 1, points: { show: true, size: 4 } };
+          })),
+          hooks: { setCursor: [function (uu) {
+            if (uu.cursor.idx === null || uu.cursor.idx === undefined || !uu.cursor.event) return;
+            var i = uu.cursor.idx;
+            read.innerHTML = '<b>' + esc(OV.speedLabel(i)) + '</b> · ' + esc(k.name) + ' · <b>' + esc(gkey) + '</b>: ' + ser.map(function (s, j) {
+              return OV.swatch(s) + esc(s.label) + ' <b>' + OV.num(data[j + 1][i]) + '</b>';
+            }).join(' · ') + ' <span class="ds-mut">' + esc(OV.unit(k.unit)) + ', median over ' + ((OV.scoreN(gkey, ser[0].key) || [])[i] || '?') + ' tasks</span>';
+          }] },
+        }, data, cell));
+        // The cell's leader at full speed, as a quiet corner note.
+        var at = M.top, best = null, ties = 0;
+        ser.forEach(function (s) { var x = by[s.key][at]; if (x === null) return; if (!best || (k.better === 'higher' ? x > best.v : x < best.v)) best = { s: s, v: x }; });
+        ser.forEach(function (s) { if (best && by[s.key][at] === best.v) ties++; });
+        if (best && ser.length > 1) OV.el('div', 'v3-best', cell, 'best at ' + esc(OV.speedShort(at)) + ': ' + (ties > 1 ? ties + ' tie at ' + OV.num(best.v) + (k.unit === '%' ? ' %' : '') : esc(OV.short(best.s.label, 18))));
+        cell.addEventListener('click', function () {
+          var i = u.cursor.idx !== null && u.cursor.idx !== undefined ? u.cursor.idx : M.top;
+          var pick = focus && by[focus] ? focus : null;
+          if (!pick) {   // no focus: the worst config at that speed in this chart
+            var worst = null;
+            ser.forEach(function (s) { var x = by[s.key][i]; if (x === null || s.scorecardOnly) return; if (!worst || (k.better === 'higher' ? x < worst.v : x > worst.v)) worst = { s: s, v: x }; });
+            pick = worst ? worst.s.key : ser[0].key;
+          }
+          OV.go('targets', { cfg: pick, g: gi, v: i });
+        });
+      });
+    });
+    OV.el('p', 'ov-foot', main, 'Bench scorecard (summary.charts), the same 20 charts as today’s bars, one y scale per row. Hatched = the scorecard has no chart there. ' + OV.sourceNote());
+  }
+
+  OV.boot({ name: 'V3 Small multiples', tabs: [{ id: 'overview', label: 'Overview', render: overview }] });
+})();
+</script>
+</body>
+</html>

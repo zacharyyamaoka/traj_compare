@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>V5 Head-to-head</title>
+<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/dataset.css">
+<link rel="stylesheet" href="common.css">
+<style>
+  /* V5 Head-to-head: one baseline config; every other config as the distribution of its per-target tool-RMS ratio to it. */
+  .v5-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 12px; align-items: start; }
+  .v5-rows { display: flex; flex-direction: column; }
+  .v5-row { display: grid; grid-template-columns: 170px minmax(0, 1fr) 132px 150px; gap: 10px; align-items: center; padding: 3px 4px; border-bottom: 1px solid #efeee9; cursor: pointer; }
+  .v5-row:hover { background: #f4f6fa; }
+  .v5-row.head { cursor: default; padding-top: 0; padding-bottom: 2px; border-bottom: 1px solid #dddcd6; font-size: 11px; color: #8a8983; }
+  .v5-row.head:hover { background: transparent; }
+  .v5-name { font-size: 12.5px; font-weight: 600; color: #22211f; overflow: hidden; }
+  .v5-name span.ds-mut { display: block; font-weight: 400; font-size: 11px; }
+  .v5-k { font-variant-numeric: tabular-nums; line-height: 1.25; }
+  .v5-k b { font-size: 17px; font-weight: 700; color: #22211f; }
+  .v5-k span { display: block; font-size: 11px; color: #8a8983; }
+  .v5-k .med { font-size: 12.5px; color: #22211f; font-weight: 600; }
+  .v5-none { color: #8a8983; font-size: 12px; }
+  .v5-pairs { border-collapse: separate; border-spacing: 2px; font-size: 11.5px; font-variant-numeric: tabular-nums; width: 100%; }
+  .v5-pairs th { font-weight: 600; color: #52514e; font-size: 11px; padding: 2px 4px; text-align: left; white-space: nowrap; }
+  .v5-pairs td { text-align: center; padding: 4px 1px; font-size: 11px; border-radius: 4px; cursor: pointer; }
+  .v5-pairs td.self { background: #f1f0ec; color: #b9b8b1; cursor: default; }
+  .v5-pairs td.na { color: #b9b8b1; cursor: default; }
+  .v5-axis text { font-size: 10px; fill: #8a8983; }
+</style>
+</head>
+<body>
+<script src="common.js"></script>
+<script>
+(function () {
+  'use strict';
+  var esc = OV.esc;
+
+  function live() { return OV.M.series.filter(function (s) { return !s.scorecardOnly && OV.M.count[s.key] > 0; }); }
+  function shared(a, b) {
+    var M = OV.M, A = M.rms[a.key], B = M.rms[b.key], out = [];
+    for (var i = 0; i < M.nT; i++) if (A[i] !== null && B[i] !== null && A[i] > 0 && B[i] > 0) out.push(i);
+    return out;
+  }
+  // Default baseline: lowest median tool RMS on the targets every well-covered config shares (≥ half the largest count);
+  // when they share none, over each config's own targets. The rule is printed next to the picker.
+  function defaultBaseline() {
+    var M = OV.M, L = live(), maxN = Math.max.apply(null, L.map(function (s) { return M.count[s.key]; }));
+    var cand = L.filter(function (s) { return M.count[s.key] >= maxN / 2; });
+    var common = OV.targetsWhere(function (i) { return cand.every(function (s) { return M.rms[s.key][i] !== null; }); });
+    var basis = common.length ? 'the ' + common.length + ' targets all ' + cand.length + ' well-covered configs ran' : 'each config’s own targets (no target is shared by all well-covered configs)';
+    var best = null;
+    cand.forEach(function (s) {
+      var vals = common.length ? common.map(function (i) { return M.rms[s.key][i]; }) : M.rms[s.key];
+      var med = OV.median(vals);
+      if (!best || med < best.med) best = { s: s, med: med };
+    });
+    return { s: best.s, med: best.med, basis: basis };
+  }
+  function compare(x, base) {
+    var M = OV.M, idx = shared(x, base);
+    var logs = idx.map(function (i) { return Math.log10(M.rms[x.key][i] / M.rms[base.key][i]); });
+    var better = logs.filter(function (l) { return l < 0; }).length;
+    var bySpeed = M.speeds.map(function (sp, vi) {
+      var r = idx.filter(function (i) { return M.targets.v[i] === vi; }).map(function (i) { return M.rms[x.key][i] / M.rms[base.key][i]; });
+      return r.length ? OV.median(r) : null;
+    });
+    return { s: x, idx: idx, logs: logs, n: idx.length, better: better, med: idx.length ? Math.pow(10, OV.median(logs)) : null, bySpeed: bySpeed };
+  }
+
+  function histogram(c, lo, hi, W, H) {
+    // ~40-60 bins whatever the span: 0.1 decade on UR5e's 5 decades, finer on the pendulum's ±1.
+    var per = Math.max(10, Math.min(30, Math.round(48 / (hi - lo)))), bins = Math.round((hi - lo) * per), counts = new Array(bins).fill(0);
+    c.logs.forEach(function (l) { var b = Math.floor((Math.max(lo, Math.min(hi - 1e-9, l)) - lo) * per); counts[b]++; });
+    var max = Math.max.apply(null, counts) || 1, bw = W / bins;
+    var x = function (l) { return (l - lo) / (hi - lo) * W; };
+    var svg = '<svg width="' + W + '" height="' + (H + 14) + '" viewBox="0 0 ' + W + ' ' + (H + 14) + '">';
+    svg += '<rect x="0" y="0" width="' + x(0) + '" height="' + H + '" fill="#2f9e44" opacity="0.05"/>';
+    counts.forEach(function (n, b) {
+      if (!n) return;
+      var h = Math.max(1.5, n / max * (H - 4));
+      svg += '<rect x="' + (b * bw + 0.5).toFixed(1) + '" y="' + (H - h).toFixed(1) + '" width="' + Math.max(1, bw - 1).toFixed(1) + '" height="' + h.toFixed(1) + '" fill="' + c.s.color + '" opacity="' + (b / per + lo < 0 ? 0.95 : 0.55) + '"><title>' +
+        n + ' targets with ratio ' + (b === 0 ? '≤ ' + OV.times(Math.pow(10, lo + 1 / per)) : b === bins - 1 ? '≥ ' + OV.times(Math.pow(10, hi - 1 / per)) : OV.times(Math.pow(10, lo + b / per)) + '–' + OV.times(Math.pow(10, lo + (b + 1) / per))) + '</title></rect>';
+    });
+    svg += '<line x1="' + x(0) + '" x2="' + x(0) + '" y1="0" y2="' + H + '" stroke="#22211f" stroke-width="1.2"/>';
+    if (c.med) {
+      var mx = x(Math.log10(c.med));
+      svg += '<path d="M' + (mx - 5) + ' ' + (H + 9) + ' L' + mx + ' ' + (H + 2) + ' L' + (mx + 5) + ' ' + (H + 9) + ' Z" fill="#22211f"/>';
+    }
+    svg += '<line x1="0" x2="' + W + '" y1="' + H + '" y2="' + H + '" stroke="#cfcec8"/>';
+    return svg + '</svg>';
+  }
+  function axis(lo, hi, W) {
+    var x = function (l) { return (l - lo) / (hi - lo) * W; }, svg = '<svg class="v5-axis" width="' + W + '" height="16">';
+    for (var e = Math.ceil(lo); e <= Math.floor(hi); e++) svg += '<text x="' + x(e) + '" y="11" text-anchor="' + (e === lo ? 'start' : e === hi ? 'end' : 'middle') + '">' + OV.times(Math.pow(10, e)) + '</text>';
+    return svg + '</svg>';
+  }
+  function speedChart(c, lo, hi, W, H) {
+    var M = OV.M, pts = [];
+    var x = function (i) { return 6 + i * (W - 12) / Math.max(1, M.speeds.length - 1); };
+    var y = function (r) { return 4 + (1 - (Math.log10(r) - lo) / (hi - lo)) * (H - 8); };
+    c.bySpeed.forEach(function (r, i) { if (r) pts.push([x(i), y(r), r, i]); });
+    var svg = '<svg width="' + W + '" height="' + H + '"><rect x="0" y="0" width="' + W + '" height="' + H + '" fill="#fff" stroke="#efeee9"/>';
+    svg += '<line x1="0" x2="' + W + '" y1="' + y(1) + '" y2="' + y(1) + '" stroke="#22211f" stroke-dasharray="3 3"/>';
+    if (pts.length) svg += '<path d="' + pts.map(function (p, k) { return (k ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1); }).join('') + '" fill="none" stroke="' + c.s.color + '" stroke-width="1.8"/>';
+    pts.forEach(function (p) { svg += '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="2.6" fill="' + c.s.color + '"><title>' + esc(OV.speedLabel(p[3])) + ': median ratio ' + OV.times(p[2]) + '</title></circle>'; });
+    if (pts.length) svg += '<text x="' + (pts[pts.length - 1][0] - 2) + '" y="' + Math.max(10, pts[pts.length - 1][1] - 4) + '" text-anchor="end" font-size="10" fill="#52514e">' + OV.times(pts[pts.length - 1][2]) + '</text>';
+    return svg + '</svg>';
+  }
+
+  function overview(main, q) {
+    var M = OV.M, L = live();
+    var def = defaultBaseline();
+    var base = M.seriesByKey[q.b] && !M.seriesByKey[q.b].scorecardOnly ? M.seriesByKey[q.b] : def.s;
+    var comps = L.filter(function (s) { return s.key !== base.key; }).map(function (s) { return compare(s, base); });
+    // WHY a floor: BAM FB has configs with 1-3 runs; a median over 1 target is a fact, not a distribution, so those get one
+    // line each under the histograms instead of a row that looks as solid as one over 500 targets.
+    var maxShared = Math.max.apply(null, comps.map(function (c) { return c.n; }).concat([0]));
+    var floor = Math.min(10, maxShared);
+    var withShared = comps.filter(function (c) { return c.n && c.n >= floor; }).sort(function (a, b) { return a.med - b.med; });
+    var thin = comps.filter(function (c) { return c.n && c.n < floor; }).sort(function (a, b) { return b.n - a.n || a.med - b.med; });
+    var none = comps.filter(function (c) { return !c.n; });
+
+    var v = OV.el('div', 'ov-verdict', main);
+    var beaters = withShared.filter(function (c) { return c.med < 1; });
+    v.innerHTML = 'Against ' + OV.swatch(base) + '<b>' + esc(base.label) + '</b>' + (base === def.s ? ' (default: lowest median tool RMS, ' + OV.withUnit(def.med, 'mm') + ', on ' + esc(def.basis) + ')' : '') + ': ' +
+      (beaters.length ? beaters.map(function (c) { return '<b>' + esc(c.s.label) + '</b> is better on ' + c.better + ' of ' + c.n + ' shared targets (median ' + OV.times(c.med) + ')'; }).join('; ') + '; ' : 'no config beats it on the median; ') +
+      withShared.filter(function (c) { return c.med >= 1; }).slice(0, 3).map(function (c) { return '<b>' + esc(c.s.label) + '</b> ' + OV.times(c.med) + ' (better on ' + c.better + ' of ' + c.n + ')'; }).join(', ') + '. ' +
+      '<span class="ov-n">(ratio = config ÷ baseline tool RMS on the same target, each a median over repeats)</span>';
+
+    var bar = OV.el('div', 'ov-bar', main);
+    bar.innerHTML = '<span class="ds-k">baseline</span><span class="ov-chips">' + L.map(function (s) {
+      return '<button class="chip' + (s.key === base.key ? ' on' : '') + '" data-b="' + esc(s.key) + '" title="' + esc(s.label) + ' · ' + M.count[s.key] + ' targets">' + OV.swatch(s) + esc(OV.short(s.label, 26)) + '</button>';
+    }).join('') + '</span>';
+    bar.querySelectorAll('[data-b]').forEach(function (b) { b.addEventListener('click', function () { OV.setQuery({ b: b.dataset.b }); }); });
+
+    var wrap = OV.el('div', 'v5-wrap', main);
+    var card = OV.el('div', 'ov-card', wrap);
+    var logs = [];
+    withShared.forEach(function (c) { logs = logs.concat(c.logs); });
+    logs.sort(function (a, b) { return a - b; });
+    var lo = Math.max(-4, Math.min(-1, Math.floor(OV.quantile(logs, 0.005) || -1))), hi = Math.min(4, Math.max(1, Math.ceil(OV.quantile(logs, 0.995) || 1)));
+    var sl = [], sh = [];
+    withShared.forEach(function (c) { c.bySpeed.forEach(function (r) { if (r) { sl.push(Math.log10(r)); } }); });
+    var slo = Math.min(-0.3, Math.floor((Math.min.apply(null, sl.concat([0])) - 0.1) * 2) / 2), shi = Math.max(0.3, Math.ceil((Math.max.apply(null, sl.concat([0])) + 0.1) * 2) / 2);
+    var HW = Math.max(260, (card.clientWidth || 1010) - 24 - 170 - 132 - 150 - 30 - 8);
+    card.innerHTML = '<h2>Every config ÷ ' + esc(base.label) + ', target by target <span class="ds-hint">histogram of the ratio over shared targets (log); left of the line = better than the baseline; ▲ = median · click a row: its worst targets against the baseline</span></h2>';
+    var rowsEl = OV.el('div', 'v5-rows', card);
+    var head = OV.el('div', 'v5-row head', rowsEl, '<div>config</div><div style="display:flex;justify-content:space-between"><span>← better than ' + esc(OV.short(base.label, 20)) + '</span>' +
+      '<span>worse →</span></div><div>better on / median</div><div>median ratio vs ' + (M.speedKey === 'speed_fraction' ? 'speed fraction' : 'speed') + ' (' + OV.speedShort(0) + ' → ' + OV.speedShort(M.top) + ')</div>');
+    var rowH = Math.max(26, Math.min(64, Math.floor(380 / Math.max(1, withShared.length))));
+    withShared.forEach(function (c) {
+      var row = OV.el('div', 'v5-row', rowsEl);
+      row.innerHTML = '<div class="v5-name">' + OV.swatch(c.s) + OV.name(c.s, 22) + '<span class="ds-mut">' + c.n + ' shared targets</span></div>' +
+        '<div>' + histogram(c, lo, hi, HW, rowH) + '</div>' +
+        '<div class="v5-k"><b>' + c.better + '</b> <span style="display:inline">of ' + c.n + '</span><span class="med">median ' + OV.times(c.med) + '</span></div>' +
+        '<div>' + speedChart(c, slo, shi, 150, rowH) + '</div>';
+      row.addEventListener('click', function () { OV.go('targets', { cfg: c.s.key, sort: 'vs', vs: base.key }); });
+    });
+    var ax = OV.el('div', 'v5-row head', rowsEl, '<div></div><div>' + axis(lo, hi, HW) + '</div><div></div><div class="ds-mut" style="font-size:10.5px">dashed = 1× (same as baseline), log</div>');
+    ax.style.borderBottom = '0';
+    if (thin.length) OV.el('p', 'v5-none', card, 'Fewer than ' + floor + ' shared targets (a ratio, not a distribution): ' + thin.map(function (c) {
+      return OV.swatch(c.s) + '<span title="' + esc(c.s.label) + '">' + esc(OV.short(c.s.label, 30)) + '</span> ' + OV.times(c.med) + ' on ' + c.n;
+    }).join(' · ') + '.');
+    if (none.length) OV.el('p', 'v5-none', card, 'No shared targets with ' + esc(base.label) + ' (so no ratio): ' + none.map(function (c) { return esc(c.s.label) + ' (' + M.count[c.s.key] + ' targets)'; }).join(', ') + '. Pick another baseline to compare them.');
+
+    // Every pair at once: median ratio row ÷ column over their shared targets.
+    var side = OV.el('div', 'ov-card', wrap);
+    var P = L.slice().sort(function (a, b) { return M.count[b.key] - M.count[a.key]; }).slice(0, 6);
+    var html = '<h2>Every pair <span class="ds-hint">median tool-RMS ratio, row ÷ column, over shared targets; green &lt; 1×; click: that row vs that column</span></h2><table class="v5-pairs"><thead><tr><th></th>' +
+      P.map(function (s) { return '<th title="' + esc(s.label) + '">' + OV.swatch(s) + '</th>'; }).join('') + '</tr></thead><tbody>';
+    P.forEach(function (r) {
+      html += '<tr><th title="' + esc(r.label) + '">' + OV.swatch(r) + esc(OV.short(r.label, 16)) + '</th>' + P.map(function (c) {
+        if (r.key === c.key) return '<td class="self">·</td>';
+        var cc = compare(r, c);
+        if (!cc.n) return '<td class="na" title="no shared targets">—</td>';
+        var t = Math.max(-1, Math.min(1, Math.log10(cc.med) / 2));
+        var bg = t < 0 ? 'rgba(47,158,68,' + (0.12 + 0.5 * -t).toFixed(2) + ')' : 'rgba(199,68,52,' + (0.06 + 0.4 * t).toFixed(2) + ')';
+        return '<td data-r="' + esc(r.key) + '" data-c="' + esc(c.key) + '" style="background:' + bg + '" title="' + esc(r.label + ' ÷ ' + c.label + ': median ' + OV.times(cc.med) + ', better on ' + cc.better + ' of ' + cc.n + ' shared targets') + '">' + OV.times(cc.med) + '</td>';
+      }).join('') + '</tr>';
+    });
+    side.innerHTML = html + '</tbody></table>' + (L.length > P.length ? '<p class="ds-note">The ' + P.length + ' configs with the most targets of ' + L.length + '.</p>' : '');
+    side.querySelectorAll('td[data-r]').forEach(function (td) { td.addEventListener('click', function () { OV.go('targets', { cfg: td.dataset.r, sort: 'vs', vs: td.dataset.c }); }); });
+
+    OV.el('p', 'ov-foot', main, 'Ratios use only targets both configs ran, so configs that ran different datasets are never compared through a median of different targets. ' + OV.sourceNote() +
+      ' Energy, jerk and gates exist only as scorecard medians (no per-target value), so this view compares tool RMS only.');
+  }
+
+  OV.boot({ name: 'V5 Head-to-head', tabs: [{ id: 'overview', label: 'Overview', render: overview }] });
+})();
+</script>
+</body>
+</html>

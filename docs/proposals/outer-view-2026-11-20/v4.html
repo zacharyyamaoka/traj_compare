@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>V4 Config x target heatmap</title>
+<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/dataset.css">
+<link rel="stylesheet" href="common.css">
+<style>
+  /* V4 Config x target heatmap: every target is a column, every config a row, colour = log tool RMS. */
+  .v4-wrap { display: grid; grid-template-columns: 176px minmax(0, 1fr) 150px; gap: 0 8px; align-items: start; }
+  .v4-labels, .v4-sums { position: relative; font-size: 12px; }
+  .v4-lab { position: absolute; left: 0; right: 0; display: flex; align-items: center; cursor: pointer; padding-right: 4px; color: #22211f; }
+  .v4-lab:hover { color: #2a78d6; }
+  .v4-lab .ov-name { overflow: hidden; text-overflow: ellipsis; }
+  .v4-sum { position: absolute; left: 0; right: 0; display: flex; flex-direction: column; justify-content: center; line-height: 1.25; font-variant-numeric: tabular-nums; }
+  .v4-sum b { font-weight: 650; color: #22211f; }
+  .v4-sum span { color: #8a8983; font-size: 11px; }
+  .v4-canvas { position: relative; }
+  .v4-canvas canvas { display: block; cursor: pointer; }
+  .v4-hl { position: absolute; top: 0; width: 3px; margin-left: -1px; border-left: 1px solid #22211f; border-right: 1px solid #22211f; pointer-events: none; display: none; }
+  .v4-legend { display: flex; align-items: center; gap: 10px; font-size: 11.5px; color: #52514e; margin-top: 8px; flex-wrap: wrap; }
+  .v4-ramp { position: relative; width: 300px; height: 10px; border-radius: 3px; margin: 0 26px; }
+  .v4-ticks { position: relative; width: 300px; height: 14px; font-size: 10.5px; color: #8a8983; margin: 0 26px; }
+  .v4-ticks span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+  .v4-keys { display: inline-flex; gap: 10px; align-items: center; }
+  .v4-keys i { display: inline-block; width: 14px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
+</style>
+</head>
+<body>
+<script src="common.js"></script>
+<script>
+(function () {
+  'use strict';
+  var esc = OV.esc;
+  var tip = null;
+
+  function overview(main, q) {
+    var M = OV.M;
+    var mode = q.c === 'ratio' ? 'ratio' : 'abs';
+    var dom = M.multiDomain && M.domains.indexOf(q.d) >= 0 ? q.d : null;
+    var rows = M.series.filter(function (s) { return !s.scorecardOnly && M.count[s.key] > 0 && (!dom || s.domain === dom); });
+    // Columns: group by dataset, then speed; inside a block hardest target first (geometric mean over the configs that ran it).
+    var datasets = [];
+    M.groups.forEach(function (g) { if (datasets.indexOf(g.dataset) < 0) datasets.push(g.dataset); });
+    var blocks = [];
+    datasets.forEach(function (d) {
+      M.speeds.concat([null]).forEach(function (sp, vi) {
+        var idx = OV.targetsWhere(function (i) {
+          var g = M.groups[M.targets.g[i]];
+          return g.dataset === d && (sp === null ? M.targets.v[i] < 0 : M.targets.v[i] === vi) && rows.some(function (s) { return M.rms[s.key][i] !== null; });
+        });
+        if (!idx.length) return;
+        var diff = {};
+        idx.forEach(function (i) {
+          var logs = rows.map(function (s) { return M.rms[s.key][i]; }).filter(function (x) { return x !== null && x > 0; }).map(Math.log10);
+          diff[i] = logs.reduce(function (a, b) { return a + b; }, 0) / logs.length;
+        });
+        idx.sort(function (a, b) { return q.o === 'task' ? M.targets.task[a].localeCompare(M.targets.task[b]) : diff[b] - diff[a]; });
+        blocks.push({ dataset: d, vi: sp === null ? -1 : vi, idx: idx });
+      });
+    });
+    var cols = [];
+    blocks.forEach(function (b) { b.idx.forEach(function (i) { cols.push(i); }); });
+
+    // Per target: best config (lowest tool RMS), and each config's ratio to it.
+    var best = {}, counts = {}, worst = {}, ran = {}, multiRan = {};
+    rows.forEach(function (s) { counts[s.key] = 0; worst[s.key] = 0; ran[s.key] = 0; multiRan[s.key] = 0; });
+    var multi = 0;
+    cols.forEach(function (i) {
+      var present = rows.filter(function (s) { return M.rms[s.key][i] !== null; });
+      present.forEach(function (s) { ran[s.key]++; });
+      var b = null, w = null;
+      present.forEach(function (s) { var v = M.rms[s.key][i]; if (!b || v < M.rms[b.key][i]) b = s; if (!w || v > M.rms[w.key][i]) w = s; });
+      best[i] = b;
+      if (present.length > 1) { multi++; counts[b.key]++; worst[w.key]++; present.forEach(function (s) { multiRan[s.key]++; }); }
+    });
+
+    // Verdict.
+    var order = rows.slice().sort(function (a, b) { return counts[b.key] - counts[a.key]; });
+    var v = OV.el('div', 'ov-verdict', main);
+    // A config that is the worst on (nearly) every target it shares is worth one sentence of its own.
+    var allWorst = rows.filter(function (s) { return multiRan[s.key] > 1 && worst[s.key] >= 0.9 * multiRan[s.key]; });
+    v.innerHTML = 'Lowest tool RMS per target, over the <b>' + multi + '</b> targets run by ≥ 2 configs: ' + order.filter(function (s) { return counts[s.key] > 0; }).slice(0, 4).map(function (s) {
+      return OV.swatch(s) + '<b>' + esc(s.label) + '</b> on ' + counts[s.key] + ' <span class="ov-n">of the ' + ran[s.key] + ' it ran</span>';
+    }).join(', ') + '. ' + (allWorst.length ? allWorst.map(function (s) {
+      return '<b>' + esc(s.label) + '</b> is the worst config on ' + worst[s.key] + ' of its ' + multiRan[s.key] + ' shared targets';
+    }).join('; ') + '. ' : '') + '<span class="ov-n">(each cell: median over the config’s repeats on that target)</span>';
+
+    var bar = OV.el('div', 'ov-bar', main);
+    bar.innerHTML = '<span class="ds-k">colour</span><span class="ds-seg"><button data-c="abs" class="' + (mode === 'abs' ? 'on' : '') + '">tool RMS (log)</button>' +
+      '<button data-c="ratio" class="' + (mode === 'ratio' ? 'on' : '') + '">÷ the best config on that target (log)</button></span>' +
+      '<span class="ds-k">order in a block</span><span class="ds-seg"><button data-o="diff" class="' + (q.o !== 'task' ? 'on' : '') + '">hardest first</button><button data-o="task" class="' + (q.o === 'task' ? 'on' : '') + '">by task</button></span>' +
+      (M.multiDomain ? '<span class="ds-k">domain</span><span class="ds-seg"><button data-d="" class="' + (!dom ? 'on' : '') + '">all</button>' + M.domains.map(function (d) {
+        return '<button data-d="' + d + '" class="' + (dom === d ? 'on' : '') + '">' + d + '</button>';
+      }).join('') + '</span>' : '') +
+      '<span class="ds-hint">hover a column: the target · click it: its Target level ↗ · click a config: its worst targets</span>';
+    bar.querySelectorAll('[data-c]').forEach(function (b) { b.addEventListener('click', function () { OV.setQuery({ c: b.dataset.c }); }); });
+    bar.querySelectorAll('[data-o]').forEach(function (b) { b.addEventListener('click', function () { OV.setQuery({ o: b.dataset.o === 'task' ? 'task' : '' }); }); });
+    bar.querySelectorAll('[data-d]').forEach(function (b) { b.addEventListener('click', function () { OV.setQuery({ d: b.dataset.d }); }); });
+
+    var card = OV.el('div', 'ov-card', main);
+    var wrap = OV.el('div', 'v4-wrap', card);
+    var labels = OV.el('div', 'v4-labels', wrap), holder = OV.el('div', 'v4-canvas', wrap), sums = OV.el('div', 'v4-sums', wrap);
+    var W = Math.max(600, holder.clientWidth || 1040);
+    var gap = 4, nGaps = blocks.length - 1, colW = (W - gap * nGaps) / cols.length;
+    var headH = 34, splitH = 5, rowH = Math.max(18, Math.min(62, Math.floor(330 / rows.length))), bestH = 14, sep = 6;
+    var H = headH + splitH + 3 + rows.length * rowH + sep + bestH;
+    var canvas = document.createElement('canvas');
+    var dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    holder.appendChild(canvas);
+    var hl = OV.el('div', 'v4-hl', holder);
+    hl.style.height = H + 'px';
+    var ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+
+    // Colour scale: absolute = log10 tool RMS over the 1st..99th percentile; ratio = log10(÷best) from 1x to 1000x.
+    var all = [];
+    rows.forEach(function (s) { cols.forEach(function (i) { var x = M.rms[s.key][i]; if (x !== null && x > 0) all.push(Math.log10(x)); }); });
+    all.sort(function (a, b) { return a - b; });
+    var lo = Math.floor(OV.quantile(all, 0.01)), hi = Math.ceil(OV.quantile(all, 0.99));
+    if (hi <= lo) hi = lo + 1;
+    function colourOf(s, i) {
+      var x = M.rms[s.key][i];
+      if (x === null) return null;
+      if (mode === 'ratio') { var r = x / M.rms[best[i].key][i]; return OV.rampColor(Math.min(1, Math.log10(Math.max(1, r)) / 3)); }
+      return OV.rampColor((Math.log10(Math.max(x, 1e-12)) - lo) / (hi - lo));
+    }
+    var xOf = [], x = 0;
+    var blockStart = [];
+    blocks.forEach(function (b, bi) {
+      blockStart.push(x);
+      b.idx.forEach(function (i) { xOf.push(x); x += colW; });
+      b.x0 = blockStart[bi]; b.x1 = x;
+      x += gap;
+    });
+    // Header: dataset names over their blocks, speed under each block, split strip (holdout dark).
+    ctx.font = '600 11.5px -apple-system, Segoe UI, Roboto, sans-serif'; ctx.textBaseline = 'middle';
+    var dsSpan = {};
+    blocks.forEach(function (b) { var s = dsSpan[b.dataset] || (dsSpan[b.dataset] = { x0: b.x0, x1: b.x1 }); s.x1 = b.x1; });
+    Object.keys(dsSpan).forEach(function (d) {
+      var s = dsSpan[d];
+      ctx.fillStyle = '#22211f'; ctx.textAlign = 'center';
+      var label = d, maxW = s.x1 - s.x0 - 4;
+      while (ctx.measureText(label).width > maxW && label.length > 3) label = label.slice(0, -2) + '…';
+      ctx.fillText(label, (s.x0 + s.x1) / 2, 8);
+      ctx.fillStyle = '#cfcec8'; ctx.fillRect(s.x0, 16, s.x1 - s.x0, 1);
+    });
+    ctx.font = '10.5px -apple-system, Segoe UI, Roboto, sans-serif';
+    blocks.forEach(function (b) {
+      ctx.fillStyle = '#8a8983'; ctx.textAlign = 'center';
+      if (b.x1 - b.x0 > 16) ctx.fillText(b.vi >= 0 ? OV.speedShort(b.vi) : '—', (b.x0 + b.x1) / 2, 26);
+    });
+    cols.forEach(function (i, k) {
+      var hold = M.groups[M.targets.g[i]].split === 'holdout';
+      ctx.fillStyle = hold ? '#8a8983' : '#e6e5e0';
+      ctx.fillRect(xOf[k], headH, Math.max(1, colW), splitH);
+    });
+    var top = headH + splitH + 3;
+    rows.forEach(function (s, r) {
+      var y = top + r * rowH;
+      cols.forEach(function (i, k) {
+        var c = colourOf(s, i);
+        ctx.fillStyle = c || '#efeee9';
+        ctx.fillRect(xOf[k], y, Math.max(1, colW + 0.35), rowH - 2);
+      });
+    });
+    // Hatch "did not run" lightly so it is not read as low error.
+    rows.forEach(function (s, r) {
+      var y = top + r * rowH;
+      blocks.forEach(function (b) {
+        var none = b.idx.every(function (i) { return M.rms[s.key][i] === null; });
+        if (!none) return;
+        ctx.save(); ctx.beginPath(); ctx.rect(b.x0, y, b.x1 - b.x0, rowH - 2); ctx.clip();
+        ctx.strokeStyle = '#dcdbd5'; ctx.lineWidth = 1;
+        for (var t = -rowH; t < b.x1 - b.x0 + rowH; t += 5) { ctx.beginPath(); ctx.moveTo(b.x0 + t, y + rowH); ctx.lineTo(b.x0 + t + rowH, y); ctx.stroke(); }
+        ctx.restore();
+      });
+    });
+    var by = top + rows.length * rowH + sep - 2;
+    cols.forEach(function (i, k) { ctx.fillStyle = best[i] ? best[i].color : '#efeee9'; ctx.fillRect(xOf[k], by, Math.max(1, colW + 0.35), bestH); });
+
+    // Labels and per-row summaries, aligned to the canvas rows.
+    labels.style.height = H + 'px'; sums.style.height = H + 'px';
+    var lh = OV.el('div', 'v4-lab', labels, '<span class="ds-mut" style="font-size:11px">dataset · ' + (M.speedKey === 'speed_fraction' ? 'speed fraction' : 'speed') + '</span>');
+    lh.style.top = '0px'; lh.style.height = headH + 'px'; lh.style.cursor = 'default';
+    var lsplit = OV.el('div', 'v4-lab', labels, '<span class="ds-mut" style="font-size:10.5px">split (dark = holdout)</span>');
+    lsplit.style.top = (headH - 6) + 'px'; lsplit.style.height = '16px'; lsplit.style.cursor = 'default';
+    rows.forEach(function (s, r) {
+      var l = OV.el('div', 'v4-lab', labels, OV.swatch(s) + OV.name(s, 25));
+      l.style.top = (top + r * rowH) + 'px'; l.style.height = (rowH - 2) + 'px';
+      l.title = s.label + ': click for its worst targets';
+      l.addEventListener('click', function () { OV.go('targets', { cfg: s.key, sort: 'best' }); });
+      var vals = cols.map(function (i) { return M.rms[s.key][i]; });
+      var sm = OV.el('div', 'v4-sum', sums, rowH >= 32 ? '<b>' + OV.num(OV.median(vals)) + ' mm</b><span>median of ' + ran[s.key] + ' · best on ' + counts[s.key] + '</span>'
+        : '<span><b>' + OV.num(OV.median(vals)) + '</b> mm · n ' + ran[s.key] + ' · best ' + counts[s.key] + '</span>');
+      sm.style.top = (top + r * rowH) + 'px'; sm.style.height = (rowH - 2) + 'px';
+    });
+    var lb = OV.el('div', 'v4-lab', labels, '<span style="font-size:11px;color:#52514e">best config per target</span>');
+    lb.style.top = by + 'px'; lb.style.height = bestH + 'px'; lb.style.cursor = 'default';
+
+    // Legend.
+    var leg = OV.el('div', 'v4-legend', card);
+    var stops = OV.ramp.map(function (c, k) { return c + ' ' + (100 * k / (OV.ramp.length - 1)).toFixed(0) + '%'; }).join(',');
+    var ticks = [];
+    if (mode === 'ratio') ticks = [[0, '1× (best)'], [1 / 3, '10×'], [2 / 3, '100×'], [1, '≥ 1000×']];
+    else for (var e = lo; e <= hi; e++) ticks.push([(e - lo) / (hi - lo), OV.num(Math.pow(10, e)) + (e === hi ? ' mm' : '')]);
+    leg.innerHTML = '<span>' + (mode === 'ratio' ? 'tool RMS ÷ the best config on that target' : 'tool RMS [mm], log') + '</span><span style="display:inline-flex;flex-direction:column;gap:2px"><span class="v4-ramp" style="background:linear-gradient(90deg,' + stops + ')"></span>' +
+      '<span class="v4-ticks">' + ticks.map(function (t) { return '<span style="left:' + (100 * t[0]).toFixed(1) + '%">' + t[1] + '</span>'; }).join('') + '</span></span>' +
+      '<span class="v4-keys"><span><i style="background:repeating-linear-gradient(45deg,#fff,#fff 2px,#dcdbd5 2px,#dcdbd5 3px);border:1px solid #e6e5e0"></i>did not run</span>' +
+      '<span>' + cols.length + ' targets · ' + blocks.length + ' blocks (dataset × ' + (M.speedKey === 'speed_fraction' ? 'speed fraction' : 'speed') + ')</span></span>';
+
+    // Hover and click: which column is under the pointer.
+    function colAt(px) {
+      for (var k = 0; k < cols.length; k++) if (px >= xOf[k] - 0.5 && px < xOf[k] + Math.max(1, colW) + 0.5) return k;
+      return -1;
+    }
+    canvas.addEventListener('mousemove', function (e) {
+      var rect = canvas.getBoundingClientRect(), k = colAt(e.clientX - rect.left);
+      if (k < 0) { hideTip(); hl.style.display = 'none'; return; }
+      var i = cols[k];
+      hl.style.display = 'block'; hl.style.left = (xOf[k] + colW / 2) + 'px';
+      if (!tip) tip = OV.el('div', 'ov-tip', document.body);
+      var present = rows.filter(function (s) { return M.rms[s.key][i] !== null; }).sort(function (a, b) { return M.rms[a.key][i] - M.rms[b.key][i]; });
+      tip.innerHTML = '<b>' + esc(M.targets.task[i]) + '</b> · ' + esc(M.groups[M.targets.g[i]].key) + ' · ' + (M.targets.v[i] >= 0 ? esc(OV.speedLabel(M.targets.v[i])) : '') +
+        ' <span class="ds-mut">' + esc(M.kinds[M.targets.kind[i]] || '') + '</span><table>' + present.map(function (s, at) {
+          var val = M.rms[s.key][i];
+          return '<tr><td>' + OV.swatch(s) + esc(OV.short(s.label, 34)) + '</td><td><b>' + OV.num(val) + '</b> mm</td><td class="ds-mut">' + (at === 0 ? 'best' : OV.times(val / M.rms[present[0].key][i])) +
+            (OV.reps(s.key, i) > 1 ? ' · ' + OV.reps(s.key, i) + ' rep' : '') + '</td></tr>';
+        }).join('') + '</table><span class="ds-mut">click: open this target’s Target level ↗</span>';
+      tip.style.display = 'block';
+      tip.style.left = Math.min(window.innerWidth - 400, e.clientX + 14) + 'px';
+      tip.style.top = Math.min(window.innerHeight - 40 - 22 * present.length, e.clientY + 16) + 'px';
+    });
+    canvas.addEventListener('mouseleave', function () { hideTip(); hl.style.display = 'none'; });
+    canvas.addEventListener('click', function (e) {
+      var rect = canvas.getBoundingClientRect(), k = colAt(e.clientX - rect.left);
+      if (k >= 0) window.open(OV.targetUrl(cols[k]), '_blank', 'noopener');
+    });
+    OV.el('p', 'ov-foot', main, 'Every target of the payload is one column (' + cols.length + '), every config·domain series one row; the bottom strip is the config with the lowest tool RMS on that target. ' + OV.sourceNote() +
+      ' Energy, jerk and gates exist only as scorecard medians, so this view does not show them.');
+  }
+  function hideTip() { if (tip) tip.style.display = 'none'; }
+
+  OV.boot({ name: 'V4 Config x target heatmap', tabs: [{ id: 'overview', label: 'Overview', render: function (main, q) { hideTip(); overview(main, q); } }] });
+})();
+</script>
+</body>
+</html>

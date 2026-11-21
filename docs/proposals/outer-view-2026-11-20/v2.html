@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>V2 Pareto frontier</title>
+<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/dataset.css">
+<link rel="stylesheet" href="common.css">
+<style>
+  /* V2 Pareto frontier: tracking error against cost, each config a path through its speeds, the frontier marked. */
+  .v2-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 12px; align-items: start; }
+  .v2-plot svg { display: block; }
+  .v2-plot .pt { cursor: pointer; }
+  .v2-plot .pt:hover { stroke-width: 3; }
+  .v2-plot .leg { cursor: pointer; }
+  .v2-side { display: flex; flex-direction: column; gap: 10px; }
+  .v2-list { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .v2-list td { padding: 3px 4px; border-bottom: 1px solid #efeee9; vertical-align: middle; }
+  .v2-list td.r { text-align: right; white-space: nowrap; }
+  .v2-list tr { cursor: pointer; }
+  .v2-list tr:hover td { background: #f4f6fa; }
+  .v2-tag { font-size: 10.5px; border-radius: 4px; padding: 0 5px; border: 1px solid #cfcec8; color: #52514e; white-space: nowrap; }
+  .v2-tag.front { border-color: #2f9e44; color: #2a7a3c; background: #eef7f0; font-weight: 600; }
+  .v2-why { color: #8a8983; font-size: 11px; display: block; white-space: normal; }
+  .v2-thumbs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .v2-thumb { border: 1px solid #e6e5e0; border-radius: 6px; background: #fff; cursor: pointer; padding: 3px 4px 2px; }
+  .v2-thumb:hover { border-color: #9dbde4; }
+  .v2-thumb.on { border-color: #2a78d6; box-shadow: inset 0 0 0 1px #2a78d6; }
+  .v2-thumb b { font-size: 11px; color: #22211f; font-weight: 600; }
+  .v2-thumb span { font-size: 10.5px; color: #8a8983; }
+</style>
+</head>
+<body>
+<script src="common.js"></script>
+<script>
+(function () {
+  'use strict';
+  var esc = OV.esc;
+  var tip = null;
+
+  function costGroups() {
+    var M = OV.M;
+    return M.groups.map(function (g, i) { return i; }).filter(function (i) {
+      var g = M.groups[i].key;
+      return (M.score.energy || {})[g] && (M.score.rms || {})[g];
+    });
+  }
+  // Points of one group: every series with both tool RMS and the cost KPI, one point per speed.
+  function points(gi, yk) {
+    var M = OV.M, g = M.groups[gi].key, out = [];
+    M.series.forEach(function (s) {
+      var xs = OV.score('rms', g, s.key), ys = OV.score(yk, g, s.key);
+      if (!xs || !ys) return;
+      var gates = OV.score('gates', g, s.key) || [], n = OV.scoreN(g, s.key) || [];
+      var pts = M.speeds.map(function (sp, vi) {
+        return xs[vi] !== null && ys[vi] !== null && xs[vi] > 0 ? { s: s, vi: vi, x: xs[vi], y: ys[vi], gates: gates[vi], n: n[vi], jerk: (OV.score('jerk', g, s.key) || [])[vi], energy: (OV.score('energy', g, s.key) || [])[vi] } : null;
+      }).filter(Boolean);
+      if (pts.length) out.push({ s: s, pts: pts });
+    });
+    return out;
+  }
+  // Non-dominated at one speed: no other config has lower-or-equal RMS and cost with one strictly lower.
+  function frontier(series, vi) {
+    var at = series.map(function (r) { return r.pts.filter(function (p) { return p.vi === vi; })[0]; }).filter(Boolean);
+    at.forEach(function (p) {
+      p.dominatedBy = null;
+      at.forEach(function (o) {
+        if (o === p) return;
+        if (o.x <= p.x && o.y <= p.y && (o.x < p.x || o.y < p.y)) {
+          if (!p.dominatedBy || o.x < p.dominatedBy.x) p.dominatedBy = o;
+        }
+      });
+    });
+    return at;
+  }
+
+  function scales(series, yk, W, H, pad) {
+    var xs = [], ys = [];
+    series.forEach(function (r) { r.pts.forEach(function (p) { xs.push(p.x); ys.push(p.y); }); });
+    var ylog = yk === 'jerk';
+    var x0 = Math.floor(Math.log10(Math.min.apply(null, xs))), x1 = Math.ceil(Math.log10(Math.max.apply(null, xs)));
+    if (x1 === x0) x1 = x0 + 1;
+    var y0, y1;
+    if (ylog) { y0 = Math.floor(Math.log10(Math.min.apply(null, ys))); y1 = Math.ceil(Math.log10(Math.max.apply(null, ys))); if (y1 === y0) y1++; }
+    else { var lo = Math.min.apply(null, ys), hi = Math.max.apply(null, ys), span = (hi - lo) || hi || 1; y0 = Math.max(0, lo - 0.08 * span); y1 = hi + 0.08 * span; }
+    return {
+      x: function (v) { return pad.l + (Math.log10(v) - x0) / (x1 - x0) * (W - pad.l - pad.r); },
+      y: function (v) { var t = ylog ? (Math.log10(v) - y0) / (y1 - y0) : (v - y0) / (y1 - y0); return H - pad.b - t * (H - pad.t - pad.b); },
+      x0: x0, x1: x1, y0: y0, y1: y1, ylog: ylog,
+    };
+  }
+
+  function drawPlot(series, yk, vi, W, H, opts) {
+    var M = OV.M, small = opts.small, pad = small ? { l: 4, r: 4, t: 4, b: 4 } : { l: 64, r: 18, t: 16, b: 46 };
+    var sc = scales(series, yk, W, H, pad), kpi = M.kpiById[yk];
+    var svg = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" font-family="inherit">';
+    svg += '<rect x="' + pad.l + '" y="' + pad.t + '" width="' + (W - pad.l - pad.r) + '" height="' + (H - pad.t - pad.b) + '" fill="#fff" stroke="#e6e5e0"/>';
+    if (!small) {
+      for (var d = sc.x0; d <= sc.x1; d++) {
+        var x = sc.x(Math.pow(10, d));
+        svg += '<line x1="' + x + '" x2="' + x + '" y1="' + pad.t + '" y2="' + (H - pad.b) + '" stroke="#efeee9"/>';
+        svg += '<text x="' + x + '" y="' + (H - pad.b + 15) + '" text-anchor="middle" font-size="11" fill="#52514e">' + OV.num(Math.pow(10, d)) + '</text>';
+        if (d < sc.x1) [2, 5].forEach(function (m) { var xm = sc.x(m * Math.pow(10, d)); svg += '<line x1="' + xm + '" x2="' + xm + '" y1="' + (H - pad.b) + '" y2="' + (H - pad.b + 4) + '" stroke="#cfcec8"/>'; });
+      }
+      var yt = [];
+      if (sc.ylog) for (var e = sc.y0; e <= sc.y1; e++) yt.push(Math.pow(10, e));
+      else { var step = niceStep((sc.y1 - sc.y0) / 6); for (var t = Math.ceil(sc.y0 / step) * step; t <= sc.y1; t += step) yt.push(t); }
+      yt.forEach(function (t) {
+        var y = sc.y(t);
+        svg += '<line x1="' + pad.l + '" x2="' + (W - pad.r) + '" y1="' + y + '" y2="' + y + '" stroke="#efeee9"/>';
+        svg += '<text x="' + (pad.l - 6) + '" y="' + (y + 4) + '" text-anchor="end" font-size="11" fill="#52514e">' + OV.num(t) + '</text>';
+      });
+      svg += '<text x="' + ((pad.l + W - pad.r) / 2) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="12" fill="#22211f">Tool tracking RMS [mm] · log · ← better</text>';
+      svg += '<text transform="translate(16 ' + ((pad.t + H - pad.b) / 2) + ') rotate(-90)" text-anchor="middle" font-size="12" fill="#22211f">' + esc(kpi.name) + ' [' + esc(OV.unit(kpi.unit)) + ']' + (sc.ylog ? ' · log' : '') + ' · ↓ better</text>';
+    }
+    // Frontier at the selected speed: a staircase through the non-dominated points; the region it dominates shaded.
+    var at = frontier(series, vi), front = at.filter(function (p) { return !p.dominatedBy; }).sort(function (a, b) { return a.x - b.x; });
+    if (front.length) {
+      var path = 'M' + sc.x(front[0].x) + ' ' + pad.t;
+      var shade = 'M' + sc.x(front[0].x) + ' ' + pad.t;
+      front.forEach(function (p, k) {
+        path += ' L' + sc.x(p.x) + ' ' + sc.y(p.y);
+        shade += ' L' + sc.x(p.x) + ' ' + sc.y(p.y);
+        var next = front[k + 1];
+        if (next) { path += ' L' + sc.x(next.x) + ' ' + sc.y(p.y); shade += ' L' + sc.x(next.x) + ' ' + sc.y(p.y); }
+      });
+      var last = front[front.length - 1];
+      path += ' L' + (W - pad.r) + ' ' + sc.y(last.y);
+      shade += ' L' + (W - pad.r) + ' ' + sc.y(last.y) + ' L' + (W - pad.r) + ' ' + pad.t + ' Z';
+      svg += '<path d="' + shade + '" fill="#8a8983" opacity="0.07"/>';
+      svg += '<path d="' + path + '" fill="none" stroke="#22211f" stroke-width="' + (small ? 1 : 1.4) + '" stroke-dasharray="5 4"/>';
+    }
+    var labels = [];
+    series.forEach(function (r) {
+      var s = r.s, dash = OV.dash(s.domain);
+      var d = r.pts.map(function (p, k) { return (k ? 'L' : 'M') + sc.x(p.x).toFixed(1) + ' ' + sc.y(p.y).toFixed(1); }).join('');
+      svg += '<path d="' + d + '" fill="none" stroke="' + s.color + '" stroke-width="' + (small ? 1.3 : 1.8) + '" opacity="0.85"' + (dash ? ' stroke-dasharray="' + dash.join(' ') + '"' : '') + '/>';
+      r.pts.forEach(function (p) {
+        var big = p.vi === vi, front = big && !p.dominatedBy, fail = p.gates !== null && p.gates !== undefined && p.gates < 50;
+        var rad = small ? (big ? 3.2 : 1.6) : big ? 7.5 : 3.6;
+        var cx = sc.x(p.x).toFixed(1), cy = sc.y(p.y).toFixed(1);
+        if (fail && big && !small) svg += '<circle cx="' + cx + '" cy="' + cy + '" r="' + (rad + 4) + '" fill="none" stroke="#c74434" stroke-width="1.5"/>';
+        svg += '<circle class="' + (small ? '' : 'pt') + '" data-key="' + esc(s.key) + '" data-vi="' + p.vi + '" cx="' + cx + '" cy="' + cy + '" r="' + rad + '" fill="' +
+          (big && !front ? '#fff' : s.color) + '" stroke="' + (big ? s.color : '#fff') + '" stroke-width="' + (big ? 2.2 : 1) + '"/>';
+        if (!small && (p.vi === 0 || p.vi === M.top) && !big) svg += '<text x="' + (+cx + 6) + '" y="' + (+cy - 5) + '" font-size="10" paint-order="stroke" stroke="#fff" stroke-width="3" fill="#8a8983">' + OV.speedShort(p.vi) + '</text>';
+        if (!small && big) labels.push({ key: s.key, cx: +cx, cy: +cy, color: s.color, text: OV.short(s.label, 28) + (fail ? ' ✕ gates' : '') });
+      });
+    });
+    // Labels last, nudged apart so a crowded speed (pendulum: 8 series near 1 mm) stays readable.
+    var placed = [];
+    labels.sort(function (a, b) { return a.cy - b.cy; }).forEach(function (l) {
+      var right = l.cx > W - 190, w = 7.2 * l.text.length;
+      var x = right ? l.cx - 12 : l.cx + 12, y = l.cy - 9;
+      var x0 = right ? x - w : x, x1 = right ? x : x + w;
+      for (var guard = 0; guard < 40; guard++) {
+        var hit = placed.some(function (p) { return x0 < p.x1 && x1 > p.x0 && Math.abs(y - p.y) < 14; });
+        if (!hit) break;
+        y += 14;
+      }
+      placed.push({ x0: x0, x1: x1, y: y });
+      if (Math.abs(y - (l.cy - 9)) > 2) svg += '<line x1="' + l.cx + '" y1="' + l.cy + '" x2="' + (right ? x + 2 : x - 2) + '" y2="' + (y - 4) + '" stroke="' + l.color + '" stroke-width="0.8" opacity="0.7"/>';
+      svg += '<text class="leg" data-key="' + esc(l.key) + '" x="' + x + '" y="' + y + '" text-anchor="' + (right ? 'end' : 'start') +
+        '" font-size="12.5" font-weight="650" paint-order="stroke" stroke="#fff" stroke-width="4" stroke-linejoin="round" fill="' + l.color + '">' + esc(l.text) + '</text>';
+    });
+    return svg + '</svg>';
+  }
+  function niceStep(raw) {
+    var p = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / p;
+    return (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * p;
+  }
+
+  function overview(main, q) {
+    var M = OV.M;
+    var groups = costGroups();
+    if (!groups.length) { OV.el('p', 'ov-verdict', main, 'This site’s scorecard has no energy per task, so there is no cost axis to draw a frontier on. Use the Targets tab.'); return; }
+    var gi = q.g !== undefined && groups.indexOf(+q.g) >= 0 ? +q.g : groups[0];
+    var vi = q.v !== undefined ? Math.max(0, Math.min(M.top, +q.v)) : M.top;
+    var yk = q.y === 'jerk' && M.kpiById.jerk ? 'jerk' : 'energy';
+    var g = M.groups[gi], kpi = M.kpiById[yk];
+    var series = points(gi, yk);
+    var at = frontier(series, vi);
+    var front = at.filter(function (p) { return !p.dominatedBy; }).sort(function (a, b) { return a.x - b.x; });
+    var dominated = at.filter(function (p) { return p.dominatedBy; }).sort(function (a, b) { return a.x - b.x; });
+    var unit = OV.unit(kpi.unit), n = at.length ? at[0].n : null;
+
+    var v = OV.el('div', 'ov-verdict', main);
+    var fr = front.map(function (p, k) {
+      var txt = OV.swatch(p.s) + '<b>' + esc(p.s.label) + '</b> (' + OV.withUnit(p.x, 'mm') + ', ' + OV.withUnit(p.y, kpi.unit) + ')';
+      if (k > 0) txt += ': ' + OV.times(p.x / front[0].x) + ' the RMS for ' + OV.times(p.y / front[0].y) + ' the ' + (yk === 'energy' ? 'energy' : 'jerk');
+      return txt;
+    });
+    v.innerHTML = 'At <b>' + esc(OV.speedLabel(vi)) + '</b> on <b>' + esc(g.key) + '</b>, ' + (front.length === 1 ? 'one config is on the frontier: ' : front.length + ' configs are on the frontier: ') + fr.join('; ') + '. ' +
+      (dominated.length ? 'Dominated: ' + dominated.map(function (p) {
+        return '<b>' + esc(p.s.label) + '</b> by ' + esc(p.dominatedBy.s.label) + ' (' + OV.times(p.x / p.dominatedBy.x) + ' the RMS' + (p.gates !== null && p.gates < 50 ? ', <span class="ov-fail">' + OV.num(p.gates) + ' % of runs pass every gate</span>' : '') + ')';
+      }).join('; ') + '. ' : '') + '<span class="ov-n">(medians over ' + (n || '?') + ' tasks, bench scorecard)</span>';
+
+    var wrap = OV.el('div', 'v2-wrap', main);
+    var card = OV.el('div', 'ov-card v2-plot', wrap);
+    card.innerHTML = '<h2>' + esc(kpi.name) + ' against tool tracking RMS · ' + esc(g.key) + ' <span class="ds-hint">each config a path through its speeds (' + esc(OV.speedShort(0)) + ' → ' + esc(OV.speedShort(M.top)) +
+      '); big dots = ' + esc(OV.speedLabel(vi)) + ': filled = frontier, hollow = dominated, red ring = &lt; 50 % of runs pass every gate · click a dot: its worst targets</span></h2>';
+    var plot = OV.el('div', '', card);
+    plot.innerHTML = drawPlot(series, yk, vi, 940, 540, {});
+    plot.querySelectorAll('[data-key]').forEach(function (el) {
+      el.addEventListener('click', function () { OV.go('targets', { cfg: el.dataset.key, g: gi, v: el.dataset.vi !== undefined ? el.dataset.vi : vi }); });
+      el.addEventListener('mousemove', function (e) { showTip(e, el.dataset.key, el.dataset.vi !== undefined ? +el.dataset.vi : vi, series, yk); });
+      el.addEventListener('mouseleave', hideTip);
+    });
+
+    var side = OV.el('div', 'v2-side', wrap);
+    var ctl = OV.el('div', 'ov-card', side);
+    ctl.innerHTML = '<div class="ov-bar" style="margin:0 0 6px"><span class="ds-k">' + (M.speedKey === 'speed_fraction' ? 'speed fraction' : 'speed') + '</span><span class="ds-seg" id="v2-speed">' +
+      M.speeds.map(function (sp, i) { return '<button data-v="' + i + '" class="' + (i === vi ? 'on' : '') + '">' + OV.speedShort(i) + '</button>'; }).join('') + '</span></div>' +
+      '<div class="ov-bar" style="margin:0"><span class="ds-k">cost axis</span><span class="ds-seg" id="v2-y"><button data-y="energy" class="' + (yk === 'energy' ? 'on' : '') + '">Energy per task</button>' +
+      (M.kpiById.jerk ? '<button data-y="jerk" class="' + (yk === 'jerk' ? 'on' : '') + '">Tool jerk RMS</button>' : '') + '</span></div>';
+    ctl.querySelectorAll('[data-v]').forEach(function (b) { b.addEventListener('click', function () { OV.setQuery({ v: b.dataset.v }); }); });
+    ctl.querySelectorAll('[data-y]').forEach(function (b) { b.addEventListener('click', function () { OV.setQuery({ y: b.dataset.y }); }); });
+
+    var list = OV.el('div', 'ov-card', side);
+    var rows = front.concat(dominated);
+    list.innerHTML = '<h2>At ' + esc(OV.speedLabel(vi)) + ' <span class="ds-hint">click a config: its worst targets</span></h2><table class="v2-list"><tbody>' + rows.map(function (p) {
+      var why = p.dominatedBy ? 'beaten on both axes by ' + esc(p.dominatedBy.s.label) : front.length > 1 ? (p === front[0] ? 'lowest RMS on the frontier' : 'trades RMS for less ' + (yk === 'energy' ? 'energy' : 'jerk')) : 'lowest on both axes';
+      return '<tr data-key="' + esc(p.s.key) + '"><td>' + OV.swatch(p.s) + OV.name(p.s, 22) + '<span class="v2-why">' + why + '</span></td>' +
+        '<td class="r"><span class="v2-tag' + (p.dominatedBy ? '' : ' front') + '">' + (p.dominatedBy ? 'dominated' : 'frontier') + '</span></td>' +
+        '<td class="r">' + OV.num(p.x) + ' mm<br><span class="ds-mut">' + OV.withUnit(p.y, kpi.unit) + '</span></td>' +
+        '<td class="r">' + (p.gates !== null && p.gates !== undefined ? '<span class="' + (p.gates < 50 ? 'ov-fail' : 'ds-mut') + '">' + OV.num(p.gates) + ' %</span><br><span class="ds-mut">gates</span>' : '') + '</td></tr>';
+    }).join('') + '</tbody></table>';
+    list.querySelectorAll('tr[data-key]').forEach(function (tr) { tr.addEventListener('click', function () { OV.go('targets', { cfg: tr.dataset.key, g: gi, v: vi }); }); });
+
+    var th = OV.el('div', 'ov-card', side);
+    th.innerHTML = '<h2>Every dataset · split <span class="ds-hint">same axes kind, own scales; click to switch</span></h2><div class="v2-thumbs">' + groups.map(function (c) {
+      var ser = points(c, yk);
+      var f = frontier(ser, vi).filter(function (p) { return !p.dominatedBy; }).map(function (p) { return p.s.label; });
+      return '<div class="v2-thumb' + (c === gi ? ' on' : '') + '" data-g="' + c + '"><b>' + esc(M.groups[c].key) + '</b><br>' + drawPlot(ser, yk, vi, 192, 78, { small: true }) +
+        '<span>frontier: ' + esc(f.join(', ')) + '</span></div>';
+    }).join('') + '</div>';
+    th.querySelectorAll('[data-g]').forEach(function (el) { el.addEventListener('click', function () { OV.setQuery({ g: el.dataset.g }); }); });
+
+    var drawn = series.length, live = M.series.filter(function (x) { return !x.scorecardOnly; }).length;
+    var skipped = M.groups.filter(function (gr, i) { return groups.indexOf(i) < 0; }).map(function (gr) { return gr.key; });
+    OV.el('p', 'ov-foot', main, 'Bench scorecard medians (summary.charts: “' + esc(kpi.description) + '”); drawn: the ' + drawn + ' series the scorecard has ' + esc(kpi.name.toLowerCase()) + ' for on ' + esc(g.key) + ' (the site has ' + live + ' config·domain series with runs). ' + (skipped.length ? 'Not drawn — the scorecard has no energy for them: ' + esc(skipped.join(', ')) + '; their tool RMS per target is in the Targets tab. ' : '') + OV.sourceNote());
+  }
+
+  function showTip(e, key, vi, series, yk) {
+    var r = series.filter(function (x) { return x.s.key === key; })[0];
+    if (!r) return;
+    var p = r.pts.filter(function (x) { return x.vi === vi; })[0];
+    if (!p) return;
+    if (!tip) tip = OV.el('div', 'ov-tip', document.body);
+    tip.innerHTML = OV.swatch(p.s) + '<b>' + esc(p.s.label) + '</b> · ' + esc(OV.speedLabel(vi)) + '<table>' +
+      '<tr><td>tool RMS</td><td>' + OV.withUnit(p.x, 'mm') + '</td></tr>' +
+      (p.energy !== undefined && p.energy !== null ? '<tr><td>energy per task</td><td>' + OV.withUnit(p.energy, 'J') + '</td></tr>' : '') +
+      (p.jerk !== undefined && p.jerk !== null ? '<tr><td>tool jerk RMS</td><td>' + OV.withUnit(p.jerk, 'm/s^3') + '</td></tr>' : '') +
+      (p.gates !== undefined && p.gates !== null ? '<tr><td>runs passing every gate</td><td>' + OV.num(p.gates) + ' %</td></tr>' : '') +
+      '</table><span class="ds-mut">medians over ' + p.n + ' tasks · click: worst targets</span>';
+    tip.style.display = 'block';
+    tip.style.left = Math.min(window.innerWidth - 300, e.clientX + 14) + 'px';
+    tip.style.top = (e.clientY + 14) + 'px';
+  }
+  function hideTip() { if (tip) tip.style.display = 'none'; }
+
+  OV.boot({ name: 'V2 Pareto frontier', tabs: [{ id: 'overview', label: 'Overview', render: function (main, q) { hideTip(); overview(main, q); } }] });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>V1 League table</title>
+<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/dataset.css">
+<link rel="stylesheet" href="assets/uplot.min.css">
+<link rel="stylesheet" href="common.css">
+<style>
+  /* V1 League table: one row per config, every KPI at full speed + its curve vs speed, rank and distance to the best. */
+  .v1-table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .v1-table th, .v1-table td { padding: 6px 8px; text-align: right; border-bottom: 1px solid #efeee9; white-space: nowrap; vertical-align: middle; }
+  .v1-table thead th { color: #52514e; font-weight: 600; font-size: 11.5px; background: #f7f7f5; border-bottom: 1px solid #dddcd6; vertical-align: bottom; }
+  .v1-table thead th .ds-unit { display: block; font-weight: 400; color: #8a8983; font-size: 10.5px; }
+  .v1-table th.l, .v1-table td.l { text-align: left; }
+  .v1-table tbody tr { cursor: pointer; }
+  .v1-table tbody tr:hover td { background: #f4f6fa; }
+  .v1-rank { font-size: 15px; font-weight: 700; color: #22211f; width: 26px; }
+  .v1-cfg { font-weight: 600; color: #22211f; }
+  .v1-big { font-size: 15px; font-weight: 650; color: #22211f; }
+  .v1-x { color: #8a8983; font-size: 11.5px; margin-left: 6px; display: inline-block; min-width: 44px; text-align: left; }
+  .v1-x.best { color: #2a7a3c; font-weight: 600; }
+  .v1-logbar { position: relative; width: 118px; height: 8px; background: #efeee9; border-radius: 4px; display: inline-block; vertical-align: middle; margin-left: 8px; }
+  .v1-logbar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--c); }
+  .v1-cellspark { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+  .v1-dim { color: #b9b8b1; }
+  .v1-src { font-size: 10.5px; color: #8a8983; }
+  .v1-matrix { border-collapse: separate; border-spacing: 2px; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .v1-matrix th { font-weight: 600; color: #52514e; padding: 2px 5px; white-space: nowrap; font-size: 11px; line-height: 1.25; }
+  .v1-matrix thead th span { display: block; font-weight: 400; color: #8a8983; }
+  .v1-matrix thead th { cursor: pointer; border-radius: 4px; }
+  .v1-matrix thead th:hover { background: #eef3fa; }
+  .v1-matrix thead th.on { background: #eef3fa; box-shadow: inset 0 -2px 0 #2a78d6; color: #22211f; }
+  .v1-matrix td { min-width: 52px; text-align: center; padding: 4px 6px; border-radius: 4px; cursor: pointer; color: #22211f; }
+  .v1-matrix td.r1 { font-weight: 700; box-shadow: inset 0 0 0 1.5px #2f9e44; }
+  .v1-matrix td.none { background: repeating-linear-gradient(45deg, #f4f4f2, #f4f4f2 3px, #ebeae5 3px, #ebeae5 4px); cursor: default; }
+  .v1-matrix td.payload { font-style: italic; }
+  .v1-matrix td.on { outline: 1.5px solid #2a78d6; }
+  .v1-matrix th.l { text-align: left; }
+  .v1-sweeps { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .v1-sweeps .ov-card { min-width: 0; }
+  .v1-sweeps .u-legend { font-size: 11.5px; }
+  .v1-sweeps .u-legend .u-marker { width: 10px; height: 10px; }
+</style>
+</head>
+<body>
+<script src="assets/uplot.iife.min.js"></script>
+<script src="common.js"></script>
+<script>
+(function () {
+  'use strict';
+  var esc = OV.esc;
+  var KPI_ORDER = ['rms', 'gates', 'energy', 'jerk'];
+
+  function groupsAll() { return OV.M.groups.map(function (g, i) { return i; }); }
+  // A series' value for one KPI in one group at one speed: the scorecard when it has the cell, else (tool RMS only)
+  // the payload's per-target values re-aggregated the scorecard's way.
+  function payloadMedian(key, gi, vi) {
+    var M = OV.M, arr = M.rms[key];
+    if (!arr) return { value: null, n: 0 };
+    var vals = [];
+    for (var i = 0; i < M.nT; i++) if (arr[i] !== null && M.targets.g[i] === gi && M.targets.v[i] === vi) vals.push(arr[i]);
+    return { value: OV.median(vals), n: vals.length };
+  }
+  function cell(kpi, gi, key, vi) {
+    var M = OV.M, g = M.groups[gi].key, sc = OV.score(kpi, g, key);
+    if (sc && sc[vi] !== null && sc[vi] !== undefined) {
+      var n = OV.scoreN(g, key);
+      return { value: sc[vi], n: n ? n[vi] : null, src: 'scorecard' };
+    }
+    if (kpi !== 'rms') return { value: null, n: null, src: null };
+    var p = payloadMedian(key, gi, vi);
+    return p.n ? { value: p.value, n: p.n, src: 'payload' } : { value: null, n: null, src: null };
+  }
+  function seriesInGroup(gi) {
+    var M = OV.M;
+    return M.series.filter(function (s) { return cell('rms', gi, s.key, M.top).value !== null; });
+  }
+  // How often each series is the lowest tool RMS across every scorecard cell (group x speed).
+  function wins() {
+    var M = OV.M, out = {}, cells = 0;
+    M.series.forEach(function (s) { out[s.key] = { wins: 0, of: 0 }; });
+    M.groups.forEach(function (g, gi) {
+      if (!g.scorecard) return;
+      M.speeds.forEach(function (sp, vi) {
+        var best = null, any = false;
+        M.series.forEach(function (s) {
+          var c = OV.score('rms', g.key, s.key);
+          if (!c || c[vi] === null) return;
+          any = true; out[s.key].of++;
+          if (!best || c[vi] < best.v) best = { k: s.key, v: c[vi] };
+        });
+        if (any) { cells++; out[best.k].wins++; }
+      });
+    });
+    out._cells = cells;
+    return out;
+  }
+
+  function overview(main, q) {
+    var M = OV.M, top = M.top;
+    var gi = q.g !== undefined ? +q.g : 0;
+    if (!M.groups[gi]) gi = 0;
+    var g = M.groups[gi];
+    var rows = seriesInGroup(gi).map(function (s) {
+      var r = { s: s };
+      KPI_ORDER.forEach(function (k) { r[k] = cell(k, gi, s.key, top); });
+      return r;
+    }).sort(function (a, b) { return a.rms.value - b.rms.value; });
+    var W = wins();
+
+    // Verdict: the ranking and the distance, in one sentence.
+    var v = OV.el('div', 'ov-verdict', main);
+    if (rows.length) {
+      var best = rows[0], nTxt = best.rms.n ? 'median over ' + best.rms.n + ' tasks' : 'median';
+      var parts = rows.slice(1).map(function (r) { return '<b>' + esc(r.s.label) + '</b> ' + OV.times(r.rms.value / best.rms.value); });
+      var energy = rows.filter(function (r) { return r.energy.value !== null; }).sort(function (a, b) { return a.energy.value - b.energy.value; });
+      var failing = rows.filter(function (r) { return r.gates.value !== null && r.gates.value < 50; });
+      v.innerHTML = 'At <b>' + esc(OV.speedLabel(top)) + '</b> on <b>' + esc(g.key) + '</b>, ' + OV.swatch(best.s) + '<b>' + esc(best.s.label) + '</b> tracks best: <b>' +
+        OV.withUnit(best.rms.value, 'mm') + '</b> tool RMS' + (parts.length ? '; the others are ' + parts.join(', ') + ' its error' : '') + '. ' +
+        // WHY the 5 % floor: a 0.2 % energy edge is noise, not a trade-off worth a sentence.
+        (energy.length > 1 && energy[0].s.key !== best.s.key && best.energy.value && energy[0].energy.value < 0.95 * best.energy.value ? 'Least energy: <b>' + esc(energy[0].s.label) + '</b> (' + OV.withUnit(energy[0].energy.value, 'J') + ', ' +
+          OV.times(energy[0].energy.value / best.energy.value) + ' of ' + esc(best.s.label) + '’s). ' : '') +
+        (failing.length ? '<span class="ov-fail">' + failing.map(function (r) { return esc(r.s.label); }).join(', ') + ' pass' + (failing.length === 1 ? 'es' : '') + ' ' +
+          failing.map(function (r) { return OV.num(r.gates.value) + ' %'; }).join(', ') + ' of runs on every gate.</span> ' : '') +
+        '<span class="ov-n">(' + nTxt + ', ' + (best.rms.src === 'scorecard' ? 'bench scorecard' : 'payload per-target values') + ')</span>';
+    } else {
+      v.innerHTML = 'No config has a tool RMS on ' + esc(g.key) + '.';
+    }
+
+    // Dataset · split chips (the chip filter). Dashed = not in the bench's scorecard: tool RMS only, from the payload.
+    var bar = OV.el('div', 'ov-bar', main);
+    bar.innerHTML = '<span class="ds-k">dataset · split</span><span class="ov-chips">' + M.groups.map(function (gr, i) {
+      return '<button class="chip' + (i === gi ? ' on' : '') + (gr.scorecard ? '' : ' weak') + '" data-g="' + i + '" title="' +
+        (gr.scorecard ? 'in the bench scorecard' : 'not in the scorecard: tool RMS from the payload only') + '">' + esc(gr.key) + '</button>';
+    }).join('') + '</span>';
+    bar.querySelectorAll('[data-g]').forEach(function (b) { b.addEventListener('click', function () { OV.setQuery({ g: b.dataset.g }); }); });
+
+    // The league table.
+    var lo = {}, hi = {};
+    KPI_ORDER.forEach(function (k) {
+      var vals = [];
+      rows.forEach(function (r) {
+        var sc = OV.score(k, g.key, r.s.key);
+        (sc || []).forEach(function (x) { if (x !== null) vals.push(x); });
+        if (r[k].value !== null) vals.push(r[k].value);
+      });
+      vals = vals.filter(function (x) { return x > 0 || !(k === 'rms' || k === 'jerk'); });
+      lo[k] = vals.length ? Math.min.apply(null, vals) : 0; hi[k] = vals.length ? Math.max.apply(null, vals) : 1;
+      if (k === 'gates') { lo[k] = 0; hi[k] = 100; }
+    });
+    var kpi = function (id) { return M.kpiById[id] || { name: id, unit: '' }; };
+    var nTop = rows.length && rows[0].rms.n;
+    var card = OV.el('div', 'ov-card', main);
+    var html = '<table class="v1-table"><thead><tr>' +
+      '<th class="l">#</th><th class="l">config<span class="ds-unit">click a row: its worst targets</span></th>' +
+      '<th>n<span class="ds-unit">tasks</span></th>' +
+      '<th class="l" style="padding-left:18px">Tool tracking RMS at ' + esc(OV.speedLabel(top)) + '<span class="ds-unit">mm · median over the split’s tasks · bar is log (decades) · ×best</span></th>' +
+      '<th>RMS vs speed<span class="ds-unit">log · ' + esc(OV.speedShort(0)) + ' → ' + esc(OV.speedShort(top)) + '</span></th>' +
+      '<th>' + esc(kpi('gates').name) + '<span class="ds-unit">% at ' + esc(OV.speedShort(top)) + ' · vs speed</span></th>' +
+      '<th>' + esc(kpi('energy').name) + '<span class="ds-unit">J at ' + esc(OV.speedShort(top)) + ' · vs speed</span></th>' +
+      '<th>' + esc(kpi('jerk').name) + '<span class="ds-unit">m/s³ at ' + esc(OV.speedShort(top)) + ' · vs speed (log)</span></th>' +
+      '<th>lowest RMS in<span class="ds-unit">of the scorecard’s ' + W._cells + ' cells</span></th><th></th></tr></thead><tbody>';
+    var lmin = Math.log10(lo.rms), lmax = Math.log10(hi.rms);
+    rows.forEach(function (r, at) {
+      var s = r.s, dash = OV.dash(s.domain);
+      var frac = lmax > lmin ? (Math.log10(r.rms.value) - lmin) / (lmax - lmin) : 0.5;
+      var spark = function (k, log) {
+        var sc = OV.score(k, g.key, s.key);
+        if (!sc) return '<span class="v1-dim">—</span>';
+        return OV.spark(sc, { color: s.color, lo: lo[k], hi: hi[k], log: log, w: 92, h: 30, dash: dash });
+      };
+      var val = function (k, unit) {
+        var c = r[k];
+        if (c.value === null) return '<span class="v1-dim" title="' + (g.split === 'holdout' ? 'the scorecard carries tool RMS only on holdout' : 'not in the scorecard') + '">—</span>';
+        var fail = k === 'gates' && c.value < 50;
+        return '<span class="' + (fail ? 'ov-fail' : '') + '">' + OV.num(c.value) + '</span>';
+      };
+      html += '<tr data-key="' + esc(s.key) + '">' +
+        '<td class="l v1-rank">' + (at + 1) + '</td>' +
+        '<td class="l">' + OV.swatch(s) + '<span class="v1-cfg">' + OV.name(s, 34) + '</span>' + (r.rms.src === 'payload' ? ' <span class="v1-src">payload</span>' : '') + '</td>' +
+        '<td>' + (r.rms.n || '—') + '</td>' +
+        '<td class="l" style="padding-left:18px"><span class="v1-big">' + OV.num(r.rms.value) + '</span><span class="v1-x' + (at === 0 ? ' best' : '') + '">' +
+          (at === 0 ? 'best' : OV.times(r.rms.value / rows[0].rms.value)) + '</span><span class="v1-logbar" style="--c:' + s.color + '"><i style="width:' +
+          Math.max(3, 100 * frac).toFixed(1) + '%"></i></span></td>' +
+        '<td>' + spark('rms', true) + '</td>' +
+        '<td><div class="v1-cellspark">' + val('gates') + spark('gates', false) + '</div></td>' +
+        '<td><div class="v1-cellspark">' + val('energy') + spark('energy', false) + '</div></td>' +
+        '<td><div class="v1-cellspark">' + val('jerk') + spark('jerk', true) + '</div></td>' +
+        '<td>' + (W[s.key] && W[s.key].of ? '<b>' + W[s.key].wins + '</b> <span class="ds-mut">of ' + W[s.key].of + '</span>' : '<span class="v1-dim">—</span>') + '</td>' +
+        '<td><button class="ov-drill" data-drill="' + esc(s.key) + '">worst targets →</button></td></tr>';
+    });
+    card.innerHTML = html + '</tbody></table>';
+    card.querySelectorAll('tbody tr').forEach(function (tr) {
+      tr.addEventListener('click', function () { OV.go('targets', { cfg: tr.dataset.key, g: gi, v: top }); });
+    });
+
+    // Every dataset · split at full speed: rank per column, tinted by log tool RMS (italic = payload, not scorecard).
+    var mcard = OV.el('div', 'ov-card', main);
+    mcard.style.marginTop = '10px';
+    var cols = groupsAll();
+    var all = M.series.filter(function (s) { return cols.some(function (c) { return cell('rms', c, s.key, top).value !== null; }); });
+    var grid = {}, vals = [];
+    all.forEach(function (s) { grid[s.key] = {}; cols.forEach(function (c) { var x = cell('rms', c, s.key, top); grid[s.key][c] = x; if (x.value) vals.push(x.value); }); });
+    var gl = Math.log10(Math.min.apply(null, vals)), gh = Math.log10(Math.max.apply(null, vals));
+    var ranks = {};
+    cols.forEach(function (c) {
+      all.filter(function (s) { return grid[s.key][c].value !== null; }).sort(function (a, b) { return grid[a.key][c].value - grid[b.key][c].value; })
+        .forEach(function (s, at) { ranks[s.key + '@' + c] = at + 1; });
+    });
+    var mh = '<h2>Every dataset · split at ' + esc(OV.speedLabel(top)) + ' <span class="ds-hint">tool RMS [mm], median over each split’s tasks; green ring = lowest in the column; ' +
+      'italic = not in the scorecard (payload per-target values); hatched = the config did not run there. Click a column to switch the table.</span></h2>' +
+      '<table class="v1-matrix"><thead><tr><th class="l">config</th>' + cols.map(function (c) {
+        return '<th data-g="' + c + '" class="' + (c === gi ? 'on' : '') + '">' + esc(M.groups[c].dataset) + '<span>' + esc(M.groups[c].split) + '</span></th>';
+      }).join('') + '</tr></thead><tbody>';
+    all.forEach(function (s) {
+      mh += '<tr><th class="l">' + OV.swatch(s) + OV.name(s, 30) + '</th>' + cols.map(function (c) {
+        var x = grid[s.key][c];
+        if (x.value === null) return '<td class="none" title="no runs"></td>';
+        var t = gh > gl ? (Math.log10(x.value) - gl) / (gh - gl) : 0.5, r = ranks[s.key + '@' + c];
+        return '<td data-g="' + c + '" class="' + (r === 1 ? 'r1 ' : '') + (x.src === 'payload' ? 'payload ' : '') + (c === gi ? 'on' : '') + '" style="background:' + OV.rampColor(0.05 + 0.8 * t) +
+          ';color:' + (t > 0.55 ? '#fff' : '#22211f') + '" title="' + esc(s.label + ' · ' + M.groups[c].key + ': ' + OV.num(x.value) + ' mm, rank ' + r + ', median over ' + x.n + ' tasks (' + x.src + ')') + '">' +
+          OV.num(x.value) + '</td>';
+      }).join('') + '</tr>';
+    });
+    mcard.innerHTML = mh + '</tbody></table>';
+    mcard.querySelectorAll('[data-g]').forEach(function (el) { el.addEventListener('click', function () { OV.setQuery({ g: el.dataset.g }); }); });
+
+    OV.el('p', 'ov-foot', main, 'Table values: the bench scorecard (summary.charts, “' + esc((M.kpis[0] || {}).description || '') + '”); n = tasks of the split with a run of that config at that speed. ' +
+      '“Lowest RMS in” counts the scorecard’s (dataset·split × speed) cells where the config has the lowest tool RMS of the configs present. ' + OV.sourceNote());
+  }
+
+  function sweeps(main, q) {
+    var M = OV.M;
+    var gi = q.g !== undefined ? +q.g : 0;
+    if (!M.groups[gi]) gi = 0;
+    var g = M.groups[gi];
+    var bar = OV.el('div', 'ov-bar', main);
+    bar.innerHTML = '<span class="ds-k">dataset · split</span><span class="ov-chips">' + M.scoreGroups.map(function (gr) {
+      var i = M.groups.indexOf(gr);
+      return '<button class="chip' + (i === gi ? ' on' : '') + '" data-g="' + i + '">' + esc(gr.key) + '</button>';
+    }).join('') + '</span>';
+    bar.querySelectorAll('[data-g]').forEach(function (b) { b.addEventListener('click', function () { OV.setQuery({ g: b.dataset.g }); }); });
+    var gridEl = OV.el('div', 'v1-sweeps', main);
+    M.kpis.forEach(function (k) {
+      var series = OV.seriesIn(k.id, g.key);
+      var c = OV.el('div', 'ov-card', gridEl);
+      var n = series.length ? OV.scoreN(g.key, series[0].key) : null;
+      c.innerHTML = '<h2>' + esc(k.name) + ' vs ' + (M.speedKey === 'speed_fraction' ? 'speed fraction' : 'speed') + ' · ' + esc(g.key) +
+        ' <span class="ds-hint">' + esc(OV.unit(k.unit)) + (k.log ? ' · log' : '') + ' · median over the split’s ' + (n ? n[M.top] : '?') + ' tasks</span></h2>';
+      if (!series.length) { OV.el('p', 'ds-note', c, 'The scorecard has no ' + esc(k.name) + ' for ' + esc(g.key) + (g.split === 'holdout' ? ' (holdout carries tool RMS only).' : '.')); return; }
+      var host = OV.el('div', '', c);
+      var data = [M.speeds.slice()].concat(series.map(function (s) { return OV.score(k.id, g.key, s.key).map(function (x) { return x === null ? null : x; }); }));
+      var vals = [];
+      data.slice(1).forEach(function (arr) { arr.forEach(function (x) { if (x !== null && (!k.log || x > 0)) vals.push(x); }); });
+      var range = k.log ? [Math.pow(10, Math.floor(Math.log10(Math.min.apply(null, vals)))), Math.pow(10, Math.ceil(Math.log10(Math.max.apply(null, vals))))] : null;
+      var font = '11px -apple-system, Segoe UI, Roboto, sans-serif';
+      OV.track(new uPlot({
+        width: 660, height: 230, legend: { show: true, live: true },
+        cursor: { y: false },
+        scales: { x: { time: false }, y: k.log ? { distr: 3, log: 10, range: function () { return range; } } : k.id === 'gates' ? { range: [0, 105] } : {} },
+        axes: [
+          { font: font, splits: function () { return M.speeds; }, values: function (u, v) { return v.map(function (x) { return OV.sp(x); }); } },
+          { size: 64, font: font, splits: k.log ? function () { var out = []; for (var e = Math.round(Math.log10(range[0])); e <= Math.round(Math.log10(range[1])); e++) out.push(Math.pow(10, e)); return out; } : undefined,
+            filter: k.log ? function (u, splits) { return splits; } : undefined, values: function (u, v) { return v.map(function (x) { return x === null ? '' : OV.num(x); }); } },
+        ],
+        series: [{ label: 'speed' }].concat(series.map(function (s) {
+          return { label: s.label, stroke: s.color, width: 1.8, dash: OV.dash(s.domain) || undefined, points: { show: true, size: 6 }, value: function (u, x) { return x === null ? '—' : OV.num(x); } };
+        })),
+      }, data, host));
+    });
+    OV.el('p', 'ov-foot', main, 'Bench scorecard (summary.charts), one line per config; the Overview’s sparklines are these curves at thumbnail size.');
+  }
+
+  OV.boot({ name: 'V1 League table', tabs: [
+    { id: 'overview', label: 'Overview', render: overview },
+    { id: 'sweeps', label: 'Speed sweeps', render: sweeps },
+  ] });
+})();
+</script>
+</body>
+</html>

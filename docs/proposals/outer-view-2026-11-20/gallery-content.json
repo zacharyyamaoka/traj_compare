@@ -1,0 +1,232 @@
+{
+ "schemaVersion": 3,
+ "title": "Outer dataset view: five ways to compare configs",
+ "kicker": "Babble & prune · traj_compare outer view · 2026-11-20",
+ "brief": "Open a robot's site and see at a glance which pipeline config (controller) does best across all targets, by how much, where the trade-offs are, and get from there to the targets and runs behind it. Today the UR5e page opens on 9 tiles, 20 bar-group charts and 3 tables: 206,472 px tall at 1440 px wide (229 screens).",
+ "count": 5,
+ "defaultId": "v1",
+ "defaultWhy": "V1 League table scores 84/100: it is the only direction that puts the ranking and its size (×best on a log bar) above the fold while keeping all four scorecard KPIs, with a two-click drill to a run and n on every number. V2 Pareto frontier (80) is the closest alternative and wins when the trade-off itself is the question; V5 Head-to-head (79) gives the fairest 'best overall'.",
+ "decisionHinge": "What 'best overall' means. V1 and V2 judge each split at full speed from the scorecard, where ctc_tuned leads; V5 pairs configs target by target, where id_pd beats ctc_tuned on 377 of 504 shared targets and loses only at full speed (1.08×). Move 10 points from 'Config verdict at a glance' to 'Trade-offs visible' and V2 leads (82 vs 80); move 10 from 'Compact' to 'Generalises' and V5 comes within one point of V1 (85 vs 86).",
+ "invariants": [
+  "Real data: the bench's UR5e site (4 configs, 1006 targets, 4932 lines, sim only) plus its scorecard charts; no invented numbers.",
+  "traj_compare's stack: static pages, vanilla JS + uPlot, traj_compare's own CSS, opening from file:// with no CDN and no build step; config colours from levels.configs.",
+  "Tabs on every variant; today's Target level (index.html#/target/<slug>) and run reports stay reachable.",
+  "Same 1440 × 900 viewport for every hero."
+ ],
+ "boundary": "Five static prototypes on the real UR5e data (extract.py → data/ur5e.js), opened from file://. Real: every number, every control, the Targets and Runs tabs, and the links into the bench's server on 127.0.0.1:8779. Not done: integration into traj_compare's dataset.js; other tabs are thin.",
+ "axes": [
+  {"name": "Primary object", "values": ["ranked row per config", "error × cost frontier", "the scorecard as line charts", "config × target matrix", "paired ratio to a baseline"]},
+  {"name": "Unit of comparison", "values": ["scorecard median per split (V1, V2, V3)", "every target, one cell each (V4)", "targets both configs ran (V5)"]},
+  {"name": "What the Overview carries", "values": ["4 KPIs for one split + RMS of every split (V1)", "RMS × one cost per speed (V2)", "all 4 KPIs × every split × speed (V3)", "tool RMS only (V4, V5)"]},
+  {"name": "Drill entry", "values": ["row → worst targets (V1, V5)", "dot or config → worst targets at that speed (V2)", "chart cell → config at the cursor's speed (V3)", "column → real Target level (V4)"]}
+ ],
+ "requirements": [
+  {"id": "fr1", "name": "Config verdict at a glance", "weight": 30,
+   "why": "Zach's ask: 'at the highest level we want to be comparing different pipeline configurations vs how they do on all of the targets' — the landing page must answer which config is best before anything else.",
+   "passCondition": "Which config is best overall and by how much is readable above the fold at 1440 × 900 with no scroll or click.",
+   "anchors": {"1": "Must scroll and read many charts.", "3": "Visible, but needs reading several numbers.", "5": "One glance: ranking and magnitude explicit."}},
+  {"id": "fr2", "name": "Compact", "weight": 20,
+   "why": "'WAYYY too hard to navigate … more compact': today's scorecard alone is about 15 screens.",
+   "passCondition": "The scorecard's content (4 KPIs × datasets/splits × 5 speeds × configs) fits the Overview tab.",
+   "anchors": {"1": "More than 4 screens.", "3": "About 2 screens.", "5": "1 screen or less."}},
+  {"id": "fr3", "name": "Trade-offs visible", "weight": 15,
+   "why": "'Pareto graphs and line charts may be more compact' — configs trade error against energy, jerk and speed.",
+   "passCondition": "Shows how configs trade error against cost (energy, jerk, speed).",
+   "anchors": {"1": "One metric at a time.", "3": "Several metrics side by side, no joint view.", "5": "An explicit joint view or frontier."}},
+  {"id": "fr4", "name": "Drill path", "weight": 15,
+   "why": "The outer view is a doorway: from a verdict to the targets that explain it and the run that shows it.",
+   "passCondition": "From a config or a point to the targets where it does worst, then a run.",
+   "anchors": {"1": "No link.", "3": "A link to an unfiltered list.", "5": "Click: filtered worst targets, then the run."}},
+  {"id": "fr5", "name": "Generalises", "weight": 10,
+   "why": "The bench writes one site per robot; the outer view is traj_compare's, not UR5e's.",
+   "passCondition": "Works for 4 configs sim-only (UR5e), 11 configs (BAM FB) and sim + real (pendulum) from traj_compare's generic payload plus the optional summary.",
+   "anchors": {"1": "Hard-coded to UR5e.", "3": "Needs per-robot tweaks.", "5": "Generic."}},
+  {"id": "fr6", "name": "Truthful", "weight": 10,
+   "why": "Zach reads numbers literally; an unlabelled median over an unstated set is a trap.",
+   "passCondition": "Every number traceable to the payload or the bench scorecard, units shown, n stated, aggregation named.",
+   "anchors": {"1": "Unlabelled aggregates.", "3": "Mostly labelled.", "5": "Every number labelled with source and n."}}
+ ],
+ "hardGates": [
+  {"id": "g1", "name": "Real UR5e data, nothing fabricated", "why": "A layout judged on invented numbers proves nothing about the real site."},
+  {"id": "g2", "name": "Runs from file:// with no network", "why": "traj_compare sites open from disk; a CDN or fetch would break that."}
+ ],
+ "variants": [
+  {
+   "id": "v1", "name": "League table", "accent": "#e05a3f", "previewLabel": "walkthrough (real stills)",
+   "thesis": "One ranked row per config — tool RMS at full speed with ×best on a log bar, then gates, energy and jerk beside their curves against speed — and a rank matrix of every split below.",
+   "bestWhen": "You want the answer and its size in one read, and the scorecard's four KPIs stay the vocabulary.",
+   "losesWhen": "The winner changes with speed (on UR5e id_pd wins below full speed): the table answers per split at full speed, so you switch chips or read the matrix.",
+   "decisions": [
+    {"label": "Primary object", "value": "A ranked row per config: rank, n, ×best, a log bar for the distance."},
+    {"label": "Aggregation", "value": "The scorecard's median over the split's tasks at full speed; splits the scorecard lacks are filled from the payload, in italic."},
+    {"label": "Navigation", "value": "Dataset · split chips and a click-to-switch rank matrix; a Speed sweeps tab holds the full curves."},
+    {"label": "Drill", "value": "A row opens that config's worst targets on the split at full speed."}
+   ],
+   "keepParts": ["verdict sentence with ×best", "log bar of the distance to the best", "rank matrix of every split", "n column"],
+   "proof": [
+    "Opened from file:// at 1440 × 900 on the UR5e data: Overview one screen tall, 0 console errors, 0 network requests.",
+    "Clicked the workspace-v2 dev chip, then ctc_model_err's 'worst targets →': the Targets tab filtered to ctc_model_err · workspace-v2 dev · speed 1.0.",
+    "The same file on BAM FB and the pendulum via ?site=, no code changes."
+   ],
+   "scores": {
+    "fr1": {"score": 5, "confidence": "medium", "evidence": "Verdict line plus ranked rows with ×best above the fold: ctc_tuned 0.0357 mm, id_pd 1.2×, ctc_model_err 25×, menagerie_stock 1,526×; 'lowest RMS in 24 of 40 cells' adds the across-split answer. The verdict is per split at full speed."},
+    "fr2": {"score": 3, "confidence": "high", "evidence": "The Overview is one screen but holds 80 of the scorecard's 300 values (the chosen split) plus 24 full-speed RMS cells in the matrix; the other splits are one chip click each."},
+    "fr3": {"score": 3, "confidence": "high", "evidence": "Four KPIs side by side per config with sparklines; no joint view — id_pd's half energy (14.8 J vs 28.4 J) is in the verdict text, not a plot."},
+    "fr4": {"score": 5, "confidence": "high", "evidence": "Row → Targets filtered to config, split and full speed, worst first → run ↗: 2 clicks, exercised; the run and Target links answered 200 from the bench's server."},
+    "fr5": {"score": 4, "confidence": "medium", "evidence": "Same code on BAM FB and the pendulum; its table is scorecard-bound, so BAM FB's 9 non-scorecard configs appear only in the matrix (payload, italic), and the pendulum's 8 series make it 1144 px."},
+    "fr6": {"score": 5, "confidence": "high", "evidence": "n column, 'median over the split's tasks' in the headers, scorecard vs payload marked per cell, and the oracle line (120 of 120 scorecard RMS cells reproduced within 1 %)."}
+   },
+   "gateResults": {
+    "g1": {"pass": true, "evidence": "data/ur5e.js from extract.py; its per-target values reproduce 120 of 120 scorecard RMS cells within 1 %."},
+    "g2": {"pass": true, "evidence": "Loads only relative files (data/, assets/); Playwright saw 0 non-file requests."}
+   },
+   "generality": {
+    "bam_fb": "BAM FB (11 configs): the table shows the 2 configs the scorecard has (hold_friction, record); the matrix adds the payload-only configs in italic, and the footnote says 37 scorecard cells have no runs behind them.",
+    "pendulum": "Pendulum (sim + rehearsal + real): 8 config · domain rows, sim dashed and rehearsal dotted; the page grows to 1144 px."
+   }
+  },
+  {
+   "id": "v2", "name": "Pareto frontier", "accent": "#2f7f74", "previewLabel": "walkthrough (real stills)",
+   "thesis": "Tool error (log) against energy or jerk, each config a path through its five speeds, with the non-dominated frontier drawn at the chosen speed.",
+   "bestWhen": "The choice is a trade-off — accuracy against energy or smoothness — and a dominated config should drop out at sight.",
+   "losesWhen": "A site's scorecard lacks the cost KPI for most configs (BAM FB: 2 of 11), or many configs sit on one point (the pendulum).",
+   "decisions": [
+    {"label": "Primary object", "value": "The error × cost plane; each config a path through its speeds."},
+    {"label": "Aggregation", "value": "Scorecard medians per dev split; the frontier recomputed at the chosen speed."},
+    {"label": "Navigation", "value": "Speed and cost-axis switches, plus thumbnails of the four dev splits."},
+    {"label": "Drill", "value": "A dot or a config opens its worst targets at that split and speed."}
+   ],
+   "keepParts": ["frontier staircase + 'dominated by' sentence", "a speed path per config", "split thumbnails as a switch"],
+   "proof": [
+    "Overview: frontier, list and thumbnails in one screen (901 px), 0 console errors, 0 network requests.",
+    "Walked speed 1.0 → 0.25 (the frontier shrinks to id_pd), energy → jerk, then clicked ctc_model_err → its worst targets at workspace-v1 dev · 0.25.",
+    "The same file on BAM FB and the pendulum."
+   ],
+   "scores": {
+    "fr1": {"score": 4, "confidence": "medium", "evidence": "The verdict names the frontier at speed 1.0 (ctc_tuned 0.0357 mm at 28.4 J; id_pd 1.2× the RMS for 0.52× the energy) and what dominates the rest; 'best' is a set, not a rank, and it changes with speed."},
+    "fr2": {"score": 3, "confidence": "high", "evidence": "One screen, but it shows RMS × energy for one dev split (40 values) plus shape-only thumbnails for the other three; jerk is a toggle; the 4 holdout RMS charts are not on the Overview."},
+    "fr3": {"score": 5, "confidence": "high", "evidence": "An explicit joint view: tool RMS (log) × energy or jerk, the frontier as a staircase per speed, dominated points hollow, gate failures ringed red."},
+    "fr4": {"score": 5, "confidence": "high", "evidence": "Dot or config → its worst targets at that split and speed → run ↗: 2 clicks, exercised."},
+    "fr5": {"score": 3, "confidence": "high", "evidence": "Needs the cost KPI in the scorecard: on BAM FB only 2 of 11 configs can be drawn; on the pendulum 8 paths crowd near 1 mm (labels nudged apart). Generic code, data-bound."},
+    "fr6": {"score": 4, "confidence": "medium", "evidence": "The verdict and tooltips state 'medians over n tasks' and the source; the side list's numbers carry units but not n."}
+   },
+   "gateResults": {
+    "g1": {"pass": true, "evidence": "Every point is a scorecard median copied by extract.py; nothing interpolated."},
+    "g2": {"pass": true, "evidence": "Hand-drawn SVG, relative files only; 0 non-file requests."}
+   },
+   "generality": {
+    "bam_fb": "BAM FB: only hold_friction and record carry energy in the scorecard, so 2 of 11 configs are drawn; the footnote says so.",
+    "pendulum": "Pendulum: 8 config · domain paths crowd near 1 mm; labels are nudged apart with leader lines. Energy falls with speed here."
+   }
+  },
+  {
+   "id": "v3", "name": "Small multiples", "accent": "#7667c6", "previewLabel": "walkthrough (real stills)",
+   "thesis": "Today's 20 bar-group charts as one screen of small line charts — rows are KPI × split, columns are datasets, one line per config, one shared legend and one y scale per row.",
+   "bestWhen": "You want the whole scorecard in one glance and to see how every KPI moves with speed.",
+   "losesWhen": "You need one answer or the size of a gap: it shows everything and ranks only in the verdict's counts.",
+   "decisions": [
+    {"label": "Primary object", "value": "The scorecard itself, redrawn as lines against speed."},
+    {"label": "Aggregation", "value": "Scorecard medians; one y range per row (log for RMS and jerk)."},
+    {"label": "Navigation", "value": "Legend focus plus a cursor synced across all 20 charts with a value readout."},
+    {"label": "Drill", "value": "A chart opens the focused (or worst) config's targets at the cursor's speed."}
+   ],
+   "keepParts": ["20 charts in one screen", "synced cursor + readout", "focus a config everywhere"],
+   "proof": [
+    "Overview: the 20-chart grid ends at about 862 px of 900; 0 console errors, 0 network requests.",
+    "Focused id_pd, hovered conveyor-v1 · tool RMS dev (readout with n), clicked → id_pd's worst targets at conveyor-v1 dev · 0.5.",
+    "The same file on BAM FB and the pendulum."
+   ],
+   "scores": {
+    "fr1": {"score": 3, "confidence": "medium", "evidence": "The verdict counts the best line per chart cell (tool RMS: ctc_tuned 24, id_pd 16 of 40), so the ranking is explicit, but magnitudes are read off 20 small charts."},
+    "fr2": {"score": 5, "confidence": "high", "evidence": "All 300 scorecard values (20 charts × 5 speeds × configs) in one 1440 × 900 screen; only the footnote is below the fold."},
+    "fr3": {"score": 3, "confidence": "high", "evidence": "All four KPIs side by side with a shared cursor and a focus filter; no joint error × cost view."},
+    "fr4": {"score": 4, "confidence": "medium", "evidence": "Chart → targets on that split at the cursor's speed → run ↗: 2 clicks, exercised; without a focus it drills the worst config at that point, which is implicit."},
+    "fr5": {"score": 3, "confidence": "high", "evidence": "Generic over the scorecard's chart titles (pendulum: 2 columns, 12 solid/dashed/dotted lines, readable), but bound to it: BAM FB's 9 configs outside the scorecard never appear."},
+    "fr6": {"score": 4, "confidence": "medium", "evidence": "Units and 'median over the split's tasks' stated per row; n appears in the hover readout, not on every chart."}
+   },
+   "gateResults": {
+    "g1": {"pass": true, "evidence": "uPlot draws the scorecard's own values from data/ur5e.js."},
+    "g2": {"pass": true, "evidence": "uPlot from assets/, relative files only; 0 non-file requests."}
+   },
+   "generality": {
+    "bam_fb": "BAM FB: the grid holds the scorecard's 2 configs; the 9 configs with runs but no scorecard entry never appear.",
+    "pendulum": "Pendulum: 2 dataset columns × 5 rows, 12 series as solid (real), dashed (sim) and dotted (rehearsal) lines."
+   }
+  },
+  {
+   "id": "v4", "name": "Config × target heatmap", "accent": "#b7791f", "previewLabel": "walkthrough (real stills)",
+   "thesis": "Every target is a column and every config a row, coloured by log tool RMS (or ÷ the best config on that target), with a strip of the winner per target.",
+   "bestWhen": "You want to see where each config wins or breaks across all targets, and to jump straight to one target.",
+   "losesWhen": "You need the scorecard's energy, jerk or gate numbers: they exist only as split medians and this view has no place for them.",
+   "decisions": [
+    {"label": "Primary object", "value": "The full config × target matrix: 1006 columns."},
+    {"label": "Aggregation", "value": "Per target, median over repeats; nothing averaged across targets."},
+    {"label": "Navigation", "value": "Colour mode, order within a block, a domain filter; hover names the target."},
+    {"label": "Drill", "value": "A column opens the real Target level; a config name opens its worst targets against the best."}
+   ],
+   "keepParts": ["best-config strip per target", "÷ best colour mode", "column hover with every config"],
+   "proof": [
+    "Overview 646 px, 0 console errors, 0 network requests.",
+    "Switched to ratio colour, hovered a workspace-v1 holdout target (tooltip: every config, best first, ×best), clicked menagerie_stock → its worst targets against the best.",
+    "The same file on BAM FB (15 rows) and the pendulum (12 rows, domain filter)."
+   ],
+   "scores": {
+    "fr1": {"score": 4, "confidence": "medium", "evidence": "Verdict: lowest tool RMS on 604 of 1006 targets for ctc_tuned and 359 of 504 for id_pd; menagerie_stock worst on 492 of 504 shared; per-row medians at the right. Ranking explicit, magnitude via colour."},
+    "fr2": {"score": 2, "confidence": "high", "evidence": "One screen (646 px), but none of the scorecard's energy, jerk or gates values, and no other tab carries them; tool RMS appears as 1006 × 4 per-target cells instead."},
+    "fr3": {"score": 2, "confidence": "high", "evidence": "One metric; its growth with speed shows across the speed blocks, but no energy or jerk."},
+    "fr4": {"score": 5, "confidence": "high", "evidence": "Column → its real Target level, then run ↗ (2 clicks); config name → worst targets against the best → run ↗ (2 clicks), exercised."},
+    "fr5": {"score": 5, "confidence": "high", "evidence": "Payload only: BAM FB shows all 15 config · domain rows, the pendulum gets a domain filter; no per-robot code."},
+    "fr6": {"score": 5, "confidence": "high", "evidence": "Every row: median of n targets and best-on count; the tooltip lists repeat counts; the colour scale is labelled in mm or ×best."}
+   },
+   "gateResults": {
+    "g1": {"pass": true, "evidence": "Cells are per-target medians over repeats of the payload's per-run values."},
+    "g2": {"pass": true, "evidence": "Canvas drawing, relative files only; 0 non-file requests."}
+   },
+   "generality": {
+    "bam_fb": "BAM FB: all 15 config · domain rows; the fullarm configs with 1–5 runs are slivers in workspace-v2, honest about how little they ran.",
+    "pendulum": "Pendulum: 12 rows; the domain switch (all · sim · rehearsal · real) keeps sim and real from competing in one strip."
+   }
+  },
+  {
+   "id": "v5", "name": "Head-to-head", "accent": "#3f6fa8", "previewLabel": "walkthrough (real stills)",
+   "thesis": "Pick a baseline; every other config becomes the distribution of its per-target tool-RMS ratio to it over the targets both ran — 'better on k of n', the median ratio, and that ratio against speed.",
+   "bestWhen": "Configs ran different target sets, or you want a fair, paired 'who is better and by how much' instead of medians over different targets.",
+   "losesWhen": "You need energy, jerk or gates, or one absolute number to quote: everything is relative to the baseline.",
+   "decisions": [
+    {"label": "Primary object", "value": "Paired per-target ratios to one baseline config."},
+    {"label": "Aggregation", "value": "Shared targets only; median of the ratios; a 10-target floor."},
+    {"label": "Navigation", "value": "Baseline chips plus an every-pair matrix."},
+    {"label": "Drill", "value": "A row or a pair cell opens that config's targets sorted by ratio to the baseline."}
+   ],
+   "keepParts": ["better on k of n shared targets", "ratio against speed per config", "every-pair matrix"],
+   "proof": [
+    "Overview 691 px, 0 console errors, 0 network requests.",
+    "Default baseline id_pd → switched to ctc_tuned → clicked id_pd's row → its targets sorted by ratio to ctc_tuned.",
+    "The same file on BAM FB and the pendulum."
+   ],
+   "scores": {
+    "fr1": {"score": 5, "confidence": "medium", "evidence": "Verdict plus 'better on k of n shared targets' and median ratio per config, e.g. against ctc_tuned: id_pd better on 377 of 504 (0.5×), ctc_model_err 62×, menagerie_stock 2,607×; the pair matrix answers every pair at once."},
+    "fr2": {"score": 2, "confidence": "high", "evidence": "One screen (691 px), but none of the scorecard's energy, jerk or gates; tool RMS appears as per-target ratios."},
+    "fr3": {"score": 2, "confidence": "high", "evidence": "One metric (the RMS ratio) and that ratio against speed per config (id_pd ÷ ctc_tuned rises to 1.08× at full speed); no energy or jerk."},
+    "fr4": {"score": 5, "confidence": "high", "evidence": "Row → that config's targets sorted by ratio to the baseline, worst first → run ↗: 2 clicks, exercised; pair cells drill the same way."},
+    "fr5": {"score": 5, "confidence": "high", "evidence": "Payload only: on BAM FB the 10-target floor turns 1–3-run configs into one-line ratios; on the pendulum sim, rehearsal and real series of the same targets compare directly."},
+    "fr6": {"score": 5, "confidence": "high", "evidence": "Every ratio states k of n shared targets and 'median'; the default-baseline rule is printed with its basis (the 504 targets all four configs ran)."}
+   },
+   "gateResults": {
+    "g1": {"pass": true, "evidence": "Ratios of the payload's per-target medians; only targets both configs ran."},
+    "g2": {"pass": true, "evidence": "Hand-drawn SVG, relative files only; 0 non-file requests."}
+   },
+   "generality": {
+    "bam_fb": "BAM FB: default baseline hold_friction_v2 (no target is shared by all well-covered configs, and the verdict says so); configs with 1–3 runs drop below the 10-target floor into one line.",
+    "pendulum": "Pendulum: sim, rehearsal and real series of one config compare on the same targets, a sim-to-real gap view for free."
+   }
+  }
+ ],
+ "checks": [
+  "Exactly five structural directions, each a different primary object",
+  "Same UR5e data, 1440 × 900 viewport and product fidelity for every hero",
+  "Criteria and gates frozen in CONTRACT.md before any variant was built",
+  "Every score carries evidence and confidence; gates separate from the weighted total",
+  "Walkthrough stills and the live iframe drive the same states"
+ ]
+}
