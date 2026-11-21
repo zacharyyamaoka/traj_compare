@@ -55,12 +55,15 @@ import importlib.util
 import inspect
 import json
 import math
+import operator
 import re
 import shlex
 import shutil
+import struct
 import sys
 import warnings
-from collections.abc import Callable, Mapping, Sequence
+from array import array
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -1453,29 +1456,304 @@ def _row_files(rows: Sequence[str] | None) -> frozenset[str]:
     return frozenset(chosen)
 
 
-def _write_rows(output_dir: Path, rows: list[dict[str, Any]], files: frozenset[str]) -> None:
+# What varies from one tidy row of a run to the next (_analyze_run: {run, pair, metric, stat, value, unit, **tags}); every other
+# column holds one value for all of a run's rows, so _RowSink keeps it once per run.
+_PER_ROW = frozenset({"pair", "metric", "stat", "value", "unit"})
+_INTERNED = ("pair", "metric", "stat", "unit")
+# WHY 1 Mi rows: pyarrow's default max row group length, the split pq.write_table makes on its own, so writing one group at a
+# time leaves rows.parquet's bytes as they were (tests/test_rows_stream.py pins two groups for 1.1 M rows).
+_ROW_GROUP = 1024 * 1024
+_EXACT_INT = 2**53  # an int a float64 holds exactly, so the sink can keep it in its float column and give it back
+# a row's value, as _RowSink stores it: its kind codes
+_NONE, _FLOAT, _INT, _BOOL, _OTHER, _ABSENT = range(6)
+
+
+def _value_key(value: Any) -> Any:
+    """A dict key for ``value`` that keeps apart what ``==`` merges (1, 1.0 and True; 0.0 and -0.0), so one code never
+    stands for two values pyarrow or json writes differently."""
+    kind = type(value)
+    if kind is str:
+        return value
+    if kind is float:
+        return (float, struct.pack("<d", value))
+    if kind is list or kind is tuple:
+        return (kind, tuple(_value_key(item) for item in value))
+    if kind is dict:
+        return (dict, tuple((key, _value_key(item)) for key, item in value.items()))
+    try:
+        hash(value)
+    except TypeError:  # unknown and unhashable: a code of its own (the sink keeps it, so its id is not reused)
+        return (kind, id(value))
+    return (kind, value)
+
+
+class _Interned:
+    """One per-row column: its distinct values by first appearance and one int32 code per row (-1: the row has no such key)."""
+
+    __slots__ = ("absent", "codes", "index", "values")
+
+    def __init__(self) -> None:
+        self.codes = array("i")
+        self.index: dict[Any, int] = {}
+        self.values: list[Any] = []
+        self.absent = False
+
+    def add(self, value: Any) -> None:
+        key = _value_key(value)
+        code = self.index.get(key)
+        if code is None:
+            code = self.index[key] = len(self.values)
+            self.values.append(value)
+        self.codes.append(code)
+
+    def skip(self) -> None:
+        self.codes.append(-1)
+        self.absent = True
+
+
+def _shared_getter(keys: Sequence[str]) -> Callable[[Mapping[str, Any]], tuple[Any, ...]]:
+    if not keys:
+        return lambda row: ()
+    if len(keys) == 1:
+        only = keys[0]
+        return lambda row: (row[only],)
+    return operator.itemgetter(*keys)
+
+
+class _RowSink:
+    """The tidy rows of a write (rows.json, rows.parquet), about 29 bytes a row instead of one dict each.
+
+    WHY (arm_motion_bench, 2026-11-21): its pendulum site holds 7,782 traces in 4,804 runs; holding all 2.24 M rows as dicts
+    (2.9 KB each once a reused run's analysis.json is parsed) until the files were written peaked its rebuild at 10.24 GiB
+    under an 11 GiB cap. Here a run's rows are one *segment*: the values every row of it shares (run, tags), kept once,
+    and per row int32 codes into the distinct values of ``pair``, ``metric``, ``stat`` and ``unit`` plus its ``value`` in a
+    float64 column. A run's parsed dicts die with its loop iteration. Both files are written from here with the bytes the
+    dict writer wrote: rows.json one run at a time, rows.parquet one 1 Mi-row group at a time.
+
+    A segment is consecutive rows with the same keys in the same order and equal shared values (``==``): every row of a run
+    spreads one tags dict, so a run is one segment, and a run whose rows differ (a column that varies inside it) is split,
+    never merged. Each ``add_run`` starts a segment.
+    """
+
+    def __init__(self) -> None:
+        self.count = 0
+        self.columns: dict[str, None] = {}  # every key by first appearance: dict.fromkeys(key for row in rows for key in row)
+        self.segments: list[tuple[tuple[str, ...], tuple[Any, ...]]] = []  # (its rows' keys in order, their shared values)
+        self.segment_of = array("i")
+        self.interned = {column: _Interned() for column in _INTERNED}
+        self.value = array("d")  # float, int (|v| <= 2**53) and bool values; 0.0 where the kind says otherwise
+        self.kind = array("b")
+        self.other: dict[int, Any] = {}  # row -> a value of no kind above (an int beyond 2**53, a str, ...)
+        self.first: list[int | None] = [None] * 6  # kind -> the first row holding it
+        self.int_range: list[int] = []  # [smallest, largest] int value
+        self._layouts: dict[tuple[str, ...], tuple[Callable[[Mapping[str, Any]], tuple[Any, ...]], dict[str, int]]] = {}
+
+    def __len__(self) -> int:
+        return self.count
+
+    def _layout(self, keys: tuple[str, ...]):
+        found = self._layouts.get(keys)
+        if found is None:
+            shared = [key for key in keys if key not in _PER_ROW]
+            found = self._layouts[keys] = (_shared_getter(shared), {key: index for index, key in enumerate(shared)})
+            for key in keys:
+                self.columns.setdefault(key, None)
+        return found
+
+    def add_run(self, rows: Sequence[Mapping[str, Any]]) -> None:
+        """Take one run's tidy rows, in order; the caller can drop them afterwards."""
+        segment_keys: tuple[str, ...] | None = None
+        segment_values: tuple[Any, ...] = ()
+        getter = None
+        interned = [(column, self.interned[column]) for column in _INTERNED]
+        for row in rows:
+            keys = tuple(row)
+            if keys != segment_keys:
+                getter = self._layout(keys)[0]
+                shared = getter(row)
+                self.segments.append((keys, shared))
+                segment_keys, segment_values = keys, shared
+            else:
+                shared = getter(row)
+                if shared != segment_values:
+                    self.segments.append((keys, shared))
+                    segment_values = shared
+            self.segment_of.append(len(self.segments) - 1)
+            for column, codes in interned:
+                if column in row:
+                    codes.add(row[column])
+                else:
+                    codes.skip()
+            self._add_value(row)
+
+    def _add_value(self, row: Mapping[str, Any]) -> None:
+        number = 0.0
+        if "value" not in row:
+            kind = _ABSENT
+        else:
+            value = row["value"]
+            kind_of = type(value)
+            if kind_of is float:
+                kind, number = _FLOAT, value
+            elif value is None:
+                kind = _NONE
+            elif kind_of is bool:
+                kind, number = _BOOL, float(value)
+            elif kind_of is int and -_EXACT_INT <= value <= _EXACT_INT:
+                kind, number = _INT, float(value)
+                if not self.int_range:
+                    self.int_range = [value, value]
+                elif value < self.int_range[0]:
+                    self.int_range[0] = value
+                elif value > self.int_range[1]:
+                    self.int_range[1] = value
+            else:
+                kind = _OTHER
+                self.other[self.count] = value
+        if self.first[kind] is None:
+            self.first[kind] = self.count
+        self.value.append(number)
+        self.kind.append(kind)
+        self.count += 1
+
+    def _value_at(self, index: int) -> Any:
+        kind = self.kind[index]
+        if kind == _FLOAT:
+            return self.value[index]
+        if kind == _INT:
+            return int(self.value[index])
+        if kind == _BOOL:
+            return bool(self.value[index])
+        if kind == _OTHER:
+            return self.other[index]
+        return None
+
+    def _segment_rows(self) -> Iterator[list[dict[str, Any]]]:
+        """Each segment's rows rebuilt as the dicts that were added: same keys, same order, same values."""
+        segment_of = np.frombuffer(self.segment_of, dtype=np.int32)
+        codes = {column: self.interned[column].codes for column in _INTERNED}
+        values = {column: self.interned[column].values for column in _INTERNED}
+        bounds = np.flatnonzero(np.diff(segment_of)) + 1
+        starts = [0, *bounds.tolist()]
+        stops = [*bounds.tolist(), self.count]
+        for start, stop in zip(starts, stops):
+            if start == stop:
+                continue
+            keys, shared = self.segments[segment_of[start]]
+            positions = self._layout(keys)[1]
+            rows = []
+            for index in range(start, stop):
+                row = {}
+                for key in keys:
+                    if key == "value":
+                        row[key] = self._value_at(index)
+                    elif key in _PER_ROW:
+                        row[key] = values[key][codes[key][index]]
+                    else:
+                        row[key] = shared[positions[key]]
+                rows.append(row)
+            yield rows
+
+    def write_json(self, handle) -> None:
+        """``json.dumps(rows, separators=(",", ":"))``, written one segment at a time."""
+        handle.write("[")
+        first = True
+        for rows in self._segment_rows():
+            text = json.dumps(rows, separators=(",", ":"))[1:-1]
+            handle.write(text if first else "," + text)
+            first = False
+        handle.write("]")
+
+    # -- rows.parquet: each column's type is the one pa.array gives the whole column ----------------------------------------
+    #
+    # WHY witnesses, not the column: pa.array infers a type from the values up to the first bool, float or str (ints and None
+    # do not stop it), then converts every value to it, and a value it cannot convert sends the column to text. Distinct
+    # values in first-appearance order go through both steps exactly as the whole column does.
+
+    def _witnesses(self, column: str) -> list[Any]:
+        if column in self.interned:
+            interned = self.interned[column]
+            return [*interned.values, *([None] if interned.absent else [])]
+        if column == "value":
+            firsts = sorted((row, kind) for kind, row in enumerate(self.first) if row is not None and kind != _OTHER)
+            witnesses = sorted([*((row, self._value_at(row)) for row, _ in firsts), *self.other.items()], key=lambda item: item[0])
+            return [value for _, value in witnesses] + list(self.int_range)
+        return self._per_segment(column)
+
+    def _per_segment(self, column: str) -> list[Any]:
+        values = []
+        for keys, shared in self.segments:
+            position = self._layout(keys)[1].get(column)
+            values.append(None if position is None else shared[position])
+        return values
+
+    def _plan(self, pa, column: str):
+        """(arrow type, as_text): as_text where pa.array refuses the column and the dict writer kept it as text."""
+        witnesses = self._witnesses(column)
+        try:
+            return pa.array(witnesses).type, False
+        except (pa.ArrowInvalid, pa.ArrowTypeError):  # a tag whose type differs between runs: keep it as text
+            return pa.array(_as_text(witnesses)).type, True
+
+    def write_parquet(self, handle) -> None:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        if not self.count:
+            pq.write_table(pa.table({}), handle)
+            return
+        plans = {column: self._plan(pa, column) for column in self.columns}
+        schema = pa.schema([(column, plans[column][0]) for column in self.columns])
+        dictionaries = {}  # a per-row or per-segment column: its distinct values as an arrow array, taken from per group
+        for column, (kind, as_text) in plans.items():
+            if column == "value":
+                continue
+            values = self.interned[column].values if column in self.interned else self._per_segment(column)
+            dictionaries[column] = pa.array(_as_text(values) if as_text else values, type=kind)
+        segment_of = np.frombuffer(self.segment_of, dtype=np.int32)
+        kinds = np.frombuffer(self.kind, dtype=np.int8)
+        numbers = np.frombuffer(self.value, dtype=np.float64)
+        with pq.ParquetWriter(handle, schema) as writer:
+            for start in range(0, self.count, _ROW_GROUP):
+                stop = min(start + _ROW_GROUP, self.count)
+                arrays = []
+                for column in self.columns:
+                    kind, as_text = plans[column]
+                    if column == "value":
+                        arrays.append(self._value_array(pa, kind, as_text, kinds[start:stop], numbers[start:stop], start, stop))
+                    elif column in self.interned:
+                        codes = np.frombuffer(self.interned[column].codes, dtype=np.int32)[start:stop]
+                        arrays.append(dictionaries[column].take(pa.array(codes, mask=codes < 0)))
+                    else:
+                        arrays.append(dictionaries[column].take(pa.array(segment_of[start:stop])))
+                writer.write_table(pa.Table.from_arrays(arrays, schema=schema))
+                del arrays
+
+    def _value_array(self, pa, kind, as_text: bool, kinds: np.ndarray, numbers: np.ndarray, start: int, stop: int):
+        if not as_text and pa.types.is_float64(kind) and not (kinds == _OTHER).any():
+            # WHY the float column as is: pa.array converts an int and a bool to the same double (True -> 1.0)
+            return pa.array(numbers, type=kind, mask=(kinds == _NONE) | (kinds == _ABSENT))
+        values = [self._value_at(index) for index in range(start, stop)]
+        return pa.array(_as_text(values) if as_text else values, type=kind)
+
+
+def _as_text(values: Sequence[Any]) -> list[str | None]:
+    return [None if value is None else str(value) for value in values]
+
+
+def _write_rows(output_dir: Path, rows: _RowSink, files: frozenset[str]) -> None:
     """Write the row files ``files`` names (from ``_row_files``) and delete the other one, so no stale rows outlive
     their data."""
     if "json" in files:
-        _files.write_text(output_dir / "rows.json", json.dumps(rows, separators=(",", ":")))
+        with _files.replacing(output_dir / "rows.json") as temporary, open(temporary, "x", encoding="utf-8") as handle:
+            rows.write_json(handle)
     else:
         (output_dir / "rows.json").unlink(missing_ok=True)
     if "parquet" not in files:
         (output_dir / "rows.parquet").unlink(missing_ok=True)
         return
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-
-    columns = list(dict.fromkeys(key for row in rows for key in row))
-    arrays = {}
-    for column in columns:
-        values = [row.get(column) for row in rows]
-        try:
-            arrays[column] = pa.array(values)
-        except (pa.ArrowInvalid, pa.ArrowTypeError):  # a tag whose type differs between runs: keep it as text
-            arrays[column] = pa.array([None if value is None else str(value) for value in values])
     with _files.replacing(output_dir / "rows.parquet") as temporary, open(temporary, "xb") as handle:
-        pq.write_table(pa.table(arrays), handle)
+        rows.write_parquet(handle)
 
 
 _TARGETS_DIR = "targets"
@@ -1606,7 +1884,8 @@ def write_dataset_report(
     contents = _Contents()
     references = _References(output_dir / "references", contents, rewrite=not reuse)
     runs_dir = output_dir / "runs"
-    tidy_rows: list[dict[str, Any]] = []  # WHY not `rows`: that name is the row-file choice (C2)
+    # WHY a sink, not a list of the rows: see _RowSink (a reused run's rows, parsed back, held to the end: 10.24 GiB)
+    tidy_rows = _RowSink()  # WHY not `rows`: that name is the row-file choice (C2)
     entries: list[dict[str, Any]] = []
     pose_cache = _Poses(runs, options)
     joint_errors: dict[tuple[str, str], Any] = {}
@@ -1633,7 +1912,7 @@ def write_dataset_report(
             )
         run_files[slug] = manifest["files"]
         entries.extend(analysis["entries"])
-        tidy_rows.extend(analysis["rows"])
+        tidy_rows.add_run(analysis["rows"])
         report("runs", done, len(runs))
     report("reused", len(reused), len(runs))
     _write_rows(output_dir, tidy_rows, row_files)
