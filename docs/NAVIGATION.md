@@ -270,3 +270,104 @@ Parts A and B stay in force; this part adds to them.
 - **Every `.npz` the dataset writes is compressed** (`np.savez_compressed`): references, series and `.torques.npz`.
   - `robot_msgs._core.load_npz` and `np.load` read it unchanged.
   - The saved values are bit-identical to the inputs.
+
+## Part D: incremental writes (frozen 2026-11-20)
+
+Source: arm_motion_bench lane V, 2026-11-20. Zach waited about 6 min on a UR5e rebuild and hit Ctrl-C: adding 818 runs to
+a 5,750-run site rewrote all 5,750. Its cProfile of a 600-run UR5e build (traj_compare 8d67234) spent 25.9 s in
+`write_dataset_report`:
+- `_analyze_pair` 12.3 s (`estimate_time_offset` 6.2 s, the TCP compare 4.7 s);
+- `_write_run_files` 7.3 s (`np.savez_compressed`, 1,533 files);
+- the `poses` function 1.5 s, `_levels_payload` 2.1 s, `_write_rows` 1.3 s.
+
+About 35 ms of that per run is identical when the run did not change. Parts A to C stay in force; this part adds to them.
+The bench rebuilds into a hard-linked copy (`cp -al live staging`), writes incrementally into it, then swaps the two with
+`renameat2(RENAME_EXCHANGE)`. D2 is what makes that safe.
+
+### D1. A run that did not change is reused
+
+- **`write_dataset_report(..., reuse=True)`.** `reuse=False` rewrites every run, as before this part.
+- **Each run has a digest**, a SHA-1 hex string stored as `runs/<slug>/manifest.json["digest"]`. It covers everything
+  that decides that run's files and analysis:
+  - **the code**: every file of the installed `traj_compare` package (`.py` and `assets/`), every `.py` of the installed
+    `robot_msgs` package, and the source file of the module that defines the `poses` function and the `robot` function.
+    WHY files, not `__version__`: the version string does not move on a commit, and a cache that outlives a code change
+    serves stale numbers. Data such a function loads (a URDF, a MuJoCo model) is not covered; pass `reuse=False` after
+    changing it.
+  - **the run**: name, title, tags;
+    - the reference's and every measured series' saved content, digested as C6 digests a reference (the JSON tree,
+      channels included, and every array's key, dtype, shape and bytes);
+    - its torques (series, key, dtype, shape, bytes), resolved pairs, `time_offset_s` and `media_start_s`;
+    - each media file as (key, size, `mtime_ns`). WHY not its bytes: hashing every clip on every write costs about what
+      copying it does.
+  - **its place in this write**: its slug and its target's key, slug and title.
+  - **this write's per-run options**: `poses`, `robot`, the import roots, `tolerances`, `signals`, `primary`.
+  - **Not covered**: `display_hz`, `target_budget`, `group_by`, `config_by`, `title`, `summary`, `rows`, `drill_down`,
+    `data_ui`. They decide only site-level output, which every write recomputes (or D1b reuses by its own key).
+- **`runs/<slug>/analysis.json`**: `{"digest", "entries", "rows"}`.
+  - `entries` are the run's entries in the index payload's `rows` list, one per pair, exactly as a full write makes them
+    (error entries included).
+  - `rows` are its tidy rows for `rows.json` / `rows.parquet`.
+- **When a run is reused.** Three conditions:
+  - `reuse` is true;
+  - its folder's `manifest.json` and `analysis.json` both parse and both hold the run's digest;
+  - every file the manifest names exists.
+
+  Then nothing in its folder is written or deleted, including a `report.html` and a `rerun/` an earlier drill-down
+  built. Its index entries and tidy rows come from `analysis.json`. A pair error in a reused run warns again, as the
+  write that made it did. Its pose trajectories are computed only if a target that is not reused (D1b) needs them.
+- **Every other run is rewritten.** Its `manifest.json` is deleted first, then its files are written as before, then
+  `analysis.json`, and `manifest.json` last. So a write stopped midway leaves no manifest naming half-written data.
+- **Reuse changes nothing in the output.** A write that reuses runs must produce the same output as a `reuse=False`
+  write of the same runs, in the same order, into an empty folder:
+  - the same index payload, except `generated`, `write_id`, `serve_command` and `command_template`;
+  - the same row files and `targets/*.js` (bar the per-write `?v=` id, which lives in the page, not the file);
+  - the same `runs/*/manifest.json` and `.npz` contents, and the same `references/`.
+- Run folders that are not in this write are left in place, as before. The caller deletes them if it wants to.
+
+### D1b. A target that did not change is reused
+
+- **`targets/<slug>.cache.json`**: `{"key", "target", "lines"}`.
+  - `target` is that target's entry in `levels.targets`, before the site-wide `has_torque_breakdown` pass.
+  - `lines` are its lines in `levels.lines`.
+- **`key`**: a SHA-1 hex string over:
+  - the digests (D1) of the target's runs, in order;
+  - the target's key, slug and title;
+  - the config tag, the labels, `display_hz` and `target_budget`.
+- **A target is reused** when `reuse` is true, its `.cache.json` parses and holds this key, and its `<slug>.js` exists.
+  Neither file is then written, and no compare, `poses` call or repeatability aggregate runs for it. Its lines' `order`
+  field is recomputed for this write.
+- **The site-wide pieces are recomputed from every target's lines on every write**: config counts, colours (C4),
+  `fb_share_median` and the `has_torque_breakdown` flags.
+- A `*.cache.json` whose target is not in this write is deleted, as its `.js` is.
+
+### D2. Every file is written under a temporary name, then renamed into place
+
+- **Every file traj_compare writes** goes to a temporary name in the same directory, then `os.replace` moves it onto
+  its own name. No existing file is opened for writing. This covers:
+  - the dataset site: `.npz`, `manifest.json`, `analysis.json`, `targets/*`, `references/*`, `index.html`, the row files
+    and copied media;
+  - the run view's `report.html`, `.rrd` and `.rbl` files;
+  - data-ui tables;
+  - the `export` files.
+- **What that guarantees:**
+  - In a hard-linked copy of a site, every file a write leaves untouched keeps the same bytes, inode and `mtime_ns` in
+    the original. That holds for an incremental write and for a lazy drill-down build in the copy. Deleting a stale
+    file in the copy removes only the copy's name.
+  - A write that is stopped leaves each file either whole and old or whole and new.
+- A temporary name ends in `.tmp`, so no glob for `*.npz`, `*.js` or `*.rrd` matches it. A failed write deletes its
+  temporary file.
+
+### D3. Progress
+
+- **`write_dataset_report(..., progress=fn)`.** It calls `fn(phase, done, total)`:
+  - `"runs"`: `(0, N)` before the first run, then `(i, N)` after each run, whether reused or rewritten;
+  - `"reused"`: once, right after the runs phase, as `(number of runs reused, N)`;
+  - `"targets"`: `(0, T)`, then `(i, T)` after each target;
+  - `"index"`: `(0, 1)` before `index.html` is written, `(1, 1)` after;
+  - `"drill"`: with `drill_down="eager"`, `(0, N)`, then `(i, N)` after each run. A reused run whose `report.html`
+    exists is not rebuilt.
+- Within a phase, `done` never decreases.
+- **An exception from `fn` propagates and stops the write.** `index.html` stays the previous write's (D2), and the next
+  write is correct (D1).
+- The return value is unchanged: the path of `index.html`.
