@@ -344,8 +344,19 @@ write_dataset_report(runs, "out/", title="Wrist coverage", group_by=("tape",), t
   extra): one row per run x pair x metric x stat `{run, pair, metric, stat, value, unit, <each tag>}` in SI, choose with
   `rows=("parquet",)` (or `()`, `("json",)`; default both when pyarrow imports; one not chosen is deleted);
   `references/<digest>.npz`, each distinct reference once (a run's manifest names it as `../../references/<digest>.npz`);
-  `runs/<slug>/manifest.json`, `<series>.npz` (`robot_msgs.load_npz`), `<series>.torques.npz`, `media/<key>.<ext>`.
-  Every `.npz` is deflated, values bit-identical (`docs/NAVIGATION.md` C2, C6).
+  `runs/<slug>/manifest.json` (written last, with the run's `digest`), `analysis.json` (the run's index entries and rows),
+  `<series>.npz` (`robot_msgs.load_npz`), `<series>.torques.npz`, `media/<key>.<ext>`; `targets/<slug>.cache.json` (a
+  target's index entry and lines). Every `.npz` is deflated, values bit-identical (`docs/NAVIGATION.md` C2, C6).
+- **Incremental writes** (`docs/NAVIGATION.md` Part D). Writing into a folder an earlier write left reuses every run whose
+  digest is unchanged: its data, title, tags, pairs, offsets, torques, media (key, size, mtime), its slug and target, the
+  per-run options (`poses`, `robot`, `tolerances`, `signals`, `primary`) and the source of traj_compare, robot_msgs and
+  your poses / robot module. A reused run's folder is not touched (its built report and `.rrd` stay), its rows come from
+  `analysis.json`, and nothing is compared or posed again; a target whose runs and drawing options are unchanged keeps its
+  `targets/<slug>.js`. The result equals a fresh write. `reuse=False` rewrites everything; pass it after changing data your
+  poses or robot function loads (a URDF), which the digest cannot see. Every file is written under a `.tmp` name and
+  renamed into place, so a stopped write leaves each file whole (old or new) and a hard-linked copy (`cp -al live staging`)
+  can be rewritten without touching the original. `progress=lambda phase, done, total: ...` reports `runs`, `reused`,
+  `targets`, `index` and, when eager, `drill`; an exception from it stops the write.
 - **Drill-down** (`build_drill_down(out, run_name)`, or `python -m traj_compare.dataset drill <out> "<run name>"`): one
   `Comparison` per pair (first element is the reference), one tab per pair, `runs/<slug>/report.html` plus a `.rrd` per pair.
   A media key equal to a series name is that situation's synced video (`Situation.video_start_s`: trajectory time at video time

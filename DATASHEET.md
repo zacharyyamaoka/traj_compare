@@ -101,7 +101,7 @@ Module `traj_compare.dataset`; exports `Run`, `default_pairs`, `write_dataset_re
 | Input | Meaning |
 | --- | --- |
 | `Run` | `name`, `reference` (JointTrajectory), `measured` (series name -> JointTrajectory), `tags` (str/int/float/bool), `pairs` (default `default_pairs`), `time_offset_s` per series, `title`, `media` + `media_start_s` per key |
-| `write_dataset_report(runs, out, title=, group_by=, tolerances=, poses=, robot=, summary=, primary=, drill_down=, data_ui=, rows=, signals=, target_by=, config_by=, display_hz=, target_budget=)` | `poses` / `robot` are `"module:function"` specs; `primary` is alias -> series; `drill_down` is `"lazy"` or `"eager"`; `rows` a subset of `("json", "parquet")`; `signals` channel name -> `Signal` (docs/NAVIGATION.md Part C) |
+| `write_dataset_report(runs, out, title=, group_by=, tolerances=, poses=, robot=, summary=, primary=, drill_down=, data_ui=, rows=, signals=, target_by=, config_by=, display_hz=, target_budget=, reuse=True, progress=None)` | `poses` / `robot` are `"module:function"` specs; `primary` is alias -> series; `drill_down` is `"lazy"` or `"eager"`; `rows` a subset of `("json", "parquet")`; `signals` channel name -> `Signal` (docs/NAVIGATION.md Part C); `reuse` keeps unchanged runs and targets, `progress(phase, done, total)` (Part D) |
 
 | Output | Content |
 | --- | --- |
@@ -109,12 +109,22 @@ Module `traj_compare.dataset`; exports `Run`, `default_pairs`, `write_dataset_re
 | `out/rows.json`, `rows.parquet` | one row per run x pair x metric x stat, SI, `unit`, every tag its own column (a tag may not be named `run`, `pair`, `metric`, `stat`, `value` or `unit`); extra metrics `coverage` and `latency` (stat `value`) |
 | `out/references/<digest>.npz` | each distinct reference once, deflated; a manifest names it as `../../references/<digest>.npz` |
 | `out/targets/<slug>.js` | one target's drawn series per line (`window.trajCompareTarget(...)`), loaded by the page on demand |
-| `out/runs/<slug>/` | `manifest.json`, `<series>.npz` (robot_msgs npz layout, deflated; channels ride inside), `<series>.torques.npz`, `media/`, and `report.html` + `rerun/<a>--<b>.rrd` once built |
+| `out/targets/<slug>.cache.json` | `{"key", "target", "lines"}`: the target's index entry and lines under the SHA-1 key a later write reuses them by |
+| `out/runs/<slug>/` | `manifest.json` (written last; `digest` = SHA-1 of everything that decides the folder), `analysis.json` (`{"digest", "entries", "rows"}`: its index entries and tidy rows), `<series>.npz` (robot_msgs npz layout, deflated; channels ride inside), `<series>.torques.npz`, `media/`, and `report.html` + `rerun/<a>--<b>.rrd` once built |
 
 Drill-down: one tab per pair, built from the files alone. `Situation.video_start_s` (new, default 0) is the trajectory time at
 video time 0 and reaches the viewer's transport and the .rrd. A pair whose two series never overlap is recorded as a row with an
 `error` and a warning, never silently dropped. Lazy builds go through `traj_compare.serve` (GET of a missing `runs/<slug>/report.html`
-or POST of its `.rrd`); a rewrite of the dataset deletes the cached reports. No Rerun SDK: the drill-down is built without `.rrd` and warns.
+or POST of its `.rrd`); a rewritten run's cached report is deleted, a reused run's kept. No Rerun SDK: the drill-down is built without `.rrd` and warns.
+
+Incremental writes (docs/NAVIGATION.md Part D): a run whose digest (its data, title, tags, pairs, offsets, torques, media
+key/size/mtime, slug and target, the per-run options, and the source of traj_compare, robot_msgs and the poses / robot
+module) matches its folder's manifest and `analysis.json`, with every file the manifest names present, is reused: nothing in
+its folder is written, compared or posed. A target whose key (its runs' digests, key, slug, title, config tag, labels,
+`display_hz`, `target_budget`) matches its `.cache.json` keeps its files. The output equals a `reuse=False` write. Every
+file traj_compare writes (dataset site, `report.html`, `.rrd`, `.rbl`, data-ui tables, exports) goes to a `.<name>.<pid>-<n>.tmp`
+beside it and is renamed into place: a stopped write leaves each file whole, and a hard-linked copy of a site never writes
+through to the original. `progress` phases: `runs` (0..N), `reused` (once), `targets` (0..T), `index` (0, 1), `drill` (eager).
 
 ## data-ui (the trajectory contract, version 1)
 
