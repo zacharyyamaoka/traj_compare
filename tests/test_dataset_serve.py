@@ -48,10 +48,14 @@ def test_serve_leaves_unknown_paths_alone(tmp_path):
 
 
 def test_rewriting_a_dataset_drops_the_stale_drill_down(tmp_path):
+    # WHY two rewrites (NAVIGATION.md D1, 2026-11-20): a drill-down describes its run's data, so it stays when only
+    # site-level options change (title, drill_down: the run is reused) and goes when the run's data changes.
     write_dataset_report([make_run(0)], tmp_path, title="First", drill_down="eager")
     folder = next(path for path in (tmp_path / "runs").iterdir() if path.is_dir())
     assert (folder / "report.html").is_file()
     write_dataset_report([make_run(0)], tmp_path, title="Second", drill_down="lazy")
+    assert (folder / "report.html").is_file() and (folder / "rerun").is_dir()
+    write_dataset_report([make_run(0, amplitude=0.41)], tmp_path, title="Third", drill_down="lazy")
     assert not (folder / "report.html").exists() and not (folder / "rerun").exists()
 
 
