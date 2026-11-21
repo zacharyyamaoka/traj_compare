@@ -1,0 +1,7 @@
+{"traj_compare": "/home/bam/traj_compare/.claude/worktrees/incremental/src/traj_compare/__init__.py"}
+{"scenario": "load", "runs": 1500, "seconds": 142.0}
+{"scenario": "base", "runs": 1275, "seconds": 88.9, "reused": 0, "phases": {"runs": 77.4, "reused": 2.1, "targets": 9.1, "index": 0.1}}
+{"scenario": "added", "runs": 1500, "seconds": 22.3, "reused": 1275, "phases": {"runs": 18.4, "reused": 1.8, "targets": 1.7, "index": 0.2}}
+{"scenario": "unchanged", "runs": 1500, "seconds": 5.2, "reused": 1500, "phases": {"runs": 2.7, "reused": 1.9, "targets": 0.3, "index": 0.2}}
+{"scenario": "fresh", "runs": 1500, "seconds": 73.8, "reused": 0, "phases": {"runs": 64.4, "reused": 1.2, "targets": 8.0, "index": 0.1}}
+{"scenario": "compare", "index_payload_equal": true}

@@ -32,8 +32,9 @@ FFMPEG = "/usr/bin/ffmpeg"
 PIN = ["taskset", "-c", "2-5,16,17", "nice", "-n", "19"]
 MAX_BYTES = 1_900_000  # the desktop preview's ceiling for a page with media
 
-HEAD = "c869be7"  # main after the seven gaps (243f892) and the sim → real follow-up
+HEAD = "a70ac47"  # main after the seven gaps (243f892), the sim → real follow-up (c869be7) and incremental writes
 REPO = "zacharyyamaoka/traj_compare"
+INCREMENTAL = PACKAGE / "docs" / "incremental_2026-11-20"  # Part D's measurements, versioned beside their scripts
 BENCH_SHOTS = Path("/home/bam/arm_motion_bench/reports/media/dashboard/shots")
 C1_SHOTS = PACKAGE / ".claude" / "worktrees" / "channels" / "docs" / "proof_c1"
 COPIES = {  # name inside MEDIA → where it came from (copied once; the page builds from the copy)
@@ -179,8 +180,10 @@ def body() -> str:
         "<h1>traj_compare at bench scale: the seven gaps arm_motion_bench worked around</h1>",
         f"<p class='verdict'><b>All seven gaps the bench reported are fixed — on traj_compare <code>main</code> @ <code>{HEAD}</code></b>, "
         f"pushed to the private <code>{REPO}</code>. The UR5e's index halves (38.1 → 19.2 MB) while drawing 16× finer (3.2 → 50 Hz); "
-        "one server serves all three robots; four controllers get four colours. Qualification: the bench has not switched yet "
-        "(four settings, below), and its data has no extra channels, so the signals work is shown on fixture data.</p>",
+        "one server serves all three robots; four controllers get four colours. Later the same day the bench asked for incremental "
+        "rebuilds: an unchanged run or target is now reused, so on 1,500 real UR5e runs adding 225 takes 22 s instead of 74 s and a "
+        "rebuild with nothing changed 5 s. Qualification: the bench's data has no extra channels, so the signals work is shown on "
+        "fixture data.</p>",
         hero(timeline),
         # ── numbers ──────────────────────────────────────────────────────────────────────────────────────────────
         "<h2>Before → after, on the bench's own data</h2>",
@@ -288,6 +291,8 @@ def body() -> str:
                    "rebuilt from a copy of its folder: “sim τ (applied)”, “Torque breakdown: sim (applied), …”, “Error vs sim”.",
                    1000, (440, 280, 1000, 620), 75))
         + commit("c869be7") + "</div>",
+        # ── follow-up 2: incremental writes (Part D) ─────────────────────────────────────────────────────────────
+        incremental_section(),
         # ── decision surface ─────────────────────────────────────────────────────────────────────────────────────
         "<h2>Decided for you</h2><ul>"
         "<li><b>The channels tab is not one of the fixed tabs</b>: it is <code>tabs.CHANNELS_TAB</code>, shown only when some situation "
@@ -304,14 +309,32 @@ def body() -> str:
         "no config passes for the twin grey. Undo: <code>git revert -m 1 7c8db3d</code> (it also reverts C5).</li>"
         "<li><b>robot_msgs untouched</b>: compression and deduplication live in traj_compare's writer, not the message format.</li>"
         "<li><b>Undo everything:</b> revert the 14 first-parent commits from <code>e22e512</code> back to <code>040f536</code>, newest "
-        "first, the three merges (<code>7c8db3d</code>, <code>34da438</code>, <code>fc26e2e</code>) with <code>-m 1</code>.</li></ul>",
+        "first, the three merges (<code>7c8db3d</code>, <code>34da438</code>, <code>fc26e2e</code>) with <code>-m 1</code>.</li>"
+        "<li><b>Incremental writes are on by default</b> (<code>reuse=True</code>): a write into a folder an earlier write made reuses "
+        "every run and target whose digest matches. Undo for one write: <code>reuse=False</code>; for good: "
+        "<code>git revert a70ac47 0d59e28 14662f6 34411a4</code>.</li>"
+        "<li><b>The digest covers code files, not <code>__version__</code></b>: traj_compare's files, robot_msgs's <code>.py</code> and "
+        "the files defining the <code>poses</code> / <code>robot</code> functions. So the first build after a commit to either package "
+        "is a full one; stale numbers after a code change were the alternative.</li>"
+        "<li><b><code>display_hz</code>, <code>target_budget</code> and <code>config_by</code> are not in the run digest</b>: they do not "
+        "change a run's files or analysis, so changing them recomputes only the targets.</li>"
+        "<li><b>An old pin was rewritten</b>: <code>test_dataset_serve::test_rewriting_a_dataset_drops_the_stale_drill_down</code> "
+        "(2026-11-11) assumed every rewrite rewrote every run. It now drops the drill-down when the run's data changes and keeps it "
+        "when only <code>title</code> or <code>drill_down</code> change (<code>a70ac47</code>).</li></ul>",
         "<h2>Left</h2><ul>"
         "<li><b>The bench has to switch</b> (message sent to its agent): pass <code>rows=(\"parquet\",)</code>, put its signals in "
         "<code>channels</code> with <code>signals=</code>, serve its three sites with one server, and set <code>display_hz</code> back to 50.</li>"
         "<li>Channels on the Dataset and Target levels: out of scope (a per-run scalar such as peak force stays a run tag).</li>"
         "<li>The UR5e index's remaining 19 MB: the runs table's per-joint stats (4.2 MB) and the target time grids (3.6 MB) could move "
         "into the per-target files next.</li>"
-        "<li>Two channel names that escape to the same Rerun entity path share one view.</li></ul>",
+        "<li>Two channel names that escape to the same Rerun entity path share one view.</li>"
+        "<li><b>Incremental writes on the full UR5e site</b> (5,750 runs + 818) are extrapolated, not measured: the machine had 11 GB "
+        "free, so the run was capped at 1,500 runs. The harness runs the full set: "
+        "<code>docs/incremental_2026-11-20/bench_ur5e.py</code>.</li>"
+        "<li><code>group_by</code> cards are not cached: a dataset with a <code>group_by</code> whose groups share a reference still "
+        "computes every run's TCP poses for them (the bench passes none).</li>"
+        "<li>Two browser tests are load-sensitive at this host's load of 30: <code>test_playback</code> (first video frame 0.78 s against "
+        "a 0.6 s limit, also on the old code) and the run-list drag in <code>test_dataset_levels</code>.</li></ul>",
         "<h2>How it was built</h2><ul>"
         "<li>The contract first: <code>docs/NAVIGATION.md</code> Part C, frozen in <code>040f536</code>.</li>"
         "<li>Acceptance tests next, written by separate agents before each implementation (<code>c2397e3</code>, <code>dae8c29</code>, "
@@ -328,6 +351,77 @@ def body() -> str:
         "<code>build_report.py</code>).</p>",
     ]
     return "\n".join(parts)
+
+
+def _timings_svg(rows: list[dict]) -> str:
+    """Horizontal bars, one per scenario, labelled with its seconds (a plain SVG: no chart library for three numbers)."""
+    names = {"fresh": "Fresh write (reuse=False)", "added": "+225 runs into the same folder", "unchanged": "Nothing changed"}
+    shown = [row for row in rows if row.get("scenario") in names]
+    shown.sort(key=lambda row: list(names).index(row["scenario"]))
+    top = max(row["seconds"] for row in shown)
+    width, left, bar = 720, 230, 26
+    out = [f"<svg viewBox='0 0 {width} {len(shown) * 40 + 10}' width='100%' style='max-width:{width}px' role='img' "
+           "aria-label='write_dataset_report seconds per scenario'>"]
+    for index, row in enumerate(shown):
+        y = 8 + index * 40
+        length = (width - left - 70) * row["seconds"] / top
+        colour = "#c9c7bf" if row["scenario"] == "fresh" else "#2f8f4e"
+        out.append(f"<text x='{left - 10}' y='{y + 18}' text-anchor='end' font-size='13' fill='#22221f'>{names[row['scenario']]}</text>"
+                   f"<rect x='{left}' y='{y}' width='{length:.1f}' height='{bar}' rx='3' fill='{colour}'/>"
+                   f"<text x='{left + length + 8:.1f}' y='{y + 18}' font-size='13' font-weight='600' fill='#22221f'>"
+                   f"{row['seconds']:.1f} s</text>")
+    return "".join(out) + "</svg>"
+
+
+def incremental_section() -> str:
+    rows = [json.loads(line) for line in (INCREMENTAL / "ur5e-1500-timings.jsonl").read_text("utf-8").splitlines() if line.strip()]
+    by = {row["scenario"]: row for row in rows if "scenario" in row}  # the first line names the traj_compare it timed
+    demo = (INCREMENTAL / "demo-staging.txt").read_text("utf-8")
+
+    def phases(name: str) -> str:
+        return " · ".join(f"{phase} {seconds:.1f} s" for phase, seconds in by[name]["phases"].items())
+
+    return (
+        "<div class='gap'><h3>Follow-up 2 · Incremental rebuilds: an unchanged run is reused (NAVIGATION.md Part D)</h3>"
+        "<p><b>Was:</b> every write re-analysed and rewrote every run. Adding 818 runs to the bench's 5,750-run UR5e site cost "
+        "all 5,750; Zach waited about 6 min and hit Ctrl-C. In the bench's profile, about 35 ms per run was identical work "
+        "(the time-offset estimate, the TCP compare, compressing the .npz files).</p>"
+        "<p><b>Now:</b>"
+        "<ul><li>Each run gets a digest of everything that decides its files and analysis: its data, its options, and the code "
+        "that analyses it. A run whose digest matches is reused: its folder is not touched, so a drill-down built earlier stays, and "
+        "its numbers come from <code>runs/&lt;slug&gt;/analysis.json</code>.</li>"
+        "<li>A target whose runs all match is reused too (<code>targets/&lt;slug&gt;.cache.json</code>), so a rebuild where nothing "
+        "changed runs no compare and no forward kinematics at all.</li>"
+        "<li>Every file is written under a <code>.tmp</code> name and renamed into place. A hard-linked copy of a live site "
+        "(<code>cp -al</code>) can therefore be rebuilt while live is served, and a stopped write never leaves a torn file.</li>"
+        "<li><code>progress(phase, done, total)</code> reports runs, reused, targets and index.</li></ul></p>"
+        "<p class='api'><code>write_dataset_report(..., reuse=True, progress=fn)</code> · <code>reuse=False</code> rewrites every run</p>"
+        "<h3>Timed on the bench's real UR5e runs</h3>"
+        f"<p>The first {by['fresh']['runs']:,} of its runs, its own options (50 Hz, parquet rows, its MuJoCo poses), CPUs 2-5, 16, 17 "
+        "on a host at load 30, through the bench's own loader: <code>docs/incremental_2026-11-20/bench_ur5e.py</code>.</p>"
+        + _timings_svg(rows)
+        + "<div class='scroll'><table><tr><th>Write</th><th>Runs</th><th>Reused</th><th>Seconds</th><th>By phase</th></tr>"
+        + "".join(
+            f"<tr><td>{label}</td><td class='num'>{by[name]['runs']:,}</td><td class='num'>{by[name]['reused']:,}</td>"
+            f"<td class='num'><b>{by[name]['seconds']:.1f}</b></td><td>{phases(name)}</td></tr>"
+            for name, label in (("fresh", "Fresh, reuse=False"), ("added", "+225 runs (15 %)"), ("unchanged", "Nothing changed"))
+        )
+        + "</table></div>"
+        + f"<p>The incremental site's index payload equals the fresh one's: <b>{str(by['compare']['index_payload_equal']).lower()}</b>. "
+        "Scaled to the bench's 5,750 runs + 818, adding takes about 60 s instead of about 5 min (an extrapolation, not a measurement; "
+        "see Left). A rebuild with nothing changed costs about 3.5 ms per run, all phases included; 1.8 ms of that is "
+        "digesting the run's data and reading its cache.</p>"
+        "<h3>The bench's staging rebuild, checked</h3>"
+        "<p>On the Part D test fixture: build live, hard-link it to staging, rebuild staging with one run changed and one added, then "
+        "compare every live file's inode, mtime and bytes with before.</p>"
+        f"<pre>{html.escape(demo)}</pre>"
+        "<p class='note'>Pinned by 36 acceptance tests written before the implementation (<code>tests/test_incremental_writes.py</code>, "
+        "checksums verified at merge): a reused write equals a fresh one, each digest ingredient rewrites exactly its run, target "
+        "reuse, reuse preconditions, the hard-linked copy (with a Rerun recording), stopped writes and the progress sequences. Full "
+        "suite: 526 passed; the one failure is the load-sensitive playback test, which also fails on the old code.</p>"
+        + commit("bfbcba2 contract", "5c03d28 tests", "34411a4 _files", "14662f6 dataset", "0d59e28 docs", "a70ac47 old pin")
+        + "</div>"
+    )
 
 
 def build() -> Path:
