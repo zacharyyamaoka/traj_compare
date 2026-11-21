@@ -315,7 +315,9 @@ The bench rebuilds into a hard-linked copy (`cp -al live staging`), writes incre
 
   Then nothing in its folder is written or deleted, including a `report.html` and a `rerun/` an earlier drill-down
   built. Its index entries and tidy rows come from `analysis.json`. A pair error in a reused run warns again, as the
-  write that made it did. Its pose trajectories are computed only if a target that is not reused (D1b) needs them.
+  write that made it did. Its pose trajectories are computed only if something this write recomputes needs them: a
+  target that is not reused (D1b), or a `group_by` group whose runs share one reference (its ISO 9283 card).
+  `group_by` cards are not cached.
 - **Every other run is rewritten.** Its `manifest.json` is deleted first, then its files are written as before, then
   `analysis.json`, and `manifest.json` last. So a write stopped midway leaves no manifest naming half-written data.
 - **Reuse changes nothing in the output.** A write that reuses runs must produce the same output as a `reuse=False`
