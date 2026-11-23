@@ -25,6 +25,12 @@ rerun = ["rerun-sdk==0.40.0", "robot-msgs[rerun]"]
 # WHY optional: the core stays numpy + robot-msgs; Parquet (tidy rows) and MCAP (JSON topics) are two more
 # projections of the same payload, for pandas / LeRobot and PlotJuggler / Foxglove (prior-art item 10, 2026-11-10).
 export = ["pyarrow>=15", "mcap>=1.2"]
+# WHY three more extras: the coverage viewers (docs/COVERAGE.md) read one payload; each tool is imported only inside
+# its own module, so the core stays numpy + robot-msgs (Zach 2026-11-23: "Matplot lib, Viser, weights and biases,
+# OUr own custom viewer"). viser through the house viser_3d_viewer (no logo, ViewCube, asserted ports).
+plot = ["matplotlib>=3.8"]
+viser = ["viser-3d-viewer"]
+wandb = ["wandb>=0.19"]
 
 [tool.uv.sources]
 # WHY absolute: traj_compare is its own repo since 2026-11-20 (Zach: "robot_msgs [is] primarily about data ... this is
@@ -32,6 +38,7 @@ export = ["pyarrow>=15", "mcap>=1.2"]
 # bam_ws reaches it through src/external/traj_compare (and a symlink at its old path), so a relative path would mean
 # something different from each place; /home/bam/<repo> is the convention every sibling (and the cloud setup) uses.
 robot-msgs = { path = "/home/bam/robot_msgs", editable = true }
+viser-3d-viewer = { path = "/home/bam/viser-3d-viewer", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/traj_compare"]
