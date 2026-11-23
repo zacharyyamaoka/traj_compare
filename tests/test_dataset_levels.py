@@ -556,7 +556,8 @@ def test_targets_default_to_one_card_per_target_each_with_open_target(levels):
         assert target.key in card["text"] or target.title in card["text"], card
         assert card["open"] == 1, f"{card['slug']}: {card['open']} visible Open target controls"
     assert level["target_rows"] == [] and level["runs_table_rows"] == 0, "the cards view shows only cards"
-    assert level["summary"] and not level["run_list"], "index.html opens on the Dataset level"
+    # Part E: the cards are the Targets tab's, the band the Overview's; either says this is the Dataset level
+    assert (level["summary"] or level["cards"]) and not level["run_list"], "index.html opens on the Dataset level"
 
 
 @needs_browser

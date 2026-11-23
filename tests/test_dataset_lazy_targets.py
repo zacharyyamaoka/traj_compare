@@ -738,6 +738,12 @@ const HELPERS = String.raw`
     // ── Dataset level: cards render lazily ──
     await scene('cards_' + origin.name, origin.index + '#/targets', async (page, record) => {
       await page.waitForSelector('[data-tc-target-card]', { state: 'attached', timeout: WAIT });
+      // NAVIGATION.md Part E: cards come a page at a time; show them all, so some lie far below the fold again
+      while (await page.$('#ds-view-cards .ds-pager button')) {
+        await page.evaluate(() => document.querySelector('#ds-view-cards .ds-pager button').click());  // a click that does not scroll
+        await page.waitForTimeout(150);
+      }
+      await page.evaluate(() => window.scrollTo(0, 0));
       // the cards in view draw first (their files load), then a pause in which an eager loader would reach the rest
       await until(page, () => __tc.cards().filter((card) => card.top < window.innerHeight - 100)
         .every((card) => card.charts.some((chart) => chart.with_data > 0)));
