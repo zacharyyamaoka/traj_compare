@@ -75,6 +75,8 @@ schema            "traj_compare.coverage/1"
 title, subtitle   str
 back              [[label, href], ...]                      breadcrumb links (set by write_page)
 siblings          [{"label", "href", "group", "current"}]  other pages of the same dataset (subsets, rungs)
+enough            int                                       the `enough` threshold: a cell is "sufficient" with >= this
+                                                            many samples (sufficient_pct, the page's "enough" scale)
 source            {"trajectories": int, "samples": int, "duration_s": float, "rate_hz": float | null,
                    "group_by": str | null, "groups": [str, ...]}
 joints            [{"name", "kind": "revolute"|"prismatic", "display": {"scale": 57.29.. | 1000, "unit": "deg"|"mm"}}]
@@ -94,7 +96,9 @@ hist              {joint: {signal: {
                      "span_pct",                     # (p999 - p001) / (high - low) * 100
                      "peak_pct",                     # max(|p001|, |p999|) / max(|low|, |high|) * 100 (qd, qdd, qddd);
                                                      #   for q: share of the range from the centre reached, same rule
-                     "outside": int                  # samples beyond the limit (low/high), source "limit" only
+                     "outside": int,                 # samples beyond the limit (low/high), source "limit" only
+                     "beyond_edges": int             # samples past the histogram's edges: not in any bin, so a viewer
+                                                     #   can say "N samples off the chart" instead of hiding them
                   }}}
 
 planes            {joint: {"q_qd" | "qd_qdd" | "q_qdd": {
@@ -103,20 +107,25 @@ planes            {joint: {"q_qd" | "qd_qdd" | "q_qdd": {
                      "shape": [nx, ny],                                  # q 36, qd 24, qdd 24 bins
                      "samples": flat [int],          # samples per cell
                      "paths": flat [int],            # distinct trajectories through the cell (episode-weighted)
-                     "max_other": flat [float|null], # q_qd only: max |qdd| reached in the cell (rad/s^2), null = unvisited
+                     "max_other": flat [float|null], # q_qd only: max |qdd| reached in the cell (rad/s^2), null = unvisited;
+                                                     #   the whole field is null on qd_qdd and q_qdd
                      "visited_pct", "sufficient_pct", "evenness_pct",  # of all nx*ny cells; evenness = exp(H)/cells
                      "outside": int
                   }}}
 
 slabs             {joint: {"x": "q", "y": "qd", "by": "qdd", "by_edges": [lo, hi, 5],
                            "shape": [5, nx, ny], "samples": flat, "visited_pct": [5 floats]}}
+                  # the end slabs also hold samples past the qdd limit, so the slabs add up to the q_qd plane
 
 paths             {joint: [[[q...], [qd...], [qdd...]] per trajectory]}   # <= 400 points each, evenly picked
+                  # (fewer for a big dataset: ~20 000 points per joint in all, at least 32 each); values to 3
+                  # significant figures of the limit span. tool.spaghetti uses the same budget, in metres to 0.1 mm
 
 parallel          {signal: {"axes": [joint names], "height": 128, "width": 48,
                             "range": "limit",            # every axis runs low limit (0) .. high limit (1)
                             "gaps": [flat [int] * (48*128) per adjacent joint pair],   # line density, row-major [x][y]
-                            "subsampled": int | null}}  # q, qd, qdd
+                            "subsampled": int | null}}  # q, qd, qdd; subsampled = samples drawn (evenly picked)
+                                                         #   when there were more than 50 000, null = every sample
 
 trajectories      [{"name", "tags": {..}, "duration_s", "samples",
                     "span_pct": {joint: {signal: float}},          # this trajectory's own span_pct
