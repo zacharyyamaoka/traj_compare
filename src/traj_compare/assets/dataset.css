@@ -412,3 +412,6 @@ table.ds-sweep-table { width: auto; min-width: 50%; }
 .ds-domain[open] > summary { margin-bottom: 8px; }
 .ds-lfacets .ds-seg, .ds-sweep-facets .ds-seg { flex-wrap: wrap; }
 .ds-lfacets .ds-seg button, .ds-sweep-facets .ds-seg button { white-space: nowrap; }
+
+/* the Coverage link at the end of the tab bar: another page, so it sits apart (docs/COVERAGE.md) */
+.ds-otabs a.ds-otab-page { margin-left: auto; color: #2a78d6; }

@@ -1813,9 +1813,14 @@
     { id: 'runs', label: 'Runs', href: '#/runs' },
   ];
   function tabsShown() { return DATASET_TABS.filter(function (tab) { return !tab.when || tab.when(); }); }
+  // WHY a link, not a tab (Zach 2026-11-23: the coverage viewer is "a page you can see standalone or just quickly get
+  // there from the traj compare stuff"): coverage is its own page (traj_compare.coverage, docs/COVERAGE.md), written
+  // beside this one by write_dataset_report(coverage=True), so the bar ends with a link to it.
   $('ds-otabs').innerHTML = tabsShown().map(function (tab) {
     return '<a role="tab" href="' + tab.href + '" data-tc-dataset-tab="' + tab.id + '" aria-selected="false">' + esc(tab.label) + '</a>';
-  }).join('');
+  }).join('') + (D.coverage ? '<a class="ds-otab-page" href="' + esc(D.coverage.href) + '" data-tc-coverage-link ' +
+    'title="How much of the joint limits, workspace and tool directions the ' + D.coverage.trajectories +
+    ' targets visit (its own page)">Coverage ↗</a>' : '');
 
   function numberTag(value) {
     if (typeof value !== 'number' || !isFinite(value)) return null;
@@ -2283,7 +2288,8 @@
         cursor: { y: false, drag: { x: false, y: false } },
         scales: { x: { time: false }, y: kpi.log ? { distr: 3 } : { auto: true } },
         axes: [Object.assign({}, axis, { size: 28, values: function (u, values) { return values.map(function (v) { return String(+v.toFixed(4)); }); } }),
-          Object.assign({}, axis, { size: 54, values: function (u, values) { return values.map(function (v) { return v === null ? '' : num3(v); }); } })],
+          // WHY exponents below 1e-3: a sim's stop error reaches 1e-9 mm, and fixed digits made the axis an unreadable smear
+          Object.assign({}, axis, { size: 54, values: function (u, values) { return values.map(function (v) { return v === null ? '' : v !== 0 && Math.abs(v) < 1e-3 ? v.toExponential(0) : num3(v); }); } })],
         series: [{ label: model.xLabel }].concat(keys.map(function (key) {
           return { label: key.key, stroke: key.color, width: 1.8, dash: simKey(key) ? [6, 4] : undefined, spanGaps: true, points: { show: true, size: 6 },
             value: function (u, v) { return v === null ? '—' : num3(v); } };

@@ -1966,6 +1966,7 @@ def write_dataset_report(
     reuse: bool = True,
     progress: Callable[[str, int, int], None] | None = None,
     sweep: Sweep | None = None,
+    coverage: bool = False,
 ) -> Path:
     """Write ``output_dir/index.html`` (many runs at a glance), ``rows.json``/``rows.parquet`` and ``runs/<slug>/``.
 
@@ -2011,6 +2012,10 @@ def write_dataset_report(
       x, with q1 / q3, n and the worst targets per point (each linking its Target level and one run's report); facet
       chips split it by ``facet_by``. Computed from run tags only (``_sweep_payload``), so reused and lazy writes keep it
       exact; a run without a numeric x or y is skipped and counted. ``None`` (the default): no sweep view, today's page.
+    - ``coverage``: also write ``output_dir/coverage/index.html`` + ``coverage.json`` (``traj_compare.coverage``, contract
+      docs/COVERAGE.md): how much of the joint limits, workspace and tool directions the site's targets visit, each
+      target's reference once, the tool from ``poses`` when given. The Dataset level's tab bar then ends with a
+      "Coverage" link to it. ``False`` (the default): no coverage page, no link.
     """
 
     runs = list(runs)
@@ -2201,6 +2206,8 @@ def write_dataset_report(
     }
     if sweep is not None:
         payload["sweep"] = _sweep_payload(sweep, targets, slugs, config_tag, payload["levels"]["configs"], payload["series"])
+    if coverage:
+        payload["coverage"] = _write_coverage(output_dir, targets, options.poses, title)
     data_json = json.dumps(payload, separators=(",", ":")).replace("</", "<\\/")
     # The ReportPage renderer lives in plots.js; it is only worth its 75 KB when a summary is given.
     renderer = f"<script>{_asset('plots.js')}</script>" if summary is not None else ""
@@ -2247,6 +2254,32 @@ def write_dataset_report(
                 build_run_folder(folder)
             report("drill", done, len(runs))
     return index
+
+
+def _write_coverage(output_dir: Path, targets: Sequence[_Target], poses: Callable[..., Any] | None,
+                    title: str) -> dict[str, Any]:
+    """``output_dir/coverage/{index.html, coverage.json}`` over the site's targets, each reference once; the Dataset
+    level's link to it (``payload["coverage"]``).
+
+    WHY a page of its own, one click from the Dataset level (Zach, Daily Note 2026-11-23): "we should have like
+    trajectory Coverage Viewer where you can put in like datasets or single trajectories ... a page you can see
+    standalone or just quickly get there from the traj compare stuff". The targets, not the runs: coverage asks what the
+    curriculum sends the robot through, and a target repeated by many runs must count once.
+    """
+    from .coverage import analyze  # lazy: a site without coverage never imports it
+
+    references: dict[str, JointTrajectory] = {}
+    for target in targets:
+        name = target.title if target.title not in references else f"{target.title} ({target.slug})"
+        references[name] = target.reference
+    tool = {name: poses(reference) for name, reference in references.items()} if poses is not None else None
+    result = analyze(references, tool=tool, title=f"{title} · coverage",
+                     subtitle=f"the {len(references)} target trajectories of this dataset, each once")
+    folder = output_dir / "coverage"
+    folder.mkdir(parents=True, exist_ok=True)
+    _files.write_text(folder / "coverage.json", json.dumps(result.payload, separators=(",", ":"), allow_nan=False))
+    result.write_page(folder / "index.html", back=[(title, "../index.html")])
+    return {"href": "coverage/index.html", "trajectories": len(references)}
 
 
 # ── drill-down ───────────────────────────────────────────────────────────────

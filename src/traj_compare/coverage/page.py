@@ -99,7 +99,10 @@ def write_coverage_page(
     # WHY allow_nan=False: the payload is JSON-safe by contract; a NaN would make JSON.parse throw in the browser
     data = json.dumps(page_payload, separators=(",", ":"), allow_nan=False).replace("</", "<\\/")
 
-    scripts = [_script(_asset("three.min.js") or ""), _script(_asset("coverage_color.js") or "")]
+    # WHY viewhelper.js: three.js' clickable orientation gizmo, the one the run report's 3-D view already uses (Zach's
+    # viewer taste: a ViewCube to snap views); coverage3d.js falls back to a plain triad without it.
+    scripts = [_script(_asset("three.min.js") or ""), _script(_asset("viewhelper.js") or ""),
+               _script(_asset("coverage_color.js") or "")]
     three_d = _asset("coverage3d.js")
     if three_d is not None:
         scripts.append(_script(three_d))
