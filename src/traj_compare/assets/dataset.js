@@ -641,6 +641,10 @@
   function renderViews() { renderAnswer(); renderTable(); renderHeat(); renderPeaks(); }
   function renderAll() { renderViews(); renderIso(); }
 
+  // WHY the domain summary moves below the targets when there is a sweep (Zach, 2026-11-20: the bench's landing page is
+  // "WAYYY to hard to navigate"; 2026-11-23: the overview is "the pareto graph that shows the accuracy vs time scaling"):
+  // the sweep is the at-a-glance answer, so it opens first and the long scorecard stays one scroll away, unchanged.
+  if (D.sweep) $('ds-level-dataset').appendChild($('ds-summary'));
   if (D.summary && window.TrajCompare && TrajCompare.renderReportPage) {
     TrajCompare.renderReportPage($('ds-summary'), D.summary);
   }
