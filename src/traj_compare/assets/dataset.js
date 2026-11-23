@@ -4,8 +4,8 @@
  * (docs/NAVIGATION.md Part A; Zach 2026-11-19, traj compare view feedback: "the Target trajectory is
  * kinda the primary thing we want to organize things around"):
  *   #/              the Dataset: the domain's Summary page, a summary band across every target, then the
- *                   targets as cards ⇄ a league table ⇄ today's runs view (answer line, runs x pairs table,
- *                   joint x run heatmap, peak-time strip, ISO 9283 cards).
+ *                   speed sweep (when the payload has one) ⇄ targets as cards ⇄ a league table ⇄ today's runs
+ *                   view (answer line, runs x pairs table, joint x run heatmap, peak-time strip, ISO 9283 cards).
  *   #/target/<slug> one Target: its lines in a run list on the left, a verdict, and two question tabs
  *                   (repeatability as lines-or-fans over trajectory time; a control chart across dates).
  * A line's ↗ opens runs/<slug>/report.html, the Run level. WHY degrees here and not in the data: angles
@@ -166,9 +166,10 @@
     '<section class="ds-band" id="ds-band" data-tc-dataset-summary></section>' +
     '<section class="ds-targets"><div class="ds-targets-head"><h2>Which config tracks each target better?</h2>' +
     '<div class="ds-seg ds-viewswitch" data-tc-targets-view role="group" aria-label="Show the targets as">' +
+    (D.sweep ? '<button type="button" data-view="sweep">Speed sweep</button>' : '') +
     '<button type="button" data-view="cards">Cards</button><button type="button" data-view="table">Table</button>' +
     '<button type="button" data-view="runs">Runs</button></div><div class="ds-bar ds-levelbar" id="ds-dataset-controls"></div></div>' +
-    '<div id="ds-view-cards"></div><div id="ds-view-table"></div><div id="ds-view-runs">' +
+    '<div id="ds-view-sweep" hidden></div><div id="ds-view-cards"></div><div id="ds-view-table"></div><div id="ds-view-runs">' +
     '<p class="ds-answer" id="ds-answer"></p><div class="ds-bar" id="ds-global"></div>' +
     '<section class="ds-card"><h2>Runs <span class="ds-hint" id="ds-table-count"></span></h2>' +
     '<div class="ds-bar" id="ds-filters"></div><div class="ds-scroll" id="ds-table"></div>' +
@@ -692,7 +693,11 @@
   }
 
   var V = {
-    view: oneOf(store.get('view', 'cards'), ['cards', 'table', 'runs'], 'cards'),
+    // WHY the sweep first and the default when the payload has one (Zach, Daily Note 2026-11-23): "I want to be able to
+    // see the pareto graph that shows the accuracy vs time scaling ... drill down into any of the actual trajectories".
+    view: D.sweep ? oneOf(store.get('view', 'sweep'), ['sweep', 'cards', 'table', 'runs'], 'sweep')
+      : oneOf(store.get('view', 'cards'), ['cards', 'table', 'runs'], 'cards'),
+    sweepFacet: store.get('sweep-facet', 'all'), sweepPick: null,
     joint: store.get('joint', ''),  // '' = each line's worst joint
     mode: oneOf(store.get('repeats', 'auto'), ['auto', 'lines', 'bands'], 'auto'),
     n: Math.round(within(store.get('lines-n', 5), 1, 20, 5)),
@@ -1008,7 +1013,7 @@
 
   // ── uPlot fan / lines chart (2026-11-19 summary prototypes' shared/common.js, ported) ──
 
-  var charts = { cards: [], table: [], repeat: [] };
+  var charts = { cards: [], table: [], repeat: [], sweep: [] };
   function destroyCharts(scope) {
     charts[scope].forEach(function (chart) { if (chart._ro) chart._ro.disconnect(); chart.destroy(); });
     charts[scope] = [];
@@ -1263,7 +1268,7 @@
   }
   function renderDatasetControls() {
     var bar = $('ds-dataset-controls');
-    if (V.view === 'runs') { bar.innerHTML = ''; return; }
+    if (V.view === 'runs' || V.view === 'sweep') { bar.innerHTML = ''; return; }
     bar.innerHTML = jointSelect('ds-joint-dataset') + '<span class="ds-hint">Charts draw lines while a config has ≤ ' + V.n +
       ' lines, a fan past that (set on a target’s page) · click a line or a dot to open its run</span>';
     $('ds-joint-dataset').onchange = function (event) { setJoint(event.target.value); renderBand(); showView(); };
@@ -1564,6 +1569,196 @@
     renderLeague();
   });
 
+  // ── Dataset level: the speed sweep (payload.sweep, dataset.py's _sweep_payload) ──
+  //
+  // WHY a view here and not a new page (Zach, Daily Note 2026-11-23): "I want to be able to see the pareto graph that
+  // shows the accuracy vs time scaling ... and then be able to drill down into any of the actual trajectories", and "I
+  // don't want to keep on making a new viewer". One point per config × x: the median over targets of each target's
+  // median over its repeats, its IQR as a band; a cell or a point lists that point's worst targets, each linking its
+  // Target level and the run closest to its value.
+
+  var SW = D.sweep || null;
+  function sweepNumber(value) {
+    if (value === null || value === undefined) return '–';
+    return String(Number(value.toPrecision(3)));
+  }
+  function sweepUnit() { return SW.unit ? ' ' + SW.unit : ''; }
+  function sweepFacet() {
+    var facets = SW.facets || [];
+    return facets.filter(function (facet) { return facet.value === V.sweepFacet; })[0] || facets[0] || { value: 'all', configs: [] };
+  }
+  function sweepXs(facet) {
+    var seen = {};
+    facet.configs.forEach(function (config) { config.points.forEach(function (point) { seen[point.x] = point.x; }); });
+    return Object.keys(seen).map(function (key) { return seen[key]; }).sort(function (a, b) { return a - b; });
+  }
+  function sweepPoint(facet, configName, x) {
+    var config = facet.configs.filter(function (item) { return item.name === configName; })[0];
+    return config ? config.points.filter(function (point) { return point.x === x; })[0] || null : null;
+  }
+  function renderSweep() {
+    destroyCharts('sweep');
+    var holder = $('ds-view-sweep');
+    var facet = sweepFacet();
+    V.sweepFacet = facet.value;
+    var xs = sweepXs(facet);
+    if (V.sweepPick && !sweepPoint(facet, V.sweepPick.config, V.sweepPick.x)) V.sweepPick = null;
+    if (!V.sweepPick) {  // open on the worst point, so the drill list answers something before any click
+      facet.configs.forEach(function (config) {
+        config.points.forEach(function (point) {
+          var current = V.sweepPick ? sweepPoint(facet, V.sweepPick.config, V.sweepPick.x) : null;
+          if (!current || point.median > current.median) V.sweepPick = { config: config.name, x: point.x };
+        });
+      });
+    }
+    var axisText = esc(SW.y_label) + (SW.unit ? ' [' + esc(SW.unit) + ']' : '') + ' vs ' + esc(SW.x_label);
+    var html = '<section class="ds-card ds-sweep" data-tc-sweep><h2>How does ' + esc(SW.y_label) + ' scale with ' + esc(SW.x_label) +
+      '? <span class="ds-hint">per config: the median over targets of each target’s median over its repeats · band q1–q3' +
+      (SW.skipped ? ' · ' + SW.skipped + ' run' + (SW.skipped === 1 ? '' : 's') + ' without a numeric ' + esc(SW.x) + ' or ' + esc(SW.y) + ' left out' : '') +
+      '</span></h2>';
+    if ((SW.facets || []).length > 1) {
+      html += '<div class="ds-bar ds-sweep-facets"><span class="ds-k">' + esc(SW.facet_by || 'facet') + '</span><div class="ds-seg">';
+      SW.facets.forEach(function (item) {
+        var on = item.value === facet.value;
+        html += '<button type="button" data-tc-sweep-facet="' + esc(item.value) + '" class="' + (on ? 'on' : '') + '" aria-pressed="' + on + '">' +
+          esc(item.value) + '</button>';
+      });
+      html += '</div></div>';
+    }
+    html += '<div class="ds-sweep-keys">';
+    facet.configs.forEach(function (config) { html += '<span class="ds-chip">' + swatch(config.color) + esc(config.name) + '</span>'; });
+    html += '<span class="ds-hint">' + axisText + (SW.log_y ? ' · log y' : '') + ' · click a point or a cell for its worst targets</span></div>' +
+      '<div class="ds-plot ds-sweep-chart" data-tc-sweep-chart></div><div class="ds-readout" id="ds-sweep-readout">&nbsp;</div>';
+    html += '<div class="ds-scroll ds-sweep-scroll"><table class="ds-league ds-sweep-table" data-tc-sweep-table><thead><tr><th>config</th>';
+    xs.forEach(function (x) { html += '<th>' + esc(SW.x_label) + ' ' + esc(String(x)) + '</th>'; });
+    html += '</tr></thead><tbody>';
+    var best = {};
+    xs.forEach(function (x) {
+      facet.configs.forEach(function (config) {
+        var point = sweepPoint(facet, config.name, x);
+        if (point && point.median !== null && (best[x] === undefined || point.median < best[x].median)) best[x] = { config: config.name, median: point.median };
+      });
+    });
+    facet.configs.forEach(function (config) {
+      html += '<tr><th class="ds-text">' + swatch(config.color) + esc(config.name) + '</th>';
+      xs.forEach(function (x) {
+        var point = sweepPoint(facet, config.name, x);
+        if (!point) { html += '<td class="ds-mut">–</td>'; return; }
+        var isBest = best[x] && best[x].config === config.name;
+        var picked = V.sweepPick && V.sweepPick.config === config.name && V.sweepPick.x === x;
+        html += '<td><button type="button" class="ds-sweep-cell' + (picked ? ' on' : '') + '" data-tc-sweep-cell data-config="' + esc(config.name) +
+          '" data-x="' + esc(String(x)) + '"' + (isBest ? ' data-best="1"' : '') + ' title="q1 ' + sweepNumber(point.q1) + ' · q3 ' + sweepNumber(point.q3) +
+          sweepUnit() + '"><b>' + sweepNumber(point.median) + '</b>' + esc(sweepUnit()) + ' <span class="ds-mut">n ' + point.n + '</span>' +
+          (isBest ? ' <span class="ds-sweep-best">best</span>' : '') + '</button></td>';
+      });
+      html += '</tr>';
+    });
+    html += '</tbody></table></div><div class="ds-sweep-worst" data-tc-sweep-worst></div></section>';
+    holder.innerHTML = html;
+    drawSweepChart(holder.querySelector('[data-tc-sweep-chart]'), facet, xs);
+    renderSweepWorst();
+  }
+  function renderSweepWorst() {
+    var host = document.querySelector('[data-tc-sweep-worst]');
+    if (!host) return;
+    var facet = sweepFacet();
+    var point = V.sweepPick ? sweepPoint(facet, V.sweepPick.config, V.sweepPick.x) : null;
+    Array.prototype.forEach.call(document.querySelectorAll('[data-tc-sweep-cell]'), function (cell) {
+      cell.classList.toggle('on', !!point && cell.getAttribute('data-config') === V.sweepPick.config && cell.getAttribute('data-x') === String(V.sweepPick.x));
+    });
+    if (!point) { host.innerHTML = '<p class="ds-hint">Click a cell or a point to list its worst targets.</p>'; return; }
+    var config = configOf[V.sweepPick.config];
+    var html = '<h3>Worst targets · ' + (config ? swatch(config.color) : '') + esc(V.sweepPick.config) + ' at ' + esc(SW.x_label) + ' ' +
+      esc(String(point.x)) + (facet.value !== 'all' ? ' · ' + esc(facet.value) : '') + ' <span class="ds-hint">' + point.worst.length + ' of ' + point.n +
+      ' targets, highest ' + esc(SW.y_label) + ' first · the run is the repeat closest to the target’s median</span></h3><ol class="ds-sweep-list">';
+    point.worst.forEach(function (row) {
+      html += '<li data-tc-sweep-worst-row><a href="#/target/' + encodeURIComponent(row.target) + '">' + esc(row.title) + '</a>' +
+        '<span class="ds-num"><b>' + sweepNumber(row.value) + '</b>' + esc(sweepUnit()) + '</span>' +
+        '<a class="ds-sweep-run" href="runs/' + encodeURIComponent(row.run) + '/report.html" title="open this run’s report">' + esc(row.run) + ' ↗</a></li>';
+    });
+    host.innerHTML = html + '</ol>';
+  }
+  function drawSweepChart(host, facet, xs) {
+    if (!xs.length || !facet.configs.length) { host.innerHTML = '<p class="ds-hint">No run has a numeric ' + esc(SW.x) + ' and ' + esc(SW.y) + '.</p>'; return; }
+    var positive = function (value) { return value === null || value === undefined || (SW.log_y && value <= 0) ? null : value; };
+    var data = [xs], series = [{}], bands = [], owners = [null];
+    facet.configs.forEach(function (config) {
+      var at = function (key) { return xs.map(function (x) { var point = sweepPoint(facet, config.name, x); return point ? positive(point[key]) : null; }); };
+      var high = series.length;
+      data.push(at('q3')); series.push({ stroke: 'transparent', width: 0, points: { show: false }, spanGaps: true }); owners.push(null);
+      data.push(at('q1')); series.push({ stroke: 'transparent', width: 0, points: { show: false }, spanGaps: true }); owners.push(null);
+      bands.push({ series: [high, high + 1], fill: config.color + '22' });
+      data.push(at('median'));
+      series.push({ label: config.name, stroke: config.color, width: 2, spanGaps: true, points: { show: true, size: 8, fill: config.color, stroke: '#fcfcfb', width: 1.5 } });
+      owners.push(config);
+    });
+    var font = '10.5px -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif';
+    var axis = { stroke: '#8a8983', font: font, labelFont: font, grid: { stroke: '#efeee9', width: 1 }, ticks: { stroke: '#e6e5e0', width: 1, size: 4 } };
+    var readout = $('ds-sweep-readout');
+    function nearest(u) {
+      var index = u.cursor.idx, top = u.cursor.top;
+      if (index === null || index === undefined || top === null || top === undefined || top < 0) return null;
+      var best = null;
+      owners.forEach(function (config, k) {
+        if (!config || data[k][index] === null) return;
+        var distance = Math.abs(u.valToPos(data[k][index], 'y') - top);
+        if (!best || distance < best.distance) best = { distance: distance, config: config, x: xs[index] };
+      });
+      return best;
+    }
+    var chart = new uPlot({
+      width: Math.max(320, host.clientWidth), height: 300, legend: { show: false },
+      cursor: { drag: { x: false, y: false }, points: { show: false } },
+      scales: { x: { time: false }, y: SW.log_y ? { distr: 3 } : { auto: true } },
+      axes: [
+        Object.assign({}, axis, { label: SW.x_label, labelSize: 18, size: 30, values: function (u, values) { return values.map(function (v) { return String(+v.toFixed(4)); }); } }),
+        Object.assign({}, axis, { label: SW.y_label + (SW.unit ? ' [' + SW.unit + ']' : ''), labelSize: 18, size: 54,
+          values: function (u, values) { return values.map(function (v) { return v === null ? '' : sweepNumber(v); }); } }),
+      ],
+      series: series, bands: bands,
+      hooks: {
+        setCursor: [function (u) {
+          var index = u.cursor.idx;
+          if (index === null || index === undefined) { readout.innerHTML = '&nbsp;'; return; }
+          var parts = [esc(SW.x_label) + ' ' + esc(String(xs[index]))];
+          owners.forEach(function (config, k) {
+            if (config && data[k][index] !== null) parts.push('<span style="color:' + config.color + '">■</span> ' + esc(config.name) + ' <b>' + sweepNumber(data[k][index]) + '</b>' + esc(sweepUnit()));
+          });
+          readout.innerHTML = parts.join(' · ');
+        }],
+      },
+    }, data, host);
+    chart.over.style.cursor = 'pointer';
+    chart.over.addEventListener('click', function () {
+      var hit = nearest(chart);
+      if (!hit) return;
+      V.sweepPick = { config: hit.config.name, x: hit.x };
+      renderSweepWorst();
+    });
+    var observer = new ResizeObserver(function () {
+      var width = Math.max(320, host.clientWidth);
+      if (host.clientWidth > 0 && Math.abs(width - chart.width) > 1) chart.setSize({ width: width, height: 300 });
+    });
+    observer.observe(host);
+    chart._ro = observer;
+    charts.sweep.push(chart);
+  }
+  $('ds-view-sweep').addEventListener('click', function (event) {
+    var chip = event.target.closest('[data-tc-sweep-facet]');
+    if (chip) {
+      V.sweepFacet = chip.getAttribute('data-tc-sweep-facet');
+      store.set('sweep-facet', V.sweepFacet);
+      V.sweepPick = null;
+      renderSweep();
+      return;
+    }
+    var cell = event.target.closest('[data-tc-sweep-cell]');
+    if (cell) {
+      V.sweepPick = { config: cell.getAttribute('data-config'), x: Number(cell.getAttribute('data-x')) };
+      renderSweepWorst();
+    }
+  });
+
   // ── Dataset level: the view switch ──
 
   function showView() {
@@ -1572,15 +1767,18 @@
       button.classList.toggle('on', on);
       button.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
+    $('ds-view-sweep').hidden = V.view !== 'sweep';
     $('ds-view-cards').hidden = V.view !== 'cards';
     $('ds-view-table').hidden = V.view !== 'table';
     $('ds-view-runs').hidden = V.view !== 'runs';
     renderDatasetControls();
     destroyCharts('cards');
+    destroyCharts('sweep');
     stopObserving('cards');
     stopObserving('table');
     if (V.view === 'cards') renderCards();
     if (V.view === 'table') renderLeague();
+    if (V.view === 'sweep' && SW) renderSweep();
   }
   document.querySelector('[data-tc-targets-view]').addEventListener('click', function (event) {
     var button = event.target.closest('[data-view]');
@@ -2102,6 +2300,7 @@
     var crumbs = $('ds-crumbs');
     destroyCharts('cards');
     destroyCharts('repeat');
+    destroyCharts('sweep');
     stopObserving('cards');
     stopObserving('table');
     if (target) {

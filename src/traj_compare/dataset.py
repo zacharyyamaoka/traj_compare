@@ -151,6 +151,32 @@ class Run:
         return float(self.time_offset_s.get(second, 0.0)) - float(self.time_offset_s.get(first, 0.0))
 
 
+@dataclass(frozen=True)
+class Sweep:
+    """The speed-sweep overview on the Dataset level: one numeric run tag swept (``x``, e.g. the time scaling) against
+    another it scores (``y``, e.g. tool tracking RMS), per config, optionally split into chips by ``facet_by``.
+
+    WHY a view inside the Dataset level (Zach, Daily Note 2026-11-23): "I want to be able to see the pareto graph that
+    shows the accuracy vs time scaling ... drill down into any of the actual trajectories", and "I don't want to keep on
+    making a new viewer". ``x_label`` / ``y_label`` default to the tag names; ``unit`` follows every ``y`` value;
+    ``log_y`` draws the chart's y axis on a log scale.
+    """
+
+    x: str
+    y: str
+    facet_by: str | None = None
+    x_label: str | None = None
+    y_label: str | None = None
+    unit: str = ""
+    log_y: bool = False
+
+    def __post_init__(self) -> None:
+        if self.x_label is None:
+            object.__setattr__(self, "x_label", self.x)
+        if self.y_label is None:
+            object.__setattr__(self, "y_label", self.y)
+
+
 def _checked_torques(
     run_name: str, measured: Mapping[str, JointTrajectory], torques: Mapping[str, Mapping[str, Any]]
 ) -> dict[str, dict[str, np.ndarray]]:
@@ -966,6 +992,93 @@ def _site_levels(target_rows: list[dict[str, Any]], lines: list[dict[str, Any]])
     if any_breakdown:
         levels["has_torque_breakdown"] = True
     return levels
+
+
+_SWEEP_WORST = 10  # the targets listed under a sweep point
+
+
+def _sweep_number(value: Any) -> float | None:
+    """A numeric run tag as a float; None for a missing, boolean, text or non-finite one."""
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
+
+
+def _sweep_payload(
+    sweep: Sweep, targets: Sequence[_Target], slugs: Mapping[str, str], config_tag: str | None,
+    config_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """``payload["sweep"]``, from run tags only (never a trajectory, so a reused or lazy write costs nothing more).
+
+    One value per (target, config, x): the median of y over that config's runs of the target at that x (its repeats).
+    A point per (facet, config, x): the median over targets of those values, ``q1`` / ``q3`` their numpy-linear 25th /
+    75th percentiles, ``n`` the targets, ``worst`` the top ``_SWEEP_WORST`` targets by value, highest first (ties keep
+    target order), each naming the run whose y is closest to its value (the first on ties). Facets: ``"all"`` first,
+    then each ``facet_by`` value in first-seen order. Configs in ``levels.configs`` order, with its colours. A run's
+    config is its ``config_by`` tag as on the levels; without one, each of its series (the lines' rule). A run without
+    a numeric x or y is left out and counted in ``skipped``.
+    """
+    colours = {row["name"]: row["color"] for row in config_rows}
+    facet_order: list[str] = ["all"]
+    # (facet, config, x) -> target index -> [(y, run name)] in run order
+    cells: dict[tuple[str, str, float], dict[int, list[tuple[float, str]]]] = {}
+    config_seen: list[str] = []
+    skipped = 0
+    for index, target in enumerate(targets):
+        for run in target.runs:
+            x, y = _sweep_number(run.tags.get(sweep.x)), _sweep_number(run.tags.get(sweep.y))
+            if x is None or y is None:
+                skipped += 1
+                continue
+            if config_tag is None:
+                configs = list(run.measured)
+            else:
+                configs = [str(_tag_value(run.tags[config_tag])) if config_tag in run.tags else f"no {config_tag}"]
+            facets = ["all"]
+            if sweep.facet_by is not None:
+                facet = (str(_tag_value(run.tags[sweep.facet_by])) if sweep.facet_by in run.tags
+                         else f"no {sweep.facet_by}")
+                if facet not in facet_order:
+                    facet_order.append(facet)
+                facets.append(facet)
+            for config in configs:
+                if config not in config_seen:
+                    config_seen.append(config)
+                for facet in facets:
+                    cells.setdefault((facet, config, x), {}).setdefault(index, []).append((y, run.name))
+    config_order = [row["name"] for row in config_rows if row["name"] in config_seen]
+    config_order += [name for name in config_seen if name not in config_order]
+    facets_out = []
+    for facet in facet_order:
+        configs_out = []
+        for config in config_order:
+            xs = sorted(x for (f, c, x) in cells if f == facet and c == config)
+            points = []
+            for x in xs:
+                per_target = cells[(facet, config, x)]
+                rows = []
+                for index in sorted(per_target):
+                    repeats = per_target[index]
+                    value = float(np.median([y for y, _ in repeats]))
+                    closest = min(repeats, key=lambda item: abs(item[0] - value))  # min keeps the first on ties
+                    rows.append({"target": targets[index].slug, "title": targets[index].title, "value": value,
+                                 "run": slugs[closest[1]]})
+                values = np.array([row["value"] for row in rows])
+                worst = sorted(rows, key=lambda row: -row["value"])[:_SWEEP_WORST]  # stable: ties keep target order
+                points.append({
+                    "x": x, "median": float(np.median(values)), "q1": float(np.percentile(values, 25)),
+                    "q3": float(np.percentile(values, 75)), "n": len(rows), "worst": worst,
+                })
+            if points:
+                configs_out.append({"name": config, "color": colours.get(config, _TWIN_GREY), "points": points})
+        facets_out.append({"value": facet, "configs": configs_out})
+    return _clean({
+        "x": sweep.x, "y": sweep.y, "facet_by": sweep.facet_by, "x_label": sweep.x_label, "y_label": sweep.y_label,
+        "unit": sweep.unit, "log_y": bool(sweep.log_y), "skipped": skipped, "facets": facets_out,
+    })
 
 
 def _fb_share_median(lines: Sequence[Mapping[str, Any]]) -> float | None:
@@ -1787,6 +1900,7 @@ def write_dataset_report(
     target_budget: int = 2_000_000,
     reuse: bool = True,
     progress: Callable[[str, int, int], None] | None = None,
+    sweep: Sweep | None = None,
 ) -> Path:
     """Write ``output_dir/index.html`` (many runs at a glance), ``rows.json``/``rows.parquet`` and ``runs/<slug>/``.
 
@@ -1827,6 +1941,11 @@ def write_dataset_report(
     - ``progress``: ``progress(phase, done, total)`` for the phases ``"runs"``, ``"reused"`` (once: runs reused of all),
       ``"targets"``, ``"index"`` and, with ``drill_down="eager"``, ``"drill"``. An exception it raises stops the write;
       every file is written under a temporary name and renamed into place, so each is left whole, old or new.
+    - ``sweep``: a ``Sweep(x, y, facet_by=None, x_label, y_label, unit, log_y)`` adds the speed-sweep overview, the
+      Dataset level's first view: per config, the median over targets of each target's median y over its repeats at each
+      x, with q1 / q3, n and the worst targets per point (each linking its Target level and one run's report); facet
+      chips split it by ``facet_by``. Computed from run tags only (``_sweep_payload``), so reused and lazy writes keep it
+      exact; a run without a numeric x or y is skipped and counted. ``None`` (the default): no sweep view, today's page.
     """
 
     runs = list(runs)
@@ -2015,6 +2134,8 @@ def write_dataset_report(
             **_clean(levels),
         },
     }
+    if sweep is not None:
+        payload["sweep"] = _sweep_payload(sweep, targets, slugs, config_tag, payload["levels"]["configs"])
     data_json = json.dumps(payload, separators=(",", ":")).replace("</", "<\\/")
     # The ReportPage renderer lives in plots.js; it is only worth its 75 KB when a summary is given.
     renderer = f"<script>{_asset('plots.js')}</script>" if summary is not None else ""
