@@ -244,20 +244,29 @@ def _stack(named: list[tuple[str, JointTrajectory]], tags: Mapping[str, Mapping[
     )
 
 
+def _slope(values: np.ndarray, t: np.ndarray) -> np.ndarray:
+    """d values / dt along axis 0: central differences inside, a plain one-sided difference at each end.
+
+    WHY first order at the ends (2026-11-23, tests/test_coverage_edges.py): numpy's second-order edge stencil
+    (-3 f0 + 4 f1 - f2) / 2h overshoots when the slope changes right after the first sample, so every UR5e page showed
+    a false "past the jerk limit" at sample 0 of each trajectory. A coverage number must never claim a sample went
+    somewhere the data does not show."""
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return np.gradient(values, t, axis=0, edge_order=1)
+
+
 def _signals(trajectory: JointTrajectory) -> tuple[np.ndarray, ...]:
-    """q, qd, qdd, qddd of one trajectory, (N, J) each. Missing qd/qdd come from `with_derivatives()`; qddd is always
-    np.gradient(qdd, t) (COVERAGE.md)."""
+    """q, qd, qdd, qddd of one trajectory, (N, J) each. Missing qd/qdd and the jerk are `_slope`s on the trajectory's
+    own clock (COVERAGE.md)."""
     positions = np.asarray(trajectory.positions, float)
     if len(trajectory) < 2:  # nothing to differentiate: a single pose stands still
         zero = np.zeros_like(positions)
         return positions, zero, zero, zero
-    if trajectory.velocities is None or trajectory.accelerations is None:
-        trajectory = trajectory.with_derivatives()
-    accelerations = np.asarray(trajectory.accelerations, float)
-    edge_order = 2 if len(trajectory) >= 3 else 1
-    with np.errstate(divide="ignore", invalid="ignore"):
-        jerk = np.gradient(accelerations, np.asarray(trajectory.t, float), axis=0, edge_order=edge_order)
-    return positions, np.asarray(trajectory.velocities, float), accelerations, jerk
+    t = np.asarray(trajectory.t, float)
+    velocities = _slope(positions, t) if trajectory.velocities is None else np.asarray(trajectory.velocities, float)
+    accelerations = (_slope(velocities, t) if trajectory.accelerations is None
+                     else np.asarray(trajectory.accelerations, float))
+    return positions, velocities, accelerations, _slope(accelerations, t)
 
 
 def _plain_tags(tags: Mapping[str, Any]) -> dict:
@@ -738,10 +747,7 @@ def _tool_speed(pose: PoseTrajectory) -> np.ndarray:
         return np.linalg.norm(np.asarray(pose.linear_velocities, float), axis=1)
     if len(pose) < 2:
         return np.zeros(len(pose))
-    edge_order = 2 if len(pose) >= 3 else 1
-    with np.errstate(divide="ignore", invalid="ignore"):
-        velocity = np.gradient(np.asarray(pose.positions, float), np.asarray(pose.t, float), axis=0,
-                               edge_order=edge_order)
+    velocity = _slope(np.asarray(pose.positions, float), np.asarray(pose.t, float))
     return np.linalg.norm(velocity, axis=1)
 
 

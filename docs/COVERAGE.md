@@ -58,8 +58,9 @@ coverage.log_wandb(run)      # -> dict of what was logged (calls log_coverage)
 
 - A single `JointTrajectory` is a dataset of one. Names: the Mapping's keys, else `header.meta["name"]`, else
   `traj_<i>`. Trajectory order is kept (it is the "growth" order).
-- Missing `velocities` / `accelerations` are derived with `JointTrajectory.with_derivatives()`; jerk (`qddd`) is always
-  `np.gradient(qdd, t)`. SI everywhere inside; degrees and mm only in viewers (payload carries `display.scale/unit`).
+- Missing `velocities` / `accelerations` and the jerk (`qddd`, always derived) are slopes on the trajectory's own clock:
+  central differences inside, a plain one-sided difference at each end (numpy's second-order edge stencil invents
+  overshoot at sample 0 — tests/test_coverage_edges.py). The tool speed uses the same rule. SI everywhere inside; degrees and mm only in viewers (payload carries `display.scale/unit`).
 - All trajectories must share `joint_names` (else `ValueError` naming the first mismatch).
 - `python -m traj_compare.coverage <file.npz|dir ...> --out <dir> [--tool <file.npz|dir ...>] [--title T]` reads robot_msgs
   `.npz` messages (`robot_msgs._core.load_npz`) and writes `<dir>/index.html` + `<dir>/coverage.json`.
