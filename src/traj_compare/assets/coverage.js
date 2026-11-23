@@ -1536,7 +1536,7 @@
 
   function buildCartesian(section) {
     const projections = figure('projections', 'Where does the tool go?',
-      'The tool\'s path seen from above (x, y), from the front (x, z) and from the side (y, z), base frame, in 2 cm pixels, all three at the same scale. Colour = samples in the pixel, or (switched) how many distinct trajectories passed through it: the Strava view, where a route walked by many trajectories glows and a long pause counts once. White = never visited; when the robot\'s reachable space is known, grey marks where it cannot go.',
+      'The tool\'s path seen from above (x, y), from the front (x, z) and from the side (y, z), in the payload\'s frame (named above the views), in 2 cm pixels, all three at the same scale. Colour = samples in the pixel, or (switched) how many distinct trajectories passed through it: the Strava view, where a route walked by many trajectories glows and a long pause counts once. White = never visited; when the robot\'s reachable space is known, grey marks where it cannot go.',
       'Strava global heatmap (paths per pixel); the Nov 19 gallery "workspace holes" ("showing x y but also x z and y z").');
     register('cartesian', projections, (width) => drawProjections(projections, width));
     section.append(projections.node);
@@ -1620,12 +1620,14 @@
         canvas]));
     }
     fig.body.append(el('div', { class: 'cov-heatrow' }, [panels, colorbar(scaled, mode === 'paths' ? 'trajectories per pixel' : 'samples per pixel', Math.min(barHeight, 300))]));
-    fig.lead.textContent = `Base frame "${tool.frame}", ${fmt(pixel * 100)} cm pixels, all three views at one scale`;
+    fig.lead.textContent = `Frame "${tool.frame}", ${fmt(pixel * 100)} cm pixels, all three views at one scale`;
     setLegend(fig, [
       { kind: 'ramp', label: `colour = ${mode === 'paths' ? 'distinct trajectories through the pixel (Strava)' : 'samples in the pixel'}`, note: `(${scaleTitle(state.scale)})` },
       { kind: 'empty', label: anyReachable ? 'white = reachable, never visited' : 'white = never visited' },
       anyReachable ? { kind: 'outside', label: 'grey = the robot cannot reach it' } : null,
-      { kind: 'cross', colour: INK, label: 'the robot base origin' },
+      // WHY the frame's own name: the UR5e cell pages use the cell frame (the arm hangs upside down there), so "robot base"
+      // would be false on them (2026-11-23).
+      { kind: 'cross', colour: INK, label: `the origin of frame "${tool.frame}"` },
     ]);
   }
 
@@ -1732,7 +1734,7 @@
     register('orientation', disk, (width) => drawTiltMap(disk, width));
     register('orientation', grid, (width) => drawTiltYaw(grid, width));
     const sphere = figure('sphere-3d', 'Which directions does the tool point, on a sphere?',
-      'The tool\'s z axis as a point on a sphere around the base frame, in equal-area cells coloured by count: you see on which side of the sphere the tool tilts. Drag to orbit, double-click to fit.',
+      'The tool\'s z axis as a point on a sphere in the payload\'s frame (axes drawn), in equal-area cells coloured by count: you see on which side of the sphere the tool tilts. Drag to orbit, double-click to fit.',
       'Equal-area sphere cells (Archimedes\' equal z bands); Zach 2026-11-23, "I can also see helpful to see it like a sphere".');
     const line = figure('yaw-line', 'Which jaw headings and tilts occur?',
       'Top: yaw, the heading of the tool\'s x axis (the jaw) in the base\'s x-y plane, as a histogram along a straight line from −180° to 180°. Bottom: tilt from the reference, 0° (along it) to 180°.',
