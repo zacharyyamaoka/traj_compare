@@ -307,6 +307,15 @@ write_dataset_report(runs, "out/", title="Wrist coverage", group_by=("tape",), t
                      primary={"sim": "sim_it5"}, drill_down="lazy")
 ```
 
+- **Tabs and the config league** (`docs/NAVIGATION.md` Part E, 2026-11-23). The Dataset level is tabs: **Overview**
+  (`#/`: one row per config, ranked on the sweep's `y` at the fastest x, its ratio to the best, n targets, every KPI with
+  a sparkline over x, chips per facet, a facet × config matrix; then the band below), **Speed sweeps** (`#/sweeps`),
+  **Targets** (`#/targets`: cards ⇄ table a page at a time, or `?cfg=` a config's worst targets) and **Runs** (`#/runs`).
+  A row click drills to that config's worst targets, then a target, then a run. KPIs are run tags:
+  `Sweep(x="speed_fraction", y="{series}_tcp_rms_mm", facet_by=("dataset", "split"), metrics=(Metric("{series}_energy_j",
+  label="energy per task", unit="J"),))`; `{series}` reads each measured series' own tag, so sim and real rank apart.
+  Without a sweep the Overview ranks configs by their median RMS joint error. The `summary` page is folded at the foot of
+  Speed sweeps (Overview without a sweep).
 - **Three levels** (`docs/NAVIGATION.md` Part A). `index.html` opens on the **Dataset**: your `summary`, a band across every
   target (targets, lines sim/real, configs, dates; per config the median RMS error and "better than <baseline> on X of Y
   targets"), then the targets as **Cards** ⇄ **Table** (one row per target × config: lines, RMS error per line, median,

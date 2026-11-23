@@ -152,6 +152,28 @@ class Run:
 
 
 @dataclass(frozen=True)
+class Metric:
+    """One more KPI of the outer view's league table (NAVIGATION.md Part E): a numeric run ``tag`` scored per config, shown
+    with ``label`` and ``unit``; ``log`` draws its sparkline and chart on a log scale; ``better`` is "lower" or "higher".
+    A ``tag`` holding ``{series}`` reads each measured series' own tag ("{series}_energy_j" -> "sim_energy_j")."""
+
+    tag: str
+    label: str | None = None
+    unit: str = ""
+    log: bool = False
+    better: str = "lower"
+
+    def __post_init__(self) -> None:
+        if self.label is None:
+            object.__setattr__(self, "label", self.tag)
+        if self.better not in ("lower", "higher"):
+            raise ValueError(f"Metric {self.tag!r}: better is 'lower' or 'higher', got {self.better!r}")
+
+    def to_payload(self) -> dict[str, Any]:
+        return {"tag": self.tag, "label": self.label, "unit": self.unit, "log": bool(self.log), "better": self.better}
+
+
+@dataclass(frozen=True)
 class Sweep:
     """The speed-sweep overview on the Dataset level: one numeric run tag swept (``x``, e.g. the time scaling) against
     another it scores (``y``, e.g. tool tracking RMS), per config, optionally split into chips by ``facet_by``.
@@ -160,21 +182,32 @@ class Sweep:
     shows the accuracy vs time scaling ... drill down into any of the actual trajectories", and "I don't want to keep on
     making a new viewer". ``x_label`` / ``y_label`` default to the tag names; ``unit`` follows every ``y`` value;
     ``log_y`` draws the chart's y axis on a log scale.
+
+    The outer view's league table (NAVIGATION.md Part E) ranks configs by ``y`` and ``metrics`` (more ``Metric`` KPIs).
+    ``facet_by`` may be a tuple of tags (a facet is their values joined by " · ", e.g. dataset and split); ``y`` and a
+    metric's tag may hold ``{series}`` so each measured series reads its own tag (sim and real scored apart).
     """
 
     x: str
     y: str
-    facet_by: str | None = None
+    facet_by: str | tuple[str, ...] | None = None
     x_label: str | None = None
     y_label: str | None = None
     unit: str = ""
     log_y: bool = False
+    metrics: tuple[Metric, ...] = ()
 
     def __post_init__(self) -> None:
         if self.x_label is None:
             object.__setattr__(self, "x_label", self.x)
         if self.y_label is None:
             object.__setattr__(self, "y_label", self.y)
+        if self.facet_by is not None and not isinstance(self.facet_by, str):
+            object.__setattr__(self, "facet_by", tuple(str(tag) for tag in self.facet_by))
+        metrics = tuple(self.metrics or ())
+        if not all(isinstance(metric, Metric) for metric in metrics):
+            raise TypeError("Sweep.metrics holds Metric(tag, ...) items")
+        object.__setattr__(self, "metrics", metrics)
 
 
 def _checked_torques(
@@ -1007,9 +1040,18 @@ def _sweep_number(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
+SERIES_FIELD = "{series}"  # in a Sweep / Metric tag: each measured series reads its own tag
+
+
+def _sweep_facet(sweep: Sweep, tags: Mapping[str, Any]) -> str:
+    """A run's facet value: its ``facet_by`` tag, or several joined by " · "; "no <tag>" for a missing one."""
+    names = (sweep.facet_by,) if isinstance(sweep.facet_by, str) else tuple(sweep.facet_by or ())
+    return " · ".join(str(_tag_value(tags[name])) if name in tags else f"no {name}" for name in names)
+
+
 def _sweep_payload(
     sweep: Sweep, targets: Sequence[_Target], slugs: Mapping[str, str], config_tag: str | None,
-    config_rows: Sequence[Mapping[str, Any]],
+    config_rows: Sequence[Mapping[str, Any]], series_order: Sequence[str] = (),
 ) -> dict[str, Any]:
     """``payload["sweep"]``, from run tags only (never a trajectory, so a reused or lazy write costs nothing more).
 
@@ -1020,17 +1062,26 @@ def _sweep_payload(
     then each ``facet_by`` value in first-seen order. Configs in ``levels.configs`` order, with its colours. A run's
     config is its ``config_by`` tag as on the levels; without one, each of its series (the lines' rule). A run without
     a numeric x or y is left out and counted in ``skipped``.
+
+    With ``{series}`` in ``y`` each measured series of a run reads its own tag; when more than one series has values, a
+    config is "<config> · <series>" (configs in ``levels.configs`` order, then series in ``series_order``), else the
+    config alone. ``metrics`` are copied for the page, which scores them the same way (NAVIGATION.md Part E).
     """
     colours = {row["name"]: row["color"] for row in config_rows}
+    templated = SERIES_FIELD in sweep.y
     facet_order: list[str] = ["all"]
-    # (facet, config, x) -> target index -> [(y, run name)] in run order
-    cells: dict[tuple[str, str, float], dict[int, list[tuple[float, str]]]] = {}
+    # (facet, (config, series), x) -> target index -> [(y, run name)] in run order; series is "" for a plain y
+    cells: dict[tuple[str, tuple[str, str], float], dict[int, list[tuple[float, str]]]] = {}
     config_seen: list[str] = []
+    series_seen: list[str] = []
     skipped = 0
     for index, target in enumerate(targets):
         for run in target.runs:
-            x, y = _sweep_number(run.tags.get(sweep.x)), _sweep_number(run.tags.get(sweep.y))
-            if x is None or y is None:
+            x = _sweep_number(run.tags.get(sweep.x))
+            readings = ([(series, _sweep_number(run.tags.get(sweep.y.replace(SERIES_FIELD, series)))) for series in run.measured]
+                        if templated else [("", _sweep_number(run.tags.get(sweep.y)))])
+            readings = [(series, y) for series, y in readings if y is not None]
+            if x is None or not readings:
                 skipped += 1
                 continue
             if config_tag is None:
@@ -1039,26 +1090,34 @@ def _sweep_payload(
                 configs = [str(_tag_value(run.tags[config_tag])) if config_tag in run.tags else f"no {config_tag}"]
             facets = ["all"]
             if sweep.facet_by is not None:
-                facet = (str(_tag_value(run.tags[sweep.facet_by])) if sweep.facet_by in run.tags
-                         else f"no {sweep.facet_by}")
+                facet = _sweep_facet(sweep, run.tags)
                 if facet not in facet_order:
                     facet_order.append(facet)
                 facets.append(facet)
             for config in configs:
                 if config not in config_seen:
                     config_seen.append(config)
-                for facet in facets:
-                    cells.setdefault((facet, config, x), {}).setdefault(index, []).append((y, run.name))
+                for series, y in readings:
+                    if config_tag is None and templated and series != config:
+                        continue  # without a config tag the config is the series: each reads its own tag
+                    if series and series not in series_seen:
+                        series_seen.append(series)
+                    for facet in facets:
+                        cells.setdefault((facet, (config, series), x), {}).setdefault(index, []).append((y, run.name))
     config_order = [row["name"] for row in config_rows if row["name"] in config_seen]
     config_order += [name for name in config_seen if name not in config_order]
+    series_ranked = [name for name in series_order if name in series_seen] + [name for name in series_seen if name not in series_order]
+    split = templated and len(series_seen) > 1 and config_tag is not None
+    keys = [(config, series) for config in config_order for series in (series_ranked if templated else [""])]
     facets_out = []
     for facet in facet_order:
         configs_out = []
-        for config in config_order:
-            xs = sorted(x for (f, c, x) in cells if f == facet and c == config)
+        for key in keys:
+            config, series = key
+            xs = sorted(x for (f, k, x) in cells if f == facet and k == key)
             points = []
             for x in xs:
-                per_target = cells[(facet, config, x)]
+                per_target = cells[(facet, key, x)]
                 rows = []
                 for index in sorted(per_target):
                     repeats = per_target[index]
@@ -1073,11 +1132,17 @@ def _sweep_payload(
                     "q3": float(np.percentile(values, 75)), "n": len(rows), "worst": worst,
                 })
             if points:
-                configs_out.append({"name": config, "color": colours.get(config, _TWIN_GREY), "points": points})
+                name = f"{config} · {series}" if split else config
+                entry = {"name": name, "color": colours.get(config, _TWIN_GREY), "points": points}
+                if series:
+                    entry.update({"config": config, "series": series})
+                configs_out.append(entry)
         facets_out.append({"value": facet, "configs": configs_out})
+    facet_by = sweep.facet_by if sweep.facet_by is None or isinstance(sweep.facet_by, str) else list(sweep.facet_by)
     return _clean({
-        "x": sweep.x, "y": sweep.y, "facet_by": sweep.facet_by, "x_label": sweep.x_label, "y_label": sweep.y_label,
+        "x": sweep.x, "y": sweep.y, "facet_by": facet_by, "x_label": sweep.x_label, "y_label": sweep.y_label,
         "unit": sweep.unit, "log_y": bool(sweep.log_y), "skipped": skipped, "facets": facets_out,
+        "metrics": [metric.to_payload() for metric in sweep.metrics], "split_series": split,
     })
 
 
@@ -2135,7 +2200,7 @@ def write_dataset_report(
         },
     }
     if sweep is not None:
-        payload["sweep"] = _sweep_payload(sweep, targets, slugs, config_tag, payload["levels"]["configs"])
+        payload["sweep"] = _sweep_payload(sweep, targets, slugs, config_tag, payload["levels"]["configs"], payload["series"])
     data_json = json.dumps(payload, separators=(",", ":")).replace("</", "<\\/")
     # The ReportPage renderer lives in plots.js; it is only worth its 75 KB when a summary is given.
     renderer = f"<script>{_asset('plots.js')}</script>" if summary is not None else ""

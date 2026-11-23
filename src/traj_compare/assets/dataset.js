@@ -162,14 +162,23 @@
     '<nav class="ds-crumbs" id="ds-crumbs" aria-label="Breadcrumb"></nav>' +
     '<div id="ds-level-dataset">' +
     '<header class="ds-head"><h1></h1><p class="ds-sub"></p><div class="ds-banner" id="ds-banner" hidden></div></header>' +
-    '<div class="ds-summary" id="ds-summary"></div>' +
-    '<section class="ds-band" id="ds-band" data-tc-dataset-summary></section>' +
-    '<section class="ds-targets"><div class="ds-targets-head"><h2>Which config tracks each target better?</h2>' +
+    // WHY tabs (Zach, 2026-11-20: "add tabs so it's not all on the one page"; 2026-11-23: the one-page landing was
+    // "completely unusable", 229 screens on the UR5e): the Dataset level is tabs (NAVIGATION.md Part E), the strip drawn
+    // from one list (DATASET_TABS) so a later tab is one entry.
+    '<nav class="ds-otabs" id="ds-otabs" data-tc-dataset-tabs role="tablist" aria-label="Dataset views"></nav>' +
+    '<section class="ds-opanel" id="ds-panel-overview" data-tc-dataset-panel="overview" hidden>' +
+    '<div id="ds-overview"></div>' +
+    '<section class="ds-band" id="ds-band" data-tc-dataset-summary></section></section>' +
+    '<section class="ds-opanel" id="ds-panel-sweeps" data-tc-dataset-panel="sweeps" hidden>' +
+    '<div id="ds-view-sweep"></div><div class="ds-sweep-metrics" id="ds-sweep-metrics"></div></section>' +
+    '<section class="ds-opanel ds-targets" id="ds-panel-targets" data-tc-dataset-panel="targets" hidden>' +
+    '<div class="ds-drill" id="ds-drill" data-tc-drill hidden></div><div id="ds-targets-all">' +
+    '<div class="ds-targets-head"><h2>Which config tracks each target better?</h2>' +
     '<div class="ds-seg ds-viewswitch" data-tc-targets-view role="group" aria-label="Show the targets as">' +
-    (D.sweep ? '<button type="button" data-view="sweep">Speed sweep</button>' : '') +
     '<button type="button" data-view="cards">Cards</button><button type="button" data-view="table">Table</button>' +
-    '<button type="button" data-view="runs">Runs</button></div><div class="ds-bar ds-levelbar" id="ds-dataset-controls"></div></div>' +
-    '<div id="ds-view-sweep" hidden></div><div id="ds-view-cards"></div><div id="ds-view-table"></div><div id="ds-view-runs">' +
+    '</div><div class="ds-bar ds-levelbar" id="ds-dataset-controls"></div></div>' +
+    '<div id="ds-view-cards"></div><div id="ds-view-table"></div></div></section>' +
+    '<section class="ds-opanel" id="ds-panel-runs" data-tc-dataset-panel="runs" hidden><div id="ds-view-runs">' +
     '<p class="ds-answer" id="ds-answer"></p><div class="ds-bar" id="ds-global"></div>' +
     '<section class="ds-card"><h2>Runs <span class="ds-hint" id="ds-table-count"></span></h2>' +
     '<div class="ds-bar" id="ds-filters"></div><div class="ds-scroll" id="ds-table"></div>' +
@@ -181,7 +190,9 @@
     '<div class="ds-keys" id="ds-peak-keys"></div><div class="ds-peaks" id="ds-peaks"></div><div id="ds-peak-axis"></div></section>' +
     '<section class="ds-card"><h2>Accuracy and repeatability <span class="ds-hint">ISO 9283, per group and series</span></h2>' +
     '<div class="ds-iso" id="ds-iso"></div><p class="ds-note" id="ds-iso-note"></p></section>' +
-    '</div></section></div>' +
+    '</div></section>' +
+    '<details class="ds-card ds-domain" id="ds-domain" data-tc-domain-summary hidden><summary></summary><div class="ds-summary" id="ds-summary"></div></details>' +
+    '</div>' +
     '<div id="ds-level-target" hidden></div>' +
     '<footer class="ds-foot" id="ds-foot"></footer>';
   document.title = D.title;
@@ -641,12 +652,19 @@
   function renderViews() { renderAnswer(); renderTable(); renderHeat(); renderPeaks(); }
   function renderAll() { renderViews(); renderIso(); }
 
-  // WHY the domain summary moves below the targets when there is a sweep (Zach, 2026-11-20: the bench's landing page is
-  // "WAYYY to hard to navigate"; 2026-11-23: the overview is "the pareto graph that shows the accuracy vs time scaling"):
-  // the sweep is the at-a-glance answer, so it opens first and the long scorecard stays one scroll away, unchanged.
-  if (D.sweep) $('ds-level-dataset').appendChild($('ds-summary'));
+  // WHY the domain summary is folded (Zach, 2026-11-20: the landing page is "WAYYY to hard to navigate"; the UR5e's
+  // scorecard alone was 17,207 px): it sits, closed, at the foot of Speed sweeps (Overview without a sweep), unchanged,
+  // and is drawn the first time it is opened.
   if (D.summary && window.TrajCompare && TrajCompare.renderReportPage) {
-    TrajCompare.renderReportPage($('ds-summary'), D.summary);
+    var domain = $('ds-domain');
+    domain.hidden = false;
+    var parts = [(D.summary.charts || []).length + ' charts', (D.summary.tables || []).length + ' tables'];
+    domain.querySelector('summary').innerHTML = '<b>' + esc(D.summary.title || 'Summary') + '</b> <span class="ds-hint">the domain’s own summary page (' +
+      parts.join(' · ') + '), folded · click to open</span>';
+    $(D.sweep ? 'ds-panel-sweeps' : 'ds-panel-overview').appendChild(domain);
+    domain.addEventListener('toggle', function () {
+      if (domain.open && !domain._drawn) { domain._drawn = true; TrajCompare.renderReportPage($('ds-summary'), D.summary); }
+    });
   }
   if (D.drill_down === 'lazy' && location.protocol === 'file:') {
     var banner = $('ds-banner');
@@ -696,11 +714,12 @@
     return typeof value === 'number' && isFinite(value) ? Math.max(low, Math.min(high, value)) : fallback;
   }
 
+  // WHY a page at a time (NAVIGATION.md Part E, every tab ~3 screens): all 1006 UR5e cards made the page 223,821 px tall.
+  var CARD_PAGE = 12, ROW_PAGE = 54;
   var V = {
-    // WHY the sweep first and the default when the payload has one (Zach, Daily Note 2026-11-23): "I want to be able to
-    // see the pareto graph that shows the accuracy vs time scaling ... drill down into any of the actual trajectories".
-    view: D.sweep ? oneOf(store.get('view', 'sweep'), ['sweep', 'cards', 'table', 'runs'], 'sweep')
-      : oneOf(store.get('view', 'cards'), ['cards', 'table', 'runs'], 'cards'),
+    // The Targets tab's view (NAVIGATION.md Part E: the sweep and the runs table are tabs of their own now).
+    view: oneOf(store.get('view', 'cards'), ['cards', 'table'], 'cards'),
+    cardLimit: CARD_PAGE, rowLimit: ROW_PAGE, leagueFacet: store.get('league-facet', 'all'),
     sweepFacet: store.get('sweep-facet', 'all'), sweepPick: null,
     joint: store.get('joint', ''),  // '' = each line's worst joint
     mode: oneOf(store.get('repeats', 'auto'), ['auto', 'lines', 'bands'], 'auto'),
@@ -1017,7 +1036,7 @@
 
   // ── uPlot fan / lines chart (2026-11-19 summary prototypes' shared/common.js, ported) ──
 
-  var charts = { cards: [], table: [], repeat: [], sweep: [] };
+  var charts = { cards: [], table: [], repeat: [], sweep: [], metrics: [] };
   function destroyCharts(scope) {
     charts[scope].forEach(function (chart) { if (chart._ro) chart._ro.disconnect(); chart.destroy(); });
     charts[scope] = [];
@@ -1272,7 +1291,6 @@
   }
   function renderDatasetControls() {
     var bar = $('ds-dataset-controls');
-    if (V.view === 'runs' || V.view === 'sweep') { bar.innerHTML = ''; return; }
     bar.innerHTML = jointSelect('ds-joint-dataset') + '<span class="ds-hint">Charts draw lines while a config has ≤ ' + V.n +
       ' lines, a fan past that (set on a target’s page) · click a line or a dot to open its run</span>';
     $('ds-joint-dataset').onchange = function (event) { setJoint(event.target.value); renderBand(); showView(); };
@@ -1315,7 +1333,7 @@
     holder.innerHTML = '';
     var grid = make('div', 'ds-cards', holder);
     var cards = [];
-    LV.targets.forEach(function (target) {
+    LV.targets.slice(0, V.cardLimit).forEach(function (target) {
       var joint = V.joint || worstJoint(target);
       var counts = kindCounts(target.lines);
       var groups = configGroups(target.lines);
@@ -1336,7 +1354,17 @@
       card._joint = joint;
       cards.push(card);
     });
+    morePager(holder, LV.targets.length, V.cardLimit, 'targets', function () { V.cardLimit += CARD_PAGE; renderCards(); });
     whenVisible('cards', cards, function (card) { withTarget(card._target, function () { drawCard(card); }); });
+  }
+  // "Showing k of n · Show m more", under a paged list (NAVIGATION.md Part E).
+  function morePager(holder, total, limit, noun, more) {
+    if (total <= limit) return;
+    var bar = make('div', 'ds-pager', holder);
+    bar.innerHTML = '<span class="ds-mut">Showing ' + limit + ' of ' + total + ' ' + noun + '</span>';
+    var button = make('button', 'ds-btn', bar, 'Show ' + Math.min(total - limit, noun === 'targets' ? CARD_PAGE : ROW_PAGE) + ' more');
+    button.type = 'button';
+    button.onclick = more;
   }
   function drawCard(card) {
     var target = card._target, host = card.querySelector('.ds-plot');
@@ -1449,6 +1477,8 @@
         return (LEAGUE_SORTS[V.league.key](a) - LEAGUE_SORTS[V.league.key](b)) * V.league.dir || a.target.index - b.target.index;
       });
     }
+    var allRows = rows.length;
+    rows = rows.slice(0, V.rowLimit);
     var columns = [
       ['target', 'Target · config'], ['n', 'Lines'], ['dist', 'RMS error per line'], ['median', 'Median'], ['delta', 'Δ vs ' + (BASELINE || 'baseline')],
     ];
@@ -1512,6 +1542,7 @@
       (HAS_TORQUE ? ' FB share and drive gap (RMS of commanded − applied torque) are medians over the row’s lines with a torque breakdown, ' +
         (V.joint ? esc(V.joint) : 'the share over all joints and the gap of each line’s largest joint') + '; “—” where none has one.' : '') + '</p>';
     holder.innerHTML = html;
+    morePager(holder, allRows, Math.min(V.rowLimit, allRows), 'rows', function () { V.rowLimit += ROW_PAGE; renderLeague(); });
     var trs = Array.prototype.slice.call(holder.querySelectorAll('tr.ds-lg-row'));
     trs.forEach(function (tr, index) { tr._row = rows[index]; });  // one tr.ds-lg-row per row, in order
     whenVisible('table', trs, function (tr) { withTarget(tr._row.target, function () { drawSpark(tr); }); });
@@ -1621,7 +1652,7 @@
       (SW.skipped ? ' · ' + SW.skipped + ' run' + (SW.skipped === 1 ? '' : 's') + ' without a numeric ' + esc(SW.x) + ' or ' + esc(SW.y) + ' left out' : '') +
       '</span></h2>';
     if ((SW.facets || []).length > 1) {
-      html += '<div class="ds-bar ds-sweep-facets"><span class="ds-k">' + esc(SW.facet_by || 'facet') + '</span><div class="ds-seg">';
+      html += '<div class="ds-bar ds-sweep-facets"><span class="ds-k">' + esc([].concat(SW.facet_by || 'facet').join(' · ')) + '</span><div class="ds-seg">';
       SW.facets.forEach(function (item) {
         var on = item.value === facet.value;
         html += '<button type="button" data-tc-sweep-facet="' + esc(item.value) + '" class="' + (on ? 'on' : '') + '" aria-pressed="' + on + '">' +
@@ -1630,7 +1661,7 @@
       html += '</div></div>';
     }
     html += '<div class="ds-sweep-keys">';
-    facet.configs.forEach(function (config) { html += '<span class="ds-chip">' + swatch(config.color) + esc(config.name) + '</span>'; });
+    facet.configs.forEach(function (config) { html += '<span class="ds-chip">' + swatch(config.color, simKey(config)) + esc(config.name) + '</span>'; });
     html += '<span class="ds-hint">' + axisText + (SW.log_y ? ' · log y' : '') + ' · click a point or a cell for its worst targets</span></div>' +
       '<div class="ds-plot ds-sweep-chart" data-tc-sweep-chart></div><div class="ds-readout" id="ds-sweep-readout">&nbsp;</div>';
     html += '<div class="ds-scroll ds-sweep-scroll"><table class="ds-league ds-sweep-table" data-tc-sweep-table><thead><tr><th>config</th>';
@@ -1644,7 +1675,7 @@
       });
     });
     facet.configs.forEach(function (config) {
-      html += '<tr><th class="ds-text">' + swatch(config.color) + esc(config.name) + '</th>';
+      html += '<tr><th class="ds-text">' + swatch(config.color, simKey(config)) + esc(config.name) + '</th>';
       xs.forEach(function (x) {
         var point = sweepPoint(facet, config.name, x);
         if (!point) { html += '<td class="ds-mut">–</td>'; return; }
@@ -1671,7 +1702,7 @@
       cell.classList.toggle('on', !!point && cell.getAttribute('data-config') === V.sweepPick.config && cell.getAttribute('data-x') === String(V.sweepPick.x));
     });
     if (!point) { host.innerHTML = '<p class="ds-hint">Click a cell or a point to list its worst targets.</p>'; return; }
-    var config = configOf[V.sweepPick.config];
+    var config = configOf[V.sweepPick.config] || configOf[(sweepConfig(V.sweepPick.config) || {}).config];
     var html = '<h3>Worst targets · ' + (config ? swatch(config.color) : '') + esc(V.sweepPick.config) + ' at ' + esc(SW.x_label) + ' ' +
       esc(String(point.x)) + (facet.value !== 'all' ? ' · ' + esc(facet.value) : '') + ' <span class="ds-hint">' + point.worst.length + ' of ' + point.n +
       ' targets, highest ' + esc(SW.y_label) + ' first · the run is the repeat closest to the target’s median</span></h3><ol class="ds-sweep-list">';
@@ -1693,7 +1724,7 @@
       data.push(at('q1')); series.push({ stroke: 'transparent', width: 0, points: { show: false }, spanGaps: true }); owners.push(null);
       bands.push({ series: [high, high + 1], fill: config.color + '22' });
       data.push(at('median'));
-      series.push({ label: config.name, stroke: config.color, width: 2, spanGaps: true, points: { show: true, size: 8, fill: config.color, stroke: '#fcfcfb', width: 1.5 } });
+      series.push({ label: config.name, stroke: config.color, width: 2, dash: simKey(config) ? [6, 4] : undefined, spanGaps: true, points: { show: true, size: 8, fill: config.color, stroke: '#fcfcfb', width: 1.5 } });
       owners.push(config);
     });
     var font = '10.5px -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif';
@@ -1754,6 +1785,7 @@
       store.set('sweep-facet', V.sweepFacet);
       V.sweepPick = null;
       renderSweep();
+      renderSweepMetrics();
       return;
     }
     var cell = event.target.closest('[data-tc-sweep-cell]');
@@ -1763,6 +1795,510 @@
     }
   });
 
+  // ══ Dataset level: tabs and the config league (NAVIGATION.md Part E) ══════════
+  //
+  // WHY (Zach, 2026-11-20: "At the highest level we want to be comparing different pipeline configurations vs how they do
+  // on all of the targets"; 2026-11-23: "league table seems reasonable please build that out"): the Overview answers one
+  // question at a glance, which config is best and by how much, one row per config, every KPI at the fastest x with its
+  // curve over x beside it. A row drills to that config's worst targets, then a target, then a run, so the hierarchy
+  // stays target-first (2026-11-19: "the Target trajectory is kinda the primary thing we want to organize things around").
+  // Every number is a run tag the caller gave (or, without a sweep, robot_msgs.compare's RMS joint error on the levels),
+  // reduced by a named rule: the median over a target's repeats, then the median over the facet's targets.
+
+  // One list of tabs: a later tab is one more entry (and its panel).
+  var DATASET_TABS = [
+    { id: 'overview', label: 'Overview', href: '#/' },
+    { id: 'sweeps', label: 'Speed sweeps', href: '#/sweeps', when: function () { return !!SW; } },
+    { id: 'targets', label: 'Targets', href: '#/targets' },
+    { id: 'runs', label: 'Runs', href: '#/runs' },
+  ];
+  function tabsShown() { return DATASET_TABS.filter(function (tab) { return !tab.when || tab.when(); }); }
+  $('ds-otabs').innerHTML = tabsShown().map(function (tab) {
+    return '<a role="tab" href="' + tab.href + '" data-tc-dataset-tab="' + tab.id + '" aria-selected="false">' + esc(tab.label) + '</a>';
+  }).join('');
+
+  function numberTag(value) {
+    if (typeof value !== 'number' || !isFinite(value)) return null;
+    return value;
+  }
+  var SERIES_FIELD = '{series}';
+  function sweepConfig(name) {
+    if (!SW) return null;
+    var found = null;
+    (SW.facets || []).forEach(function (facet) { facet.configs.forEach(function (config) { if (config.name === name) found = config; }); });
+    return found;
+  }
+  // A key is sim-styled (dashed) when the sweep splits configs by series and this one is not a real series.
+  function simKey(entry) { return !!(SW && SW.split_series && entry && entry.series && !/^real/.test(entry.series)); }
+  function num3(value) {
+    if (value === null || value === undefined || !isFinite(value)) return '—';
+    if (value === 0) return '0';
+    var abs = Math.abs(value);
+    if (abs >= 1000) return Math.round(value).toLocaleString('en-US');
+    if (abs >= 100) return value.toFixed(0);
+    var text = Number(value.toPrecision(3)).toString();
+    if (/e/.test(text)) text = value.toFixed(Math.min(8, 2 - Math.floor(Math.log10(abs))));
+    return text;
+  }
+  function times(ratio) {
+    if (ratio === null || !isFinite(ratio)) return '—';
+    if (ratio >= 100) return Math.round(ratio).toLocaleString('en-US') + '×';
+    if (ratio >= 10) return ratio.toFixed(0) + '×';
+    if (ratio > 0.9 && ratio < 1.1) return Number(ratio.toPrecision(3)) + '×';  // "1.04×", not "1×" for a 4 % gap
+    return Number(ratio.toPrecision(2)) + '×';
+  }
+  function unitText(unit) { return unit === 'm/s^3' ? 'm/s³' : unit || ''; }
+
+  // ── the league's model: units (target at one x), keys (config or config · series), KPI values per unit ──
+  var LM = null;
+  function leagueModel() {
+    if (LM && LM.joint === V.joint) return LM;
+    var model = { joint: V.joint, kpis: [], xs: [], facets: ['all'], keys: [], keyOf: {}, units: {}, unitList: [], cells: [], agg: {} };
+    function addKey(name, config, series) {
+      if (model.keyOf[name]) return model.keyOf[name];
+      var entry = { key: name, config: config, series: series || '', color: colorOf(config) };
+      model.keyOf[name] = entry;
+      return entry;
+    }
+    function addUnit(slug, x, facet) {
+      var id = slug + '\u0001' + x;
+      if (!model.units[id]) {
+        var target = targetOf[slug];
+        model.units[id] = { id: id, slug: slug, x: x, facet: facet, title: target ? target.title : slug };
+        model.unitList.push(model.units[id]);
+      }
+      return model.units[id];
+    }
+    function push(kpi, key, unit, value, report) {
+      var byKey = model.cells[kpi] = model.cells[kpi] || {};
+      var byUnit = byKey[key.key] = byKey[key.key] || {};
+      (byUnit[unit.id] = byUnit[unit.id] || []).push({ v: value, report: report });
+    }
+    if (SW) {
+      model.kind = 'sweep';
+      model.x = SW.x;
+      model.xLabel = SW.x_label || SW.x;
+      model.kpis = [{ tag: SW.y, label: SW.y_label || SW.y, unit: unitText(SW.unit), log: !!SW.log_y, better: 'lower' }]
+        .concat((SW.metrics || []).map(function (m) { return { tag: m.tag, label: m.label || m.tag, unit: unitText(m.unit), log: !!m.log, better: m.better || 'lower' }; }));
+      var facetTags = SW.facet_by === null || SW.facet_by === undefined ? [] : [].concat(SW.facet_by);
+      (SW.facets || []).forEach(function (facet) { if (model.facets.indexOf(facet.value) === -1) model.facets.push(facet.value); });
+      var split = !!SW.split_series;
+      var seen = {};
+      LV.lines.forEach(function (line) {
+        var tags = tagsOf[line.run] || {};
+        var x = numberTag(tags[SW.x]);
+        if (x === null) return;
+        var facet = facetTags.length ? facetTags.map(function (tag) { return tag in tags ? String(tags[tag]) : 'no ' + tag; }).join(' · ') : null;
+        var key = addKey(split ? line.config + ' · ' + line.series : line.config, line.config, split ? line.series : '');
+        var unit = null;
+        model.kpis.forEach(function (kpi, k) {
+          var templated = kpi.tag.indexOf(SERIES_FIELD) !== -1;
+          var tag = templated ? kpi.tag.split(SERIES_FIELD).join(line.series) : kpi.tag;
+          if (!templated) {  // a plain tag is the run's, once per run and key (not once per series)
+            var once = line.run + '\u0001' + key.key + '\u0001' + k;
+            if (seen[once]) return;
+            seen[once] = true;
+          }
+          var value = numberTag(tags[tag]);
+          if (value === null) return;
+          unit = unit || addUnit(line.target, x, facet);
+          push(k, key, unit, value, line.report);
+        });
+      });
+      // keys in the sweep's order (levels.configs, then series), the rest after
+      var order = [];
+      (SW.facets && SW.facets[0] ? SW.facets[0].configs : []).forEach(function (config) { if (model.keyOf[config.name]) order.push(model.keyOf[config.name]); });
+      Object.keys(model.keyOf).forEach(function (name) { if (order.indexOf(model.keyOf[name]) === -1) order.push(model.keyOf[name]); });
+      model.keys = order;
+      model.keys.forEach(function (key) { var entry = sweepConfig(key.key); if (entry && entry.series) key.series = entry.series; });
+    } else {
+      // Without a sweep: one KPI, each config's RMS joint error per target (its real lines when it has any), in degrees.
+      model.kind = 'levels';
+      model.x = null;
+      model.xLabel = '';
+      model.kpis = [{ tag: 'joint', label: 'RMS joint error, ' + jointWords(V.joint), unit: '°', log: false, better: 'lower' }];
+      LV.targets.forEach(function (target) {
+        var unit = null;
+        configGroups(target.lines).forEach(function (group) {
+          var key = addKey(group.config.name, group.config.name, '');
+          group.members.forEach(function (line) {
+            var value = valueOf(line, V.joint);
+            if (value === null) return;
+            unit = unit || addUnit(target.slug, null, null);
+            push(0, key, unit, value * DEG, line.report);
+          });
+        });
+      });
+      model.keys = LV.configs.map(function (config) { return model.keyOf[config.name]; }).filter(Boolean);
+    }
+    var xs = {};
+    model.unitList.forEach(function (unit) { if (unit.x !== null) xs[unit.x] = unit.x; });
+    model.xs = Object.keys(xs).map(function (k) { return xs[k]; }).sort(function (a, b) { return a - b; });
+    if (!model.xs.length) model.xs = [null];
+    model.top = model.xs[model.xs.length - 1];
+    LM = model;
+    return model;
+  }
+  function inFacet(unit, facet) { return facet === 'all' || unit.facet === facet; }
+  // A unit's value for a key and KPI: the median over its repeats, and the repeat closest to it.
+  function unitValue(model, kpi, key, unit) {
+    var list = ((model.cells[kpi] || {})[key] || {})[unit.id];
+    if (!list || !list.length) return null;
+    var value = median(list.map(function (item) { return item.v; }));
+    var closest = list.reduce(function (best, item) { return Math.abs(item.v - value) < Math.abs(best.v - value) ? item : best; }, list[0]);
+    return { v: value, report: closest.report, reps: list.length };
+  }
+  // A cell: the median over the facet's units at x (null x = every unit) of their values; n = those units.
+  function aggregate(model, kpi, facet, key, x) {
+    var id = kpi + '\u0001' + facet + '\u0001' + key + '\u0001' + x;
+    if (id in model.agg) return model.agg[id];
+    var values = [];
+    model.unitList.forEach(function (unit) {
+      if (!inFacet(unit, facet) || (x !== null && unit.x !== x)) return;
+      var value = unitValue(model, kpi, key, unit);
+      if (value) values.push(value.v);
+    });
+    return (model.agg[id] = values.length ? { median: median(values), n: values.length } : null);
+  }
+  function betterOf(kpi) { return kpi.better === 'higher' ? -1 : 1; }
+
+  // ── a tiny SVG sparkline (log or linear y) ──
+  function sparkline(values, options) {
+    var w = options.w || 76, h = options.h || 26, pad = 3, lo = options.lo, hi = options.hi, log = options.log;
+    function y(value) {
+      var a = log ? Math.log10(lo) : lo, b = log ? Math.log10(hi) : hi, t = log ? Math.log10(Math.max(value, lo)) : value;
+      return (h - pad) - (b > a ? (t - a) / (b - a) : 0.5) * (h - 2 * pad);
+    }
+    function x(i) { return pad + i * (w - 2 * pad) / Math.max(1, values.length - 1); }
+    var pts = [];
+    values.forEach(function (value, i) { if (value !== null && value !== undefined && (!log || value > 0)) pts.push([x(i), y(value)]); });
+    var title = '<title>' + esc(options.title || '') + '</title>';
+    if (!pts.length) return '<svg class="ds-lspark" width="' + w + '" height="' + h + '" data-tc-league-spark data-metric="' + esc(options.metric) + '">' + title + '</svg>';
+    var d = pts.map(function (p, i) { return (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1); }).join('');
+    var last = pts[pts.length - 1];
+    return '<svg class="ds-lspark" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" data-tc-league-spark data-metric="' + esc(options.metric) + '">' + title +
+      '<line x1="0" x2="' + w + '" y1="' + (h - 1) + '" y2="' + (h - 1) + '" stroke="#e6e5e0"/>' +
+      '<path d="' + d + '" fill="none" stroke="' + options.color + '" stroke-width="1.6"' + (options.dash ? ' stroke-dasharray="5 3"' : '') + '/>' +
+      '<circle cx="' + last[0].toFixed(1) + '" cy="' + last[1].toFixed(1) + '" r="2.4" fill="' + options.color + '"/></svg>';
+  }
+  // Log-scale ramp for the facet matrix (light -> dark; colour is the data).
+  var RAMP = ['#f3f6fb', '#d7e5f5', '#b3cdea', '#86afdb', '#5a8fca', '#3a70b3', '#285594', '#1c3d70', '#13284b'];
+  function rampColor(t) {
+    t = Math.max(0, Math.min(1, t));
+    var at = t * (RAMP.length - 1), lo = Math.floor(at), hi = Math.min(RAMP.length - 1, lo + 1), f = at - lo;
+    var hex = function (c) { return [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)]; };
+    var a = hex(RAMP[lo]), b = hex(RAMP[hi]);
+    return 'rgb(' + a.map(function (v, k) { return Math.round(v + (b[k] - v) * f); }).join(',') + ')';
+  }
+  function xText(model, x) { return x === null ? 'every target' : model.xLabel + ' ' + String(x); }
+  function keyLabel(key, max) {
+    max = max || 34;
+    var label = key.key;
+    if (label.length <= max) return '<span class="ds-lname">' + esc(label) + '</span>';
+    // WHY a middle ellipsis with the full name on hover (Zach's truthful-rendering rule): BAM FB's configs share a long
+    // prefix and differ at the end, so a clipped tail would hide the only difference.
+    var head = Math.max(6, Math.floor((max - 1) * 0.4)), tail = max - 1 - head;
+    return '<span class="ds-lname" title="' + esc(label) + '">' + esc(label.slice(0, head) + '…' + label.slice(label.length - tail)) + '</span>';
+  }
+
+  // ── the Overview ──
+  function renderOverview() {
+    var holder = $('ds-overview');
+    var model = leagueModel();
+    var facet = model.facets.indexOf(V.leagueFacet) === -1 ? 'all' : V.leagueFacet;
+    V.leagueFacet = facet;
+    var top = model.top, primary = model.kpis[0], dir = betterOf(primary);
+    var rows = model.keys.map(function (key) {
+      var row = { key: key, cells: model.kpis.map(function (kpi, k) { return aggregate(model, k, facet, key.key, top); }) };
+      return row;
+    }).filter(function (row) { return row.cells[0]; });
+    rows.sort(function (a, b) { return dir * (a.cells[0].median - b.cells[0].median) || model.keys.indexOf(a.key) - model.keys.indexOf(b.key); });
+    var best = rows[0];
+
+    // how many (facet, x) cells each key is best in: every facet but "all" when there are several, at every x
+    var cellFacets = model.facets.length > 1 ? model.facets.slice(1) : model.facets;
+    var wins = {}, cellCount = 0;
+    model.keys.forEach(function (key) { wins[key.key] = { wins: 0, of: 0 }; });
+    cellFacets.forEach(function (f) {
+      model.xs.forEach(function (x) {
+        var present = model.keys.map(function (key) { return { key: key, cell: aggregate(model, 0, f, key.key, x) }; }).filter(function (item) { return item.cell; });
+        if (present.length < 2) return;
+        cellCount += 1;
+        present.forEach(function (item) { wins[item.key.key].of += 1; });
+        var winner = present.reduce(function (a, b) { return dir * (b.cell.median - a.cell.median) < 0 ? b : a; });
+        wins[winner.key.key].wins += 1;
+      });
+    });
+
+    var html = '';
+    if (!best) {
+      holder.innerHTML = '<p class="ds-note">No config has a ' + esc(primary.label) + (top !== null ? ' at ' + esc(xText(model, top)) : '') + (facet !== 'all' ? ' on ' + esc(facet) : '') + '.</p>';
+      return;
+    }
+    var unit = primary.unit ? ' ' + primary.unit : '';
+    var others = rows.slice(1).map(function (row) { return '<b>' + esc(row.key.key) + '</b> ' + times(row.cells[0].median / best.cells[0].median); });
+    html += '<p class="ds-lverdict" data-tc-league-verdict>' + (top !== null ? 'At <b>' + esc(xText(model, top)) + '</b>' : 'Across every target') +
+      (facet !== 'all' ? ' on <b>' + esc(facet) + '</b>' : '') + ', ' + swatch(best.key.color, simKey(best.key)) + '<b>' + esc(best.key.key) + '</b> ' +
+      (dir > 0 ? 'has the lowest ' : 'has the highest ') + esc(primary.label) + ': <b>' + num3(best.cells[0].median) + esc(unit) + '</b>' +
+      (others.length ? '; the others are at ' + others.join(', ') + ' of it' : '') + '. <span class="ds-mut">Median over ' + best.cells[0].n +
+      ' targets of each target’s median over its repeats' + (model.kind === 'sweep' ? ', run tag ' + esc(primary.tag) : ', robot_msgs.compare') + '.</span></p>';
+    if (model.facets.length > 1) {
+      html += '<div class="ds-bar ds-lfacets"><span class="ds-k">' + esc([].concat(SW && SW.facet_by || 'facet').join(' · ')) + '</span><div class="ds-seg">' +
+        model.facets.map(function (value) {
+          var on = value === facet;
+          return '<button type="button" data-tc-league-facet="' + esc(value) + '" class="' + (on ? 'on' : '') + '" aria-pressed="' + on + '">' + esc(value) + '</button>';
+        }).join('') + '</div></div>';
+    }
+    // per-KPI scale shared by every row's sparkline and the log bar
+    var scale = model.kpis.map(function (kpi, k) {
+      var values = [];
+      rows.forEach(function (row) {
+        model.xs.forEach(function (x) { var cell = aggregate(model, k, facet, row.key.key, x); if (cell && (!kpi.log || cell.median > 0)) values.push(cell.median); });
+      });
+      return values.length ? { lo: Math.min.apply(null, values), hi: Math.max.apply(null, values) } : { lo: 0, hi: 1 };
+    });
+    var spark = model.xs.length > 1;
+    var atTop = top !== null ? ' at ' + esc(String(top)) : '';
+    html += '<div class="ds-card ds-lcard"><table class="ds-ltable" data-tc-league><thead><tr><th class="ds-text">#</th>' +
+      '<th class="ds-text">config<span class="ds-unit">click a row: its worst targets</span></th><th>n<span class="ds-unit">targets</span></th>' +
+      '<th class="ds-text ds-lprimary">' + esc(primary.label) + atTop + '<span class="ds-unit">' + esc(primary.unit || '') + (primary.unit ? ' · ' : '') +
+      'median over targets · ×best · bar ' + (primary.log ? 'log' : 'linear') + '</span></th>' +
+      (spark ? '<th>vs ' + esc(model.xLabel) + '<span class="ds-unit">' + (primary.log ? 'log · ' : '') + esc(String(model.xs[0])) + ' → ' + esc(String(top)) + '</span></th>' : '');
+    model.kpis.slice(1).forEach(function (kpi) {
+      html += '<th>' + esc(kpi.label) + '<span class="ds-unit">' + esc(kpi.unit || '') + atTop + (spark ? ' · vs ' + esc(model.xLabel) + (kpi.log ? ' (log)' : '') : '') +
+        (kpi.better === 'higher' ? ' · higher is better' : '') + '</span></th>';
+    });
+    html += (cellCount ? '<th title="the (' + (cellFacets.length > 1 ? 'facet × ' : '') + esc(model.xLabel) + ') cells where the config is best">best in<span class="ds-unit">of ' + cellCount + ' cells</span></th>' : '') +
+      '<th></th></tr></thead><tbody>';
+    var lmin = primary.log ? Math.log10(Math.max(scale[0].lo, 1e-12)) : scale[0].lo, lmax = primary.log ? Math.log10(Math.max(scale[0].hi, 1e-12)) : scale[0].hi;
+    rows.forEach(function (row, at) {
+      var key = row.key, dash = simKey(key), cell = row.cells[0];
+      var t = primary.log ? Math.log10(Math.max(cell.median, 1e-12)) : cell.median;
+      var frac = lmax > lmin ? (t - (primary.log ? lmin : 0)) / (lmax - (primary.log ? lmin : 0)) : 0.5;
+      var sparkOf = function (k) {
+        var kpi = model.kpis[k];
+        var values = model.xs.map(function (x) { var c = aggregate(model, k, facet, key.key, x); return c ? c.median : null; });
+        return sparkline(values, { color: key.color, lo: scale[k].lo, hi: scale[k].hi, log: kpi.log, dash: dash, metric: kpi.tag,
+          title: key.key + ': ' + kpi.label + ' vs ' + model.xLabel + ' (' + model.xs.map(function (x, i) { return x + ' → ' + num3(values[i]); }).join(', ') + ')' });
+      };
+      html += '<tr data-tc-league-row data-key="' + esc(key.key) + '" data-rank="' + (at + 1) + '">' +
+        '<td class="ds-text ds-lrank">' + (at + 1) + '</td>' +
+        '<td class="ds-text">' + swatch(key.color, dash) + keyLabel(key) + '</td>' +
+        '<td data-tc-league-n>' + cell.n + '</td>' +
+        '<td class="ds-text ds-lprimary"><span class="ds-lbig" data-tc-league-value>' + num3(cell.median) + '</span>' +
+        '<span class="ds-lx' + (at === 0 ? ' best' : '') + '" data-tc-league-ratio>' + (at === 0 ? 'best' : times(cell.median / best.cells[0].median)) + '</span>' +
+        '<span class="ds-lbar" style="--c:' + key.color + '"><i style="width:' + Math.max(3, 100 * Math.max(0, Math.min(1, frac))).toFixed(1) + '%"></i></span></td>' +
+        (spark ? '<td>' + sparkOf(0) + '</td>' : sparkline([cell.median], { color: key.color, lo: scale[0].lo, hi: scale[0].hi, metric: primary.tag }).replace('<svg', '<svg hidden'));
+      model.kpis.slice(1).forEach(function (kpi, j) {
+        var c = row.cells[j + 1];
+        html += '<td><div class="ds-lcell">' + (c ? '<span>' + num3(c.median) + '</span>' : '<span class="ds-mut" title="no run of this config has ' + esc(kpi.tag) + atTop + '">—</span>') +
+          (spark ? sparkOf(j + 1) : '') + '</div></td>';
+      });
+      html += (cellCount ? '<td>' + (wins[key.key].of ? '<b>' + wins[key.key].wins + '</b> <span class="ds-mut">of ' + wins[key.key].of + '</span>' : '<span class="ds-mut">—</span>') + '</td>' : '') +
+        '<td><a class="ds-ldrill" href="' + esc(drillHref({ cfg: key.key, facet: facet, x: top })) + '">worst targets →</a></td></tr>';
+    });
+    html += '</tbody></table></div>';
+
+    // every facet at the fastest x: rank per column, tinted by the primary KPI
+    if (model.facets.length > 2) {
+      var cols = model.facets.slice(1), vals = [], grid = {};
+      model.keys.forEach(function (key) {
+        grid[key.key] = {};
+        cols.forEach(function (f) { var c = aggregate(model, 0, f, key.key, top); grid[key.key][f] = c; if (c && c.median > 0) vals.push(c.median); });
+      });
+      var shown = model.keys.filter(function (key) { return cols.some(function (f) { return grid[key.key][f]; }); });
+      var useLog = primary.log && vals.length;
+      var gl = vals.length ? (useLog ? Math.log10(Math.min.apply(null, vals)) : Math.min.apply(null, vals)) : 0;
+      var gh = vals.length ? (useLog ? Math.log10(Math.max.apply(null, vals)) : Math.max.apply(null, vals)) : 1;
+      var ranks = {};
+      cols.forEach(function (f) {
+        shown.filter(function (key) { return grid[key.key][f]; }).sort(function (a, b) { return dir * (grid[a.key][f].median - grid[b.key][f].median); })
+          .forEach(function (key, at) { ranks[key.key + '\u0001' + f] = at + 1; });
+      });
+      html += '<div class="ds-card ds-lmatrix-card"><h2>Every ' + esc([].concat(SW && SW.facet_by || 'facet').join(' · ')) + atTop +
+        ' <span class="ds-hint">' + esc(primary.label) + (primary.unit ? ' [' + esc(primary.unit) + ']' : '') + ', median over each facet’s targets · green ring = best in the column · hatched = no runs · click a column to switch the table</span></h2>' +
+        '<div class="ds-scroll"><table class="ds-lmatrix" data-tc-league-matrix><thead><tr><th class="ds-text">config</th>' + cols.map(function (f) {
+          return '<th data-tc-league-col="' + esc(f) + '" class="' + (f === facet ? 'on' : '') + '">' + esc(f).split(' · ').join('<span>') + (f.indexOf(' · ') !== -1 ? '</span>' : '') + '</th>';
+        }).join('') + '</tr></thead><tbody>';
+      shown.forEach(function (key) {
+        html += '<tr><th class="ds-text">' + swatch(key.color, simKey(key)) + keyLabel(key, 30) + '</th>' + cols.map(function (f) {
+          var c = grid[key.key][f];
+          if (!c) return '<td class="none" title="no runs"></td>';
+          var v = useLog ? Math.log10(Math.max(c.median, 1e-12)) : c.median;
+          var t = gh > gl ? (v - gl) / (gh - gl) : 0.5, r = ranks[key.key + '\u0001' + f];
+          return '<td class="' + (r === 1 ? 'r1 ' : '') + (f === facet ? 'on' : '') + '" style="background:' + rampColor(0.05 + 0.8 * t) + ';color:' + (t > 0.55 ? '#fff' : '#22211f') +
+            '" title="' + esc(key.key + ' · ' + f + ': ' + num3(c.median) + unit + ', rank ' + r + ', median over ' + c.n + ' targets') + '">' + num3(c.median) + '</td>';
+        }).join('') + '</tr>';
+      });
+      html += '</tbody></table></div></div>';
+    }
+    html += '<p class="ds-note ds-lfoot">' + (model.kind === 'sweep'
+      ? 'Each value: the median over the facet’s targets of each target’s median over its repeats, from the run tags ' +
+        model.kpis.map(function (kpi) { return '<code>' + esc(kpi.tag) + '</code>'; }).join(', ') + (model.kpis[0].tag.indexOf(SERIES_FIELD) !== -1 ? ' ({series} = each measured series)' : '') +
+        '; n = targets with a run of that config at that ' + esc(model.xLabel) + '. “best in” counts the cells where the config has the ' + (dir > 0 ? 'lowest' : 'highest') + ' ' + esc(primary.label) + '.'
+      : 'Each value: the median over targets of each target’s median RMS joint error (robot_msgs.compare, ' + esc(jointWords(V.joint)) + '; its real lines when it has any). Add a sweep for KPIs against speed.') + '</p>';
+    holder.innerHTML = html;
+  }
+  $('ds-overview').addEventListener('click', function (event) {
+    var chip = event.target.closest('[data-tc-league-facet], [data-tc-league-col]');
+    if (chip) {
+      V.leagueFacet = chip.getAttribute('data-tc-league-facet') || chip.getAttribute('data-tc-league-col');
+      store.set('league-facet', V.leagueFacet);
+      if (SW && (SW.facets || []).some(function (f) { return f.value === V.leagueFacet; })) { V.sweepFacet = V.leagueFacet; V.sweepPick = null; }
+      renderOverview();
+      return;
+    }
+    if (event.target.closest('a')) return;
+    var row = event.target.closest('[data-tc-league-row]');
+    if (row) {
+      var model = leagueModel();
+      location.hash = drillHref({ cfg: row.getAttribute('data-key'), facet: V.leagueFacet, x: model.top });
+    }
+  });
+
+  // ── routing helpers: #/<tab>?k=v ──
+  function parseRoute() {
+    var hash = location.hash || '';
+    var match = /^#\/target\/(.+)$/.exec(hash);
+    if (match) return { target: decodeURIComponent(match[1]) };
+    var rest = hash.replace(/^#\/?/, ''), at = rest.indexOf('?');
+    var tab = (at >= 0 ? rest.slice(0, at) : rest) || 'overview', q = {};
+    (at >= 0 ? rest.slice(at + 1) : '').split('&').forEach(function (part) {
+      if (!part) return;
+      var eq = part.indexOf('=');
+      q[decodeURIComponent(eq >= 0 ? part.slice(0, eq) : part)] = eq >= 0 ? decodeURIComponent(part.slice(eq + 1).replace(/\+/g, ' ')) : '';
+    });
+    return { tab: tab, q: q };
+  }
+  function drillHref(q) {
+    var parts = Object.keys(q).filter(function (k) { return q[k] !== undefined && q[k] !== null && q[k] !== ''; })
+      .map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(String(q[k])); });
+    return '#/targets' + (parts.length ? '?' + parts.join('&') : '');
+  }
+
+  // ── Targets: a config's worst targets (the drill) ──
+  var DRILL_PAGE = 25;
+  function renderDrill(q) {
+    var holder = $('ds-drill');
+    var model = leagueModel();
+    var key = model.keyOf[q.cfg] ? model.keyOf[q.cfg] : model.keys[0];
+    if (!key) { holder.innerHTML = '<p class="ds-note">No config to drill into.</p>'; return; }
+    var facet = model.facets.indexOf(q.facet) === -1 ? 'all' : q.facet;
+    var x = q.x === undefined || q.x === '' || q.x === 'all' ? (q.x === 'all' ? 'all' : model.top) : Number(q.x);
+    if (x !== 'all' && x !== null && model.xs.indexOf(x) === -1) x = model.top;
+    var sort = q.sort === 'ratio' ? 'ratio' : 'own';
+    var limit = Math.max(DRILL_PAGE, Number(q.n) || DRILL_PAGE);
+    var primary = model.kpis[0], dir = betterOf(primary), unit = primary.unit ? ' ' + primary.unit : '';
+    var others = model.keys.filter(function (other) { return other !== key; });
+    var rows = [];
+    model.unitList.forEach(function (u) {
+      if (!inFacet(u, facet) || (x !== 'all' && u.x !== x)) return;
+      var mine = unitValue(model, 0, key.key, u);
+      if (!mine) return;
+      var bestOther = null;
+      others.forEach(function (other) {
+        var value = unitValue(model, 0, other.key, u);
+        if (value && (!bestOther || dir * (value.v - bestOther.value.v) < 0)) bestOther = { key: other, value: value };
+      });
+      rows.push({ unit: u, mine: mine, bestOther: bestOther, ratio: bestOther && bestOther.value.v ? mine.v / bestOther.value.v : null });
+    });
+    if (sort === 'ratio') rows = rows.filter(function (row) { return row.ratio !== null; });
+    // worst first: the highest error (or ratio) for a lower-is-better KPI
+    rows.sort(function (a, b) { return sort === 'ratio' ? dir * (b.ratio - a.ratio) : dir * (b.mine.v - a.mine.v); });
+    var shownOthers = others.filter(function (other) { return rows.some(function (row) { return unitValue(model, 0, other.key, row.unit); }); }).slice(0, 6);
+    var select = function (name, options, value) {
+      return '<select data-drill="' + name + '">' + options.map(function (o) {
+        return '<option value="' + esc(String(o[0])) + '"' + (String(o[0]) === String(value) ? ' selected' : '') + '>' + esc(o[1]) + '</option>';
+      }).join('') + '</select>';
+    };
+    var html = '<div class="ds-bar ds-drillbar">' +
+      '<label class="ds-ctl"><span class="ds-k">config</span>' + select('cfg', model.keys.map(function (k) { return [k.key, k.key]; }), key.key) + '</label>' +
+      (model.facets.length > 1 ? '<label class="ds-ctl"><span class="ds-k">facet</span>' + select('facet', model.facets.map(function (f) { return [f, f]; }), facet) + '</label>' : '') +
+      (model.xs[0] !== null ? '<label class="ds-ctl"><span class="ds-k">' + esc(model.xLabel) + '</span>' + select('x', [['all', 'every']].concat(model.xs.map(function (v) { return [v, String(v)]; })), x) + '</label>' : '') +
+      '<label class="ds-ctl"><span class="ds-k">worst by</span>' + select('sort', [['own', 'its own ' + primary.label], ['ratio', 'ratio to the best other config']], sort) + '</label>' +
+      '<a class="ds-link" href="#/targets">× every target (cards · table)</a></div>';
+    html += '<p class="ds-answer">' + swatch(key.color, simKey(key)) + '<b>' + esc(key.key) + '</b>: its ' + Math.min(limit, rows.length) + ' worst of <b>' + rows.length +
+      '</b> targets (' + esc(facet === 'all' ? 'every facet' : facet) + ', ' + esc(x === 'all' ? 'every ' + model.xLabel : xText(model, x)) + '), worst first by ' +
+      (sort === 'ratio' ? 'its ' + esc(primary.label) + ' ÷ the best other config’s on the same target' : 'its own ' + esc(primary.label)) +
+      '. <span class="ds-mut">Each value: ' + esc(primary.label) + (unit ? ' [' + esc(primary.unit) + ']' : '') + ', the median over the config’s repeats on that target.</span></p>';
+    html += '<div class="ds-scroll ds-drill-scroll"><table class="ds-league ds-drill-table"><thead><tr><th class="ds-text">#</th><th class="ds-text">target</th>' +
+      (model.facets.length > 1 ? '<th class="ds-text">facet</th>' : '') + (model.xs[0] !== null ? '<th>' + esc(model.xLabel) + '</th>' : '') +
+      '<th title="' + esc(key.key) + '">' + esc(key.key.length > 24 ? key.key.slice(0, 23) + '…' : key.key) + (primary.unit ? ' [' + esc(primary.unit) + ']' : '') + '</th>' +
+      '<th>ratio<span class="ds-unit">÷ best other</span></th>' +
+      shownOthers.map(function (other) { return '<th class="ds-lother" title="' + esc(other.key) + '">' + swatch(other.color, simKey(other)) + esc(other.key.length > 18 ? other.key.slice(0, 17) + '…' : other.key) + '</th>'; }).join('') +
+      '<th class="ds-text">open</th></tr></thead><tbody>';
+    rows.slice(0, limit).forEach(function (row, at) {
+      var u = row.unit;
+      html += '<tr data-tc-drill-row data-target="' + esc(u.slug) + '"><td class="ds-text ds-mut">' + (at + 1) + '</td>' +
+        '<td class="ds-text"><a href="#/target/' + encodeURIComponent(u.slug) + '">' + esc(u.title) + '</a></td>' +
+        (model.facets.length > 1 ? '<td class="ds-text">' + esc(u.facet || '') + '</td>' : '') + (model.xs[0] !== null ? '<td>' + esc(String(u.x)) + '</td>' : '') +
+        '<td><b>' + num3(row.mine.v) + '</b>' + (row.mine.reps > 1 ? ' <span class="ds-mut" title="median of ' + row.mine.reps + ' repeats">' + row.mine.reps + ' rep</span>' : '') + '</td>' +
+        '<td>' + (row.ratio === null ? '<span class="ds-mut">—</span>' : times(row.ratio)) + '</td>' +
+        shownOthers.map(function (other) { var v = unitValue(model, 0, other.key, u); return '<td class="' + (v ? '' : 'ds-mut') + '">' + (v ? num3(v.v) : '—') + '</td>'; }).join('') +
+        '<td class="ds-text ds-actions"><a class="ds-link" href="#/target/' + encodeURIComponent(u.slug) + '">Target ↗</a> ' +
+        (row.mine.report ? '<a class="ds-link" href="' + esc(row.mine.report) + '" title="the repeat closest to the median">run ↗</a>' : '') + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+    holder.innerHTML = html;
+    if (rows.length > limit) {
+      var bar = make('div', 'ds-pager', holder);
+      bar.innerHTML = '<span class="ds-mut">Showing ' + limit + ' of ' + rows.length + ' targets</span> <a class="ds-btn" href="' +
+        esc(drillHref({ cfg: key.key, facet: facet, x: x, sort: sort === 'own' ? '' : sort, n: limit + DRILL_PAGE })) + '">Show ' + Math.min(DRILL_PAGE, rows.length - limit) + ' more</a>';
+    }
+    make('p', 'ds-note', holder, 'Target ↗ opens the Target level (every config’s lines on it); run ↗ opens this config’s run report, the repeat closest to the target’s median.');
+    Array.prototype.forEach.call(holder.querySelectorAll('select[data-drill]'), function (sel) {
+      sel.addEventListener('change', function () {
+        var next = { cfg: key.key, facet: facet, x: x, sort: sort === 'own' ? '' : sort };
+        next[sel.getAttribute('data-drill')] = sel.value === 'own' ? '' : sel.value;
+        location.hash = drillHref(next);
+      });
+    });
+  }
+
+  // ── Speed sweeps: one chart per extra metric, the sweep's facet ──
+  function renderSweepMetrics() {
+    var holder = $('ds-sweep-metrics');
+    destroyCharts('metrics');
+    holder.innerHTML = '';
+    if (!SW || !(SW.metrics || []).length) return;
+    var model = leagueModel();
+    var facet = model.facets.indexOf(V.sweepFacet) === -1 ? 'all' : V.sweepFacet;
+    var xs = model.xs.filter(function (x) { return x !== null; });
+    var font = '10.5px -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif';
+    var axis = { stroke: '#8a8983', font: font, labelFont: font, grid: { stroke: '#efeee9', width: 1 }, ticks: { stroke: '#e6e5e0', width: 1, size: 4 } };
+    model.kpis.slice(1).forEach(function (kpi, j) {
+      var k = j + 1;
+      var card = make('section', 'ds-card ds-sweep-metric', holder);
+      card.setAttribute('data-tc-sweep-metric', kpi.tag);
+      var keys = model.keys.filter(function (key) { return xs.some(function (x) { return aggregate(model, k, facet, key.key, x); }); });
+      card.innerHTML = '<h2>' + esc(kpi.label) + ' vs ' + esc(model.xLabel) + (facet !== 'all' ? ' · ' + esc(facet) : '') + ' <span class="ds-hint">' + esc(kpi.unit || '') +
+        (kpi.log ? ' · log' : '') + ' · median over targets of each target’s median over repeats · run tag ' + esc(kpi.tag) + '</span></h2>';
+      if (!keys.length || !xs.length) { make('p', 'ds-note', card, 'No run has ' + kpi.tag + (facet !== 'all' ? ' on ' + facet : '') + '.'); return; }
+      var host = make('div', 'ds-plot', card);
+      var data = [xs].concat(keys.map(function (key) {
+        return xs.map(function (x) { var c = aggregate(model, k, facet, key.key, x); return c && (!kpi.log || c.median > 0) ? c.median : null; });
+      }));
+      var chart = new uPlot({
+        width: Math.max(300, host.clientWidth || 600), height: 200, legend: { show: true, live: true },
+        cursor: { y: false, drag: { x: false, y: false } },
+        scales: { x: { time: false }, y: kpi.log ? { distr: 3 } : { auto: true } },
+        axes: [Object.assign({}, axis, { size: 28, values: function (u, values) { return values.map(function (v) { return String(+v.toFixed(4)); }); } }),
+          Object.assign({}, axis, { size: 54, values: function (u, values) { return values.map(function (v) { return v === null ? '' : num3(v); }); } })],
+        series: [{ label: model.xLabel }].concat(keys.map(function (key) {
+          return { label: key.key, stroke: key.color, width: 1.8, dash: simKey(key) ? [6, 4] : undefined, spanGaps: true, points: { show: true, size: 6 },
+            value: function (u, v) { return v === null ? '—' : num3(v); } };
+        })),
+      }, data, host);
+      var observer = new ResizeObserver(function () {
+        var width = Math.max(300, host.clientWidth);
+        if (host.clientWidth > 0 && Math.abs(width - chart.width) > 1) chart.setSize({ width: width, height: 200 });
+      });
+      observer.observe(host);
+      chart._ro = observer;
+      charts.metrics.push(chart);
+    });
+  }
+
   // ── Dataset level: the view switch ──
 
   function showView() {
@@ -1771,18 +2307,14 @@
       button.classList.toggle('on', on);
       button.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
-    $('ds-view-sweep').hidden = V.view !== 'sweep';
     $('ds-view-cards').hidden = V.view !== 'cards';
     $('ds-view-table').hidden = V.view !== 'table';
-    $('ds-view-runs').hidden = V.view !== 'runs';
     renderDatasetControls();
     destroyCharts('cards');
-    destroyCharts('sweep');
     stopObserving('cards');
     stopObserving('table');
     if (V.view === 'cards') renderCards();
     if (V.view === 'table') renderLeague();
-    if (V.view === 'sweep' && SW) renderSweep();
   }
   document.querySelector('[data-tc-targets-view]').addEventListener('click', function (event) {
     var button = event.target.closest('[data-view]');
@@ -2298,13 +2830,14 @@
   // ── routing: #/ (Dataset) and #/target/<slug> (Target) ──
 
   function route() {
-    var match = /^#\/target\/(.+)$/.exec(location.hash || '');
-    var slug = match ? decodeURIComponent(match[1]) : null;
+    var where = parseRoute();
+    var slug = where.target || null;
     var target = slug ? targetOf[slug] : null;
     var crumbs = $('ds-crumbs');
     destroyCharts('cards');
     destroyCharts('repeat');
     destroyCharts('sweep');
+    destroyCharts('metrics');
     stopObserving('cards');
     stopObserving('table');
     if (target) {
@@ -2321,8 +2854,26 @@
       crumbs.innerHTML = '<span class="ds-crumb-here">Dataset</span>' +
         (slug ? '<span class="ds-crumb-sep">·</span><span class="ds-fail">no target “' + esc(slug) + '” in this dataset</span>' : '');
       document.title = D.title;
-      renderBand();
-      showView();
+      showDatasetTab(slug ? { tab: 'overview', q: {} } : where);
+    }
+  }
+  // One Dataset tab shown and drawn (NAVIGATION.md Part E); the others stay hidden and unrendered.
+  function showDatasetTab(where) {
+    var ids = tabsShown().map(function (tab) { return tab.id; });
+    var tab = ids.indexOf(where.tab) === -1 ? 'overview' : where.tab;
+    Array.prototype.forEach.call(document.querySelectorAll('[data-tc-dataset-tab]'), function (link) {
+      link.setAttribute('aria-selected', link.getAttribute('data-tc-dataset-tab') === tab ? 'true' : 'false');
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-tc-dataset-panel]'), function (panel) {
+      panel.hidden = panel.getAttribute('data-tc-dataset-panel') !== tab;
+    });
+    if (tab === 'overview') { renderOverview(); renderBand(); }
+    if (tab === 'sweeps') { renderSweep(); renderSweepMetrics(); }
+    if (tab === 'targets') {
+      var drill = !!where.q.cfg;
+      $('ds-drill').hidden = !drill;
+      $('ds-targets-all').hidden = drill;
+      if (drill) renderDrill(where.q); else showView();
     }
   }
   window.addEventListener('hashchange', function () { route(); window.scrollTo(0, 0); });
