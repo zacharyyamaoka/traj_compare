@@ -214,6 +214,8 @@ window.__tc = {
     await step(record, 'views', async () => page.evaluate(() =>
       __tc.all('[data-tc-targets-view] [data-view], [data-tc-targets-view][data-view]').map((button) => button.getAttribute('data-view'))));
     await step(record, 'cards', async () => {
+      // NAVIGATION.md Part E (2026-11-23): the Dataset level is tabs and opens on the Overview; cards live in Targets.
+      await page.click('[data-tc-dataset-tab="targets"]', { timeout: WAIT });
       await page.waitForSelector('[data-tc-target-card]', { state: 'attached', timeout: WAIT });
       return level(page);
     });
@@ -229,14 +231,14 @@ window.__tc = {
       return level(page);
     });
     await step(record, 'runs', async () => {
-      await page.click(either('[data-tc-targets-view]', 'data-view', 'runs'), { timeout: WAIT });
+      await page.click('[data-tc-dataset-tab="runs"]', { timeout: WAIT });  // Part E: the runs table is its own tab
       await settle(page);
       return level(page);
     });
   });
 
   // ── Target level, opened from its card ──
-  await scene('target', spec.index, async (page, record) => {
+  await scene('target', spec.index + '#/targets', async (page, record) => {
     const address = '#/target/' + spec.opened;
     await step(record, 'open', async () => {
       const card = page.locator(`[data-tc-target-card="${spec.opened}"]`);
@@ -399,7 +401,7 @@ window.__tc = {
 
   // ── How runs become targets when nothing names the target ──
   for (const variant of spec.grouping) {
-    await scene('grouping_' + variant.name, variant.index, async (page, record) => {
+    await scene('grouping_' + variant.name, variant.index + '#/targets', async (page, record) => {
       await step(record, 'cards', async () => {
         await page.waitForSelector('[data-tc-target-card]', { state: 'attached', timeout: WAIT });
         return level(page);
@@ -546,7 +548,7 @@ def test_the_summary_band_splits_lines_by_kind_and_names_configs_dates_and_wins(
 
 @needs_browser
 def test_targets_default_to_one_card_per_target_each_with_open_target(levels):
-    assert set(step(levels, "dataset", "views")) == {"cards", "table", "runs"}
+    assert set(step(levels, "dataset", "views")) == {"cards", "table"}  # Part E: runs is its own tab
     level = step(levels, "dataset", "cards")
     assert sorted(card["slug"] for card in level["cards"]) == sorted(slug(key) for key in TARGETS), level["cards"]
     for card in level["cards"]:
@@ -617,7 +619,8 @@ def test_each_lines_arrow_opens_its_run_report(levels):
 def test_back_returns_to_the_dataset_level_and_forward_to_the_target(levels):
     moved = step(levels, "target", "back_forward")
     back, forward = moved["back"], moved["forward"]
-    assert back["hash"] in ("", "#", "#/") and back["summary"] and not back["run_list"], back
+    # Part E: the card was opened from the Targets tab, so back returns there (the band lives on the Overview tab)
+    assert back["hash"] in ("", "#", "#/", "#/targets") and (back["summary"] or back["cards"]) and not back["run_list"], back
     assert forward["hash"] == f"#/target/{slug(OPENED)}" and forward["run_list"] and not forward["summary"], forward
 
 

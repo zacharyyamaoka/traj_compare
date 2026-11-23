@@ -373,3 +373,44 @@ The bench rebuilds into a hard-linked copy (`cp -al live staging`), writes incre
 - **An exception from `fn` propagates and stops the write.** `index.html` stays the previous write's (D2), and the next
   write is correct (D1).
 - The return value is unchanged: the path of `index.html`.
+
+---
+
+## Part E: the outer view, tabs and the config league table (frozen 2026-11-23)
+
+Zach, 2026-11-20: *"the landing page is WAYYY to hard to navigate ... At the highest level we want to be comparing
+different pipeline configurations vs how they do on all of the targets ... add tabs so it's not all on the one page"*;
+2026-11-23: *"league table seems reasonable please build that out"* (V1 of `docs/proposals/outer-view-2026-11-20/`). The
+UR5e landing page was 206,472 px tall at 1440 px wide (229 screens). Acceptance: `tests/test_dataset_league.py`.
+
+### E1. Tabs
+
+- The Dataset level is tabs `[data-tc-dataset-tabs]`, links `[data-tc-dataset-tab="<id>"]` (`aria-selected`), panels
+  `[data-tc-dataset-panel="<id>"]`, in this order: `overview` (`#/`, the landing), `sweeps` (`#/sweeps`, only with a
+  sweep), `targets` (`#/targets`), `runs` (`#/runs`). A tab takes a query: `#/<tab>?k=v&…`. `#/target/<slug>` is
+  unchanged (Part A).
+- Overview: the league (E2), then the summary band (Part A). Speed sweeps: the sweep view, one chart per extra metric,
+  and the domain `summary` page folded in `details[data-tc-domain-summary]` (without a sweep it folds on the Overview).
+  Targets: the `[data-tc-targets-view]` switch, now `cards` | `table`, a page at a time (Show more), or, with
+  `?cfg=`, a config's worst targets (E3). Runs: Part A's `runs` view, unchanged.
+- No tab is taller than ~3 screens at 1440 x 900; the league lies above the fold.
+
+### E2. The league (`[data-tc-league]`)
+
+- **KPIs** come from run tags: the sweep's `y`, then `Sweep.metrics` (`Metric(tag, label, unit, log, better)`). A tag may
+  hold `{series}` (each measured series reads its own tag); a **key** is a config, or `<config> · <series>` when more
+  than one series has values. `Sweep.facet_by` may be a tuple of tags, a facet being their values joined by ` · `.
+- A target's value for a key and KPI: the median over its repeats. A cell (facet, key, x): the median over the facet's
+  targets, n = those targets. Rows: every key with a primary value at the fastest x, best first (`data-rank`), showing
+  the value, its ratio to the best (`best` on rank 1), n, one sparkline per KPI over x (`data-metric`), and how many
+  (facet, x) cells it is lowest in. Facet chips `[data-tc-league-facet]` (`all` first). A verdict line
+  `[data-tc-league-verdict]` names the best key and the others' ratios.
+- Without a sweep the league has one KPI: each config's median over targets of its median RMS joint error (the levels'
+  numbers, real lines when it has any).
+
+### E3. Drill
+
+- A league row opens `#/targets?cfg=<key>&facet=<facet>&x=<x>`: `[data-tc-drill]` lists the key's targets in that
+  facet at that x worst first, rows `[data-tc-drill-row]` (`data-target`), each linking `#/target/<slug>` and the run
+  report of the repeat closest to the target's value. Selects change the config, facet, x and sort (own value, or ratio
+  to the best other key).

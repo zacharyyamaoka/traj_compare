@@ -474,7 +474,7 @@ const spec = JSON.parse(fs.readFileSync(process.argv[4], 'utf8'));
     out[name] = record;
     try {
       await page.goto(url);
-      await page.click('[data-tc-targets-view] [data-view="runs"]', { timeout: 8000 });
+      await page.click('[data-tc-dataset-tab="runs"]', { timeout: 8000 });  // NAVIGATION.md Part E: runs is its own tab
       const button = page.locator('button[data-rerun]').first();
       await button.waitFor({ state: 'visible', timeout: 8000 });
       const answered = page.waitForResponse((response) => response.url().includes('/__rerun/open'), { timeout: 120000 });

@@ -189,8 +189,9 @@ const spec = JSON.parse(require('fs').readFileSync(process.argv[4], 'utf8'));
     return page;
   }
   // a site with a sweep opens on it
-  let page = await open(spec.sweep);
-  out.views = await page.evaluate(() => Array.from(document.querySelectorAll('[data-tc-targets-view] [data-view]')).map((b) => b.getAttribute('data-view')));
+  // NAVIGATION.md Part E (2026-11-23): the sweep is the Speed sweeps tab; the Dataset level opens on the league Overview
+  let page = await open(spec.sweep + '#/sweeps');
+  out.views = await page.evaluate(() => Array.from(document.querySelectorAll('[data-tc-dataset-tab]')).map((b) => b.getAttribute('data-tc-dataset-tab')));
   out.panel = await vis(page, '[data-tc-sweep]');
   out.chart = await page.evaluate(() => { const el = document.querySelector('[data-tc-sweep-chart]');
     if (!el) return null; const b = el.getBoundingClientRect(); return { w: b.width, h: b.height,
@@ -210,8 +211,8 @@ const spec = JSON.parse(require('fs').readFileSync(process.argv[4], 'utf8'));
   if (link) { await link.click(); await page.waitForTimeout(800); }
   out.after_click = { hash: await page.evaluate(() => location.hash), run_list: await vis(page, '[data-tc-run-list]') };
   // a site without one keeps today's default
-  page = await open(spec.plain);
-  out.plain_views = await page.evaluate(() => Array.from(document.querySelectorAll('[data-tc-targets-view] [data-view]')).map((b) => b.getAttribute('data-view')));
+  page = await open(spec.plain + '#/targets');
+  out.plain_views = await page.evaluate(() => Array.from(document.querySelectorAll('[data-tc-dataset-tab]')).map((b) => b.getAttribute('data-tc-dataset-tab')));
   out.plain_cards = await vis(page, '[data-tc-target-card]');
   await browser.close();
   console.log(JSON.stringify(out));
@@ -239,7 +240,7 @@ def _median_text(cells, config, x):
 @needs_browser
 def test_the_page_opens_on_the_sweep_with_a_drawn_chart_and_no_errors(page):
     assert page["errors"] == []
-    assert page["views"][0] == "sweep"
+    assert "sweeps" in page["views"]  # Part E: a tab, no longer the landing view
     assert page["panel"] == 1
     assert page["chart"] and page["chart"]["w"] > 300 and page["chart"]["h"] > 150 and page["chart"]["drawn"] >= 1
     assert page["facets"] == ["all", *DATASETS]
@@ -276,5 +277,5 @@ def test_a_facet_chip_switches_the_numbers_and_a_target_link_opens_the_target(pa
 
 @needs_browser
 def test_a_site_without_a_sweep_keeps_todays_default(page):
-    assert "sweep" not in page["plain_views"]
+    assert "sweeps" not in page["plain_views"]
     assert page["plain_cards"] > 0

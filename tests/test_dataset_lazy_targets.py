@@ -736,7 +736,7 @@ const HELPERS = String.raw`
     });
 
     // ── Dataset level: cards render lazily ──
-    await scene('cards_' + origin.name, origin.index, async (page, record) => {
+    await scene('cards_' + origin.name, origin.index + '#/targets', async (page, record) => {
       await page.waitForSelector('[data-tc-target-card]', { state: 'attached', timeout: WAIT });
       // the cards in view draw first (their files load), then a pause in which an eager loader would reach the rest
       await until(page, () => __tc.cards().filter((card) => card.top < window.innerHeight - 100)
@@ -763,7 +763,7 @@ const HELPERS = String.raw`
   }
 
   // ── Dataset level: league rows render lazily (file://) ──
-  await scene('league', spec.origins[0].index, async (page, record) => {
+  await scene('league', spec.origins[0].index + '#/targets', async (page, record) => {
     await page.waitForSelector('[data-tc-targets-view]', { state: 'attached', timeout: WAIT });
     await page.click('[data-tc-targets-view] [data-view="table"], [data-tc-targets-view][data-view="table"]', { timeout: WAIT });
     await until(page, () => __tc.rows().filter((row) => row.top < window.innerHeight - 50).every((row) => row.drawn > 0));
@@ -787,7 +787,7 @@ const HELPERS = String.raw`
 
   // ── Dataset level: the runs table's Open in Rerun, served from file:// (the command fallback) ──
   await scene('rerun', spec.origins[0].index, async (page, record) => {
-    await page.click('[data-tc-targets-view] [data-view="runs"], [data-tc-targets-view][data-view="runs"]', { timeout: WAIT });
+    await page.click('[data-tc-dataset-tab="runs"]', { timeout: WAIT });  // NAVIGATION.md Part E: runs is its own tab
     await page.waitForTimeout(SETTLE);
     await step(record, 'status', async () => {
       await page.getByRole('button', { name: /open in rerun/i }).first().click({ timeout: WAIT });
