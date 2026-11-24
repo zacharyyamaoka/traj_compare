@@ -1,0 +1,84 @@
+{
+  "frozen": "2026-11-24, before any variant was built (the six lanes were dispatched after this file and CONTRACT.md were written)",
+  "requirements": [
+    {
+      "id": "fr1",
+      "name": "The whole dataset at a glance",
+      "weight": 25,
+      "why": "His first like (Nov 24): \"at a glance being able to see like the entire trajectory dataset, and then also like the tool position and orientations\".",
+      "passCondition": "From the landing, joint coverage, tool position and tool orientation of all 54 trajectories are each one click (a tab) away or already on screen, readable without scrolling a tab.",
+      "anchors": {
+        "1": "The dataset view is lost or buried behind per-trajectory navigation.",
+        "3": "Every aspect is reachable, but a figure needs scrolling or reads poorly at 1440 × 900.",
+        "5": "Each aspect fills one calm screen; the landing alone says what the dataset covers."
+      }
+    },
+    {
+      "id": "fr2",
+      "name": "From the dataset to one trajectory, and into Rerun",
+      "weight": 20,
+      "why": "\"There is no drill in option in the trajectories page … I want the option to open in Rerun\".",
+      "passCondition": "One action on a trajectory shows its own numbers and motion, and one more opens it in Rerun; getting back keeps the dataset context.",
+      "anchors": {
+        "1": "No drill, or Rerun needs a command typed by hand.",
+        "3": "A drill exists but shows little beyond the row, or loses the dataset context.",
+        "5": "The drill shows the trajectory's motion and what it adds to the dataset, Rerun is one click, back is one click."
+      }
+    },
+    {
+      "id": "fr3",
+      "name": "Find and keep slices of the dataset",
+      "weight": 15,
+      "why": "\"I should also be able to like filter etc this table, and possibly like create saved views\".",
+      "passCondition": "Filter, sort, group and save the current view, and come back to it.",
+      "anchors": {
+        "1": "Sort only.",
+        "3": "Filter and sort, saved views fixed or session-only.",
+        "5": "Text + column filters, group with fold, sort, and user-saved views that persist."
+      }
+    },
+    {
+      "id": "fr4",
+      "name": "Controls appear where they apply; colours set once",
+      "weight": 15,
+      "why": "\"I don't like how these settings always show … the joint selector should just apply on the single joint view and the colors … in a settings gear in the top right corner\".",
+      "passCondition": "No control is on screen where it does nothing; global colour settings sit behind one gear and apply everywhere.",
+      "anchors": {
+        "1": "A control strip shows everywhere regardless of the view.",
+        "3": "Mostly scoped, with a stray control or settings in two places.",
+        "5": "Every visible control acts on what is in view; the gear holds the global ones and they apply everywhere."
+      }
+    },
+    {
+      "id": "fr5",
+      "name": "Common visual language (data-ui)",
+      "weight": 15,
+      "why": "\"the nice thing with data-ui is its the common visual language\"; \"it should be one of our like generic tables from data-ui\"; \"In some sense this is really just a dashboard on data right…?\".",
+      "passCondition": "The page is built from data-ui's parts, and what it adds can become stock data-ui parts other apps reuse.",
+      "anchors": {
+        "1": "Fully bespoke; nothing shared with his other apps.",
+        "3": "Looks like data-ui or uses its table, but the coverage figures stay bespoke to this page.",
+        "5": "Built from data-ui parts, and the coverage figures become stock data-ui views any app can use."
+      }
+    },
+    {
+      "id": "fr6",
+      "name": "Every colour and mark explained",
+      "weight": 10,
+      "why": "\"The trajectories have these random colors next to them but its not clear what those mean\"; Nov 23: \"good as long as you show the legend of the meaning of the lines\".",
+      "passCondition": "Every colour, line and mark on screen has a legend or label nearby.",
+      "anchors": {
+        "1": "Colours appear with no key.",
+        "3": "Main figures have legends; some marks (row chips, highlights) do not.",
+        "5": "Everything coloured is keyed where it is shown."
+      }
+    }
+  ],
+  "hardGates": [
+    {"id": "g1", "name": "Headline numbers on the overview only", "why": "Feedback 1, measured by check.cjs (G1)."},
+    {"id": "g2", "name": "Table filters, sorts, saves views; a row drills in and opens in Rerun", "why": "Feedback 2 and 4, measured by check.cjs (G2, G2b)."},
+    {"id": "g3", "name": "Row colours explained or absent", "why": "Feedback 3, measured by check.cjs (G3)."},
+    {"id": "g4", "name": "Joint picker scoped; colours behind one gear and repainting", "why": "Feedback 5, measured by check.cjs (G4a, G4b)."},
+    {"id": "g5", "name": "Runs clean on the shared UR5e data at 1440 × 900", "why": "No console errors, no sideways scroll, numbers from analyze (check.cjs G5, G6; CONTRACT.md)."}
+  ]
+}

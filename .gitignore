@@ -15,3 +15,7 @@ docs/proposals/*/data/
 
 # scratch payloads and builds (coverage lanes, 2026-11-23): regenerated, never source
 .cache/
+
+# coverage UI round 2 (2026-11-24): the vendored data-ui build (re-made by `data-ui.mjs vendor main --into vendor/data-ui`) and the walkthrough captures
+docs/proposals/*/vendor/
+docs/proposals/*/shots/
