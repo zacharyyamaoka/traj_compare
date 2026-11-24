@@ -1,0 +1,287 @@
+# The trajectory coverage viewer as ONE data-ui file (V7 · "Splice", babble round 2026-11-24): V3's file, with V5/V6's
+# one-screen landing (Overview: a headline sheet, every joint's plane, the tool from three sides, where it points) and
+# V6's "click a cell → who made it" (the host's query bar and the who dock; views/query.js).
+# V3's header follows.
+#
+# A dashboard whose pages are the tabs (PROPOSED-CONTRACT.md §52.5 `pages:`), whose figures are four new stock view
+# types (coverage-plane, coverage-hist, coverage-projection, coverage-polar: §52.1-4) beside data-ui's own kpi, table,
+# chart and voxels, and whose colours are set once behind the gear (§52.6 `settings:`). The rows are rows.py's: the
+# traj_compare.coverage/1 payload reshaped, one row per grid, nothing recomputed.
+#
+# Zach, Nov 24: "In some sense this is really just a dashboard on data right…?"; "it should be one of our like generic
+# tables from data-ui"; "the joint selector should just apply on the single joint view and the colors … perhaps those
+# are in a settings gear in the top right corner, things that apply to the entire thing that you set once".
+style:
+  chrome: minimal
+  numbers: { digits: 3 }
+  # WHY families: one colour per split on every card (data-ui CONTRACT §32); the table's split badge uses the same
+  # slots (rows/trajectories.json properties.split.colors), so a dev bar and a dev badge are one blue
+  families: { property: split, colors: { dev: 1, holdout: 3 } }
+  # the file's defaults for the reader's three colour settings (the gear writes the reader's own over them)
+  colormap: viridis
+  reverse: false
+  scale: linear
+# §52.6: the style keys a reader may change from the gear, once, for every page
+settings:
+  colormap:
+    type: colormap
+    displayName: Colour map
+    options: [viridis, magma, plasma, inferno, cividis]
+  reverse:
+    type: toggle
+    displayName: Reverse (high = dark)
+  scale:
+    type: dropdown
+    displayName: Scale
+    options:
+      linear: linear (clipped at p98)
+      log: log
+      equalized: histogram-equalized
+      visited: visited / not
+      enough: ≥ enough samples / not
+datasets:
+  numbers: rows/numbers.json
+  joints: rows/joints.json
+  hists: rows/hists.json
+  planes: rows/planes.json
+  directions: rows/directions.json
+  projections: rows/projections.json
+  voxels: rows/voxels.json
+  growth: rows/growth.json
+  visited: rows/visited.json
+  trajectories: rows/trajectories.json
+layout:
+  columns: 12
+  rowHeight: 40
+# V7: the who dock beside every figure page (a stock <data-views> of the trajectories, filtered by the query's answer)
+dock: Who made it
+# §52.5: one tab per page; a page is a dashboard layout (its panels) or one full-page view with its saved views as tabs.
+# A page may give a dataset its own rail and default filter there (`datasets:`), so the joint picker lives on One joint.
+pages:
+  - name: Overview
+    # V7: one calm 1440 × 900 screen (V5/V6's landing): no Arrange bar here (`layout.arrange: false`, stock §25)
+    # (and a 20 px row, so the four panels can be sized to the screen in finer steps)
+    layout: { arrange: false, rowHeight: 20 }
+    panels:
+      - { view: "The headline numbers", w: 12, h: 8 }
+      - { view: "Every joint: which positions and speeds?", w: 12, h: 10 }
+      - { view: "The tool: where does it go?", w: 8, h: 17 }
+      - { view: "Which way does the tool point?", w: 4, h: 17 }
+  - name: Limits
+    panels:
+      - { view: "Where does each joint's data sit against its limits?", w: 12, h: 18 }
+  - name: One joint
+    datasets:
+      planes:
+        facets:
+          - { property: joint, as: select, label: Joint, any: false }
+        filters: 'joint == "shoulder_pan_joint"'
+    panels:
+      - { view: "Which positions and speeds does the joint visit?", w: 6, h: 10 }
+      - { view: "Which speeds and accelerations does it combine?", w: 6, h: 10 }
+      - { view: "At each acceleration, which positions and speeds?", w: 12, h: 7 }
+  - name: All joints
+    panels:
+      - { view: "Every joint's positions and speeds", w: 12, h: 8 }
+      - { view: "How much of its limits does each joint use?", w: 12, h: 9 }
+      - { view: "Each joint in numbers", w: 12, h: 7 }
+      - { view: "Does each new trajectory still add new ground?", w: 6, h: 9 }
+      - { view: "How much of each joint's planes is visited?", w: 6, h: 9 }
+  - name: Tool position
+    panels:
+      - { view: "Where does the tool go?", w: 8, h: 11 }
+      - { view: "Where does the tool go, in 3-D?", w: 4, h: 11 }
+      - { view: "How fast does the tool move?", w: 12, h: 5 }
+  - name: Tool orientation
+    panels:
+      - { view: "Which way does the tool point, and how far does it tilt?", w: 5, h: 12 }
+      - { view: "Which tilts and jaw headings occur together?", w: 7, h: 12 }
+      - { view: "Which tilts and headings occur?", w: 12, h: 5 }
+  - name: Trajectories
+    # a full-page table: its saved views are its tabs (data-ui's bar), the drill is data-ui's side peek
+    views: [By split, What each one adds, Speed span, Acceleration span, Holdout only]
+properties:
+  name: { displayName: Trajectory }
+  range_used_pct: { displayName: Range used, description: "share of the position range between the data's p0.1 and p99.9 (payload hist.q.span_pct)" }
+  speed_peak_pct: { displayName: Peak speed, description: "largest speed reached (p99.9) as a share of the speed limit (hist.qd.peak_pct)" }
+  accel_peak_pct: { displayName: Peak accel., description: "largest acceleration reached (p99.9) as a share of its limit (hist.qdd.peak_pct)" }
+  q_qd_visited_pct: { displayName: q×qd visited, description: "share of the 36 × 24 position × speed cells with any sample (planes.q_qd.visited_pct)" }
+views:
+  # ── Overview: the headline numbers (the only place they show: G1), as one sheet; then the dataset on one screen ──
+  - type: coverage-sheet
+    name: The headline numbers
+    from: numbers
+    coverage: { group: section }
+  - type: coverage-plane
+    name: "Every joint: which positions and speeds?"
+    from: planes
+    filters: 'grid == "q_qd"'
+    sort:
+      - { property: joint_order, direction: ASC }
+    coverage: { value: samples, columns: 6, title: joint_short, compact: true, switch: false }
+  - type: coverage-projection
+    name: "The tool: where does it go?"
+    from: projections
+    coverage: { value: samples, compact: true }
+  - type: coverage-polar
+    name: "Which way does the tool point?"
+    from: directions
+    filters: 'grid == "sphere"'
+    coverage: { compact: true }
+  # ── All joints (V3's Overview ridgeline and joint table moved here) ─────────────────────────────────────────────
+  - type: coverage-hist
+    name: "How much of its limits does each joint use?"
+    from: hists
+    filters: 'family == "joint"'
+    coverage: { layout: ridgeline, card: joint, columns: [q, qd, qdd], pick: joint }
+  - type: table
+    name: Each joint in numbers
+    from: joints
+    order: [joint, range_used_pct, speed_peak_pct, accel_peak_pct, q_qd_visited_pct]
+    units: inline
+    sort:
+      - { property: order, direction: ASC }
+    display: { range_used_pct: bar, speed_peak_pct: bar, accel_peak_pct: bar, q_qd_visited_pct: bar }
+    columnSize: { joint: 150, range_used_pct: 98, speed_peak_pct: 98, accel_peak_pct: 98, q_qd_visited_pct: 106 }
+  # ── Limits ───────────────────────────────────────────────────────────────────────────────────────────────────────
+  - type: coverage-hist
+    name: "Where does each joint's data sit against its limits?"
+    from: hists
+    filters: 'family == "joint"'
+    sort:
+      - { property: joint_order, direction: ASC }
+      - { property: signal_order, direction: ASC }
+    coverage: { layout: multiples, card: joint }
+  # ── One joint (the rail's Joint picks the rows) ─────────────────────────────────────────────────────────────────
+  - type: coverage-plane
+    name: "Which positions and speeds does the joint visit?"
+    from: planes
+    filters: 'grid == "q_qd"'
+    coverage: { value: samples }
+  - type: coverage-plane
+    name: "Which speeds and accelerations does it combine?"
+    from: planes
+    filters: 'grid == "qd_qdd"'
+    coverage: { value: samples }
+  - type: coverage-plane
+    name: "At each acceleration, which positions and speeds?"
+    from: planes
+    filters: 'grid == "slab"'
+    sort:
+      - { property: grid_order, direction: ASC }
+    coverage: { value: samples, columns: 5 }
+  # ── All joints ──────────────────────────────────────────────────────────────────────────────────────────────────
+  - type: coverage-plane
+    name: Every joint's positions and speeds
+    from: planes
+    filters: 'grid == "q_qd"'
+    sort:
+      - { property: joint_order, direction: ASC }
+    coverage: { value: samples, columns: 6, title: joint_short }
+  - type: chart
+    name: "Does each new trajectory still add new ground?"
+    from: growth
+    chart:
+      mark: { type: line, strokeWidth: 2 }
+      encoding:
+        x: { field: added, type: quantitative, title: Trajectories added }
+        y: { field: pct, type: quantitative, title: 'q × qd cells visited, mean over joints (%)' }
+        color: { field: series, type: nominal, title: null }
+  - type: chart
+    name: "How much of each joint's planes is visited?"
+    from: visited
+    chart:
+      mark: bar
+      encoding:
+        y: { field: joint, type: nominal, title: null, sort: [shoulder_pan, shoulder_lift, elbow, wrist_1, wrist_2, wrist_3] }
+        yOffset: { field: plane, sort: ['position × speed', 'speed × acceleration', 'position × acceleration'] }
+        x: { field: pct, type: quantitative, title: 'cells visited (% of the plane)', scale: { domain: [0, 100] } }
+        color: { field: plane, type: nominal, title: null, sort: ['position × speed', 'speed × acceleration', 'position × acceleration'] }
+  # ── Tool position ───────────────────────────────────────────────────────────────────────────────────────────────
+  - type: coverage-projection
+    name: "Where does the tool go?"
+    from: projections
+    coverage: { value: samples }
+  - type: voxels
+    name: "Where does the tool go, in 3-D?"
+    from: voxels
+    voxels: { x: x, 'y': 'y', z: z, cell: 0.05, value: samples, summary: Sum, unit: m }
+  - type: coverage-hist
+    name: "How fast does the tool move?"
+    from: hists
+    filters: 'id == "tool.speed"'
+    coverage: { layout: multiples, card: label }
+  # ── Tool orientation ────────────────────────────────────────────────────────────────────────────────────────────
+  - type: coverage-polar
+    name: "Which way does the tool point, and how far does it tilt?"
+    from: directions
+    filters: 'grid == "sphere"'
+  - type: coverage-plane
+    name: "Which tilts and jaw headings occur together?"
+    from: directions
+    filters: 'grid == "tilt_yaw"'
+  - type: coverage-hist
+    name: "Which tilts and headings occur?"
+    from: hists
+    filters: 'family == "tool" && signal != "speed"'
+    coverage: { layout: multiples, card: label, columnsPerLine: 2 }
+  # ── Trajectories: data-ui's stock table, its saved views as tabs ────────────────────────────────────────────────
+  - type: table
+    name: By split
+    from: trajectories
+    open: { mode: side, splitAt: 1100 }
+    # the drill: four fields first (the rest one click away under "N more"), then the host's pane (its numbers, what it
+    # alone adds, its tool path and joints over the set, its motion over time, its spans against the set)
+    record: { sections: [{ name: Trajectory, properties: [split, kind, task, duration_s] }] }
+    groupBy: { property: split, direction: ASC }
+    order: [name, split, kind, task, duration_s, samples, new_cells, only_it_q_qd_cells, shoulder_pan_q_span_pct, shoulder_lift_q_span_pct, elbow_q_span_pct, wrist_1_q_span_pct, wrist_2_q_span_pct, wrist_3_q_span_pct]
+    display: { split: badge, new_cells: bar }
+    summaries: { duration_s: Sum, samples: Sum, new_cells: Sum }
+  - type: table
+    name: What each one adds
+    from: trajectories
+    open: { mode: side, splitAt: 1100 }
+    # the drill: four fields first (the rest one click away under "N more"), then the host's pane (its numbers, what it
+    # alone adds, its tool path and joints over the set, its motion over time, its spans against the set)
+    record: { sections: [{ name: Trajectory, properties: [split, kind, task, duration_s] }] }
+    order: [name, split, kind, new_cells, only_it_q_qd_cells, tool_path_m, tool_speed_max_m_s, tool_tilt_max_deg, duration_s]
+    sort:
+      - { property: new_cells, direction: DESC }
+    display: { split: badge, new_cells: bar, only_it_q_qd_cells: bar }
+  - type: table
+    name: Speed span
+    from: trajectories
+    open: { mode: side, splitAt: 1100 }
+    # the drill: four fields first (the rest one click away under "N more"), then the host's pane (its numbers, what it
+    # alone adds, its tool path and joints over the set, its motion over time, its spans against the set)
+    record: { sections: [{ name: Trajectory, properties: [split, kind, task, duration_s] }] }
+    order: [name, split, kind, shoulder_pan_qd_span_pct, shoulder_lift_qd_span_pct, elbow_qd_span_pct, wrist_1_qd_span_pct, wrist_2_qd_span_pct, wrist_3_qd_span_pct, tool_speed_max_m_s]
+    display: { split: badge, shoulder_pan_qd_span_pct: bar, shoulder_lift_qd_span_pct: bar, elbow_qd_span_pct: bar, wrist_1_qd_span_pct: bar, wrist_2_qd_span_pct: bar, wrist_3_qd_span_pct: bar }
+  - type: table
+    name: Acceleration span
+    from: trajectories
+    open: { mode: side, splitAt: 1100 }
+    # the drill: four fields first (the rest one click away under "N more"), then the host's pane (its numbers, what it
+    # alone adds, its tool path and joints over the set, its motion over time, its spans against the set)
+    record: { sections: [{ name: Trajectory, properties: [split, kind, task, duration_s] }] }
+    order: [name, split, kind, shoulder_pan_qdd_span_pct, shoulder_lift_qdd_span_pct, elbow_qdd_span_pct, wrist_1_qdd_span_pct, wrist_2_qdd_span_pct, wrist_3_qdd_span_pct]
+    display: { split: badge, shoulder_pan_qdd_span_pct: bar, shoulder_lift_qdd_span_pct: bar, elbow_qdd_span_pct: bar, wrist_1_qdd_span_pct: bar, wrist_2_qdd_span_pct: bar, wrist_3_qdd_span_pct: bar }
+  - type: table
+    name: Holdout only
+    from: trajectories
+    open: { mode: side, splitAt: 1100 }
+    # the drill: four fields first (the rest one click away under "N more"), then the host's pane (its numbers, what it
+    # alone adds, its tool path and joints over the set, its motion over time, its spans against the set)
+    record: { sections: [{ name: Trajectory, properties: [split, kind, task, duration_s] }] }
+    filters: 'split == "holdout"'
+    order: [name, kind, task, duration_s, new_cells, only_it_q_qd_cells, tool_path_m, tool_speed_max_m_s]
+    display: { new_cells: bar }
+  # ── V7: the who dock (beside every figure page): the same rows, the query's answer, compact ─────────────────────
+  - type: table
+    name: Who made it
+    from: trajectories
+    open: { mode: side, splitAt: 99999 }
+    record: { sections: [{ name: Trajectory, properties: [split, kind, task, duration_s] }] }
+    order: [name, split, new_cells]
+    display: { split: badge, new_cells: bar }
+    columnSize: { name: 166, split: 64, new_cells: 62 }

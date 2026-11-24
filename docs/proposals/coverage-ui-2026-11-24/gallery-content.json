@@ -1,166 +1,529 @@
 {
-  "title": "Coverage viewer, round 2: six ways to fix it",
-  "kicker": "/babble 6 · 3 on data-ui, 3 hand-rolled · UR5e Entire Workspace, 54 trajectories",
-  "brief": "Your Nov 24 feedback on the coverage page: headline numbers shown all the time, no drill-in or Rerun from the trajectories table, unexplained row colours, a table that can't filter or save views (\"one of our generic tables from data-ui\"), and a control strip that shows where it doesn't apply (\"a settings gear in the top right\"). You asked for 3 proposals built on data-ui and 3 that keep hand-rolling. All six are live prototypes on the same real data, and every one passes your feedback as a pass/fail check.",
-  "defaultId": "v3",
-  "defaultWhy": "V3 · Coverage views in data-ui scores 92/100: the coverage figures become four new data-ui view types (plane, histogram, tool projection, tilt map) inside data-ui's own table, filter, saved views, side panel and gear, with the contract text to land them in data-ui. It is the only direction that scores top marks on both the common visual language and the legends while keeping a full drill with Open in Rerun. Its weak spot is the landing: a wall of number cards, with the tool one tab away.",
-  "decisionHinge": "How much the common visual language is worth against the landing. Move 10 points from FR5 (data-ui) to FR1 (whole dataset at a glance) and V6 · Who goes there wins 96 to 90: hand-rolled, but its landing shows joints, tool position and pointing on one screen, and clicking any cell lists the trajectories behind it. The splice that keeps both: V3's views and table, with V5's or V6's landing and V6's click-a-cell-to-filter (V2 already shows that click working inside data-ui).",
-  "invariants": [
-    "The same UR5e · Entire Workspace data (54 trajectories, dev + holdout at full speed), from the same traj_compare.coverage payload; the per-trajectory cell lists rebuild the payload's counts exactly (extract.py asserts it).",
-    "Same viewport (1440 × 900), same check (check.cjs), same five-step walkthrough shape, all captured from the live prototypes.",
-    "Every proposal passes your six feedback points as pass/fail gates before scoring."
-  ],
-  "boundary": "Live prototypes in traj_compare/docs/proposals/coverage-ui-2026-11-24/ on real UR5e data; Open in Rerun really launches Rerun through traj_compare.serve. The pictures here are captures of those prototypes; nothing is wired into traj_compare's real coverage page or into data-ui yet.",
-  "axes": [
-    {"name": "Stack", "values": ["data-ui as it is today (V1)", "data-ui + host-drawn maps that recount (V2)", "data-ui + new coverage view types (V3)", "hand-rolled (V4, V5, V6)"]},
-    {"name": "Primary object", "values": ["the dataset, page by page (V1, V3, V4)", "the rows you filtered (V2)", "the trajectories you selected (V5)", "the cell you clicked (V6)"]},
-    {"name": "Figures ↔ table", "values": ["not linked (V1, V3, V4)", "filter rows → maps recount (V2)", "select rows → maps highlight (V5)", "click a cell → table filters (V6)"]},
-    {"name": "Drill-in", "values": ["data-ui's side panel (V1, V2, V3)", "a drawer over the page (V4, V6)", "a trajectory page inside the app (V5)"]}
-  ],
-  "variants": [
+ "title": "Coverage viewer, round 2: six ways to fix it, and the splice",
+ "kicker": "/babble 6 + splice · 3 on data-ui, 3 hand-rolled, V7 = V3 + V5/V6 · UR5e Entire Workspace, 54 trajectories",
+ "brief": "Your Nov 24 feedback on the coverage page: headline numbers shown all the time, no drill-in or Rerun from the trajectories table, unexplained row colours, a table that can't filter or save views (\"one of our generic tables from data-ui\"), and a control strip that shows where it doesn't apply (\"a settings gear in the top right\"). You asked for 3 proposals built on data-ui and 3 that keep hand-rolling. All six are live prototypes on the same real data, and every one passes your feedback as a pass/fail check.",
+ "defaultId": "v7",
+ "defaultWhy": "V7 · Splice scores 97/100. Of the six, V3 · Coverage views in data-ui led at 92 (data-ui's language, every figure keyed, a full drill) but landed on a wall of number cards, and V6 · Who goes there was next at 88 for its one-screen landing and click-a-cell. V7 is the child of those two (plus V5's landing and V4/V5's drill), built after the round on the same frozen criteria and checks: data-ui's table, side panel and V3's views, a one-screen landing, and clicking any cell filters to who made it. Caveat: it was built knowing the criteria, so its lead is partly by design.",
+ "decisionHinge": "Whether data-ui's common visual language is worth anything to you. With FR5 at 0 (its 15 points moved to the landing), hand-rolled V6 edges V7 100 to 97, because V7 still carries host-side code on top of data-ui (the query pill and the drawer) until data-ui takes the two additions V7 proposes (§52.8, §52.9). At any weight that values data-ui, V7 leads.",
+ "invariants": [
+  "The same UR5e · Entire Workspace data (54 trajectories, dev + holdout at full speed), from the same traj_compare.coverage payload; the per-trajectory cell lists rebuild the payload's counts exactly (extract.py asserts it).",
+  "Same viewport (1440 × 900), same check (check.cjs), same five-step walkthrough shape, all captured from the live prototypes.",
+  "Every proposal passes your six feedback points as pass/fail gates before scoring."
+ ],
+ "boundary": "Live prototypes in traj_compare/docs/proposals/coverage-ui-2026-11-24/ on real UR5e data; Open in Rerun really launches Rerun through traj_compare.serve. The pictures here are captures of those prototypes; nothing is wired into traj_compare's real coverage page or into data-ui yet.",
+ "axes": [
+  {
+   "name": "Stack",
+   "values": [
+    "data-ui as it is today (V1)",
+    "data-ui + host-drawn maps that recount (V2)",
+    "data-ui + new coverage view types (V3, V7)",
+    "hand-rolled (V4, V5, V6)"
+   ]
+  },
+  {
+   "name": "Primary object",
+   "values": [
+    "the dataset, page by page (V1, V3, V4)",
+    "the rows you filtered (V2)",
+    "the trajectories you selected (V5)",
+    "the cell you clicked (V6, V7)"
+   ]
+  },
+  {
+   "name": "Figures ↔ table",
+   "values": [
+    "not linked (V1, V3, V4)",
+    "filter rows → maps recount (V2)",
+    "select rows → maps highlight (V5)",
+    "click a cell → table filters (V6, V7)"
+   ]
+  },
+  {
+   "name": "Drill-in",
+   "values": [
+    "data-ui's side panel (V1, V2, V3, V7)",
+    "a drawer over the page (V4, V6)",
+    "a trajectory page inside the app (V5)"
+   ]
+  }
+ ],
+ "variants": [
+  {
+   "id": "v1",
+   "name": "Stock dashboard",
+   "thesis": "It really is a dashboard on data: the coverage page built from data-ui exactly as it is today, with zero new data-ui code, plus the honest list of where stock data-ui falls short.",
+   "accent": "#6b7280",
+   "bestWhen": "Coverage should be one more data-ui dashboard that an agent edits as YAML (a new figure is a dozen lines of .base, checked by data-ui check), and every future data-ui improvement should land here for free.",
+   "losesWhen": "A figure needs polish data-ui lacks: no p98-clipped linear scale, the front and side tool views stretch (no equal aspect), titles can't name the picked joint, no highlighting a trajectory across figures, the 3-D voxels ignore the gear.",
+   "decisions": [
     {
-      "id": "v1",
-      "name": "Stock dashboard",
-      "thesis": "It really is a dashboard on data: the coverage page built from data-ui exactly as it is today, with zero new data-ui code, plus the honest list of where stock data-ui falls short.",
-      "accent": "#6b7280",
-      "bestWhen": "Coverage should be one more data-ui dashboard that an agent edits as YAML (a new figure is a dozen lines of .base, checked by data-ui check), and every future data-ui improvement should land here for free.",
-      "losesWhen": "A figure needs polish data-ui lacks: no p98-clipped linear scale, the front and side tool views stretch (no equal aspect), titles can't name the picked joint, no highlighting a trajectory across figures, the 3-D voxels ignore the gear.",
-      "decisions": [
-        {"label": "Pages", "value": "Seven .base files under data-ui's own left app rail; the Overview is stock KPI cards."},
-        {"label": "Figures", "value": "Vega-Lite inside .base: rect heatmaps with the limit box, stacked histograms, a polar tilt map, stock voxels."},
-        {"label": "Gear", "value": "A thin page script rewrites every chart's colour scale (data-ui has no page-wide setting)."},
-        {"label": "Drill", "value": "The stock side panel with the row's numbers, joint angles over time and an Open in Rerun link."}
-      ],
-      "keepParts": ["rows.py: the payload as row tables, nothing recomputed", "the stock trajectories table with saved views and folding split groups", "the list of 11 data-ui gaps"],
-      "proof": ["check.cjs 8 of 8 (shots/v1.check.json)", "every .base passes data-ui check", "Open in Rerun posts data/rrd/<name>.rrd (intercepted in the check)"],
-      "scores": {
-        "fr1": {"score": 3, "evidence": "The Overview is mostly 15 KPI cards (each footed \"the producer's number\") plus one tool map; joints, tool and pointing each need their own page, and the front/side tool views stretch.", "confidence": "high"},
-        "fr2": {"score": 4, "evidence": "Clicking a row opens data-ui's side panel with its numbers, joint angles over time and Open in Rerun; the table stays beside it. It doesn't draw what the trajectory adds.", "confidence": "high"},
-        "fr3": {"score": 5, "evidence": "Stock filter rail, text filter, five saved views as tabs plus + Save, groups that fold, one-click sort (step 4).", "confidence": "high"},
-        "fr4": {"score": 4, "evidence": "Settings gear top right repaints every heatmap; the joint picker is a filter on One joint only. The 3-D voxels ignore the gear, and the picker shows a stray \"Any\" option with counts.", "confidence": "medium"},
-        "fr5": {"score": 5, "evidence": "Zero new data-ui code: stock rail, dashboards, KPI, table, facets, side panel, voxels; the figures are .base Vega-Lite that any data-ui app can use.", "confidence": "high"},
-        "fr6": {"score": 3, "evidence": "One legend line per page instead of per figure; histograms keep a split legend; the KPI footers are noise. No colour beside a trajectory.", "confidence": "medium"}
-      }
+     "label": "Pages",
+     "value": "Seven .base files under data-ui's own left app rail; the Overview is stock KPI cards."
     },
     {
-      "id": "v2",
-      "name": "Rows first",
-      "thesis": "The dataset is a table of trajectories, and coverage is what the rows you've filtered add up to: tick \"holdout\" in data-ui's filter rail and every map redraws as what those 12 alone cover.",
-      "accent": "#2a78d6",
-      "bestWhen": "The question is about a slice: what holdout covers that dev doesn't, what you'd lose by dropping a kind, which trajectory is alone in a corner. Clicking a map cell lists the trajectories through it in data-ui's side panel.",
-      "losesWhen": "You want density over time (a map counts trajectories, so a long dwell counts once) or the motion itself: the spaghetti, envelope, slabs, parallel coordinates, growth curve and 3-D views are gone because none of them recounts from cell lists.",
-      "decisions": [
-        {"label": "Spine", "value": "One stock data-ui table with a stock filter rail; the tabs are data-ui view tabs."},
-        {"label": "Maps", "value": "A registered \"occupancy\" view counts trajectories per cell over whatever rows data-ui hands it, labelled \"subset n of 54\"."},
-        {"label": "Honesty check", "value": "With nothing filtered, all 22 grids, the 1 283 voxels and 10 headline numbers must equal analyze's at load, or the page logs an error."},
-        {"label": "Drill", "value": "data-ui's side panel plus \"what it adds\": tool path from above and each joint's position × speed with its only-it cells in black."}
-      ],
-      "keepParts": ["the generic occupancy view (rows list their cells; the view counts)", "filter rows → every map recounts, labelled as a subset", "click a cell → data-ui's side panel lists who goes there"],
-      "proof": ["check.cjs 8 of 8 (shots/v2.check.json)", "load-time equality with the payload on every grid", "data-ui check: 0 errors"],
-      "scores": {
-        "fr1": {"score": 4, "evidence": "The Overview shows the numbers plus small maps of all six joints, the tool from three sides and the pointing map on one screen (step 1); many live figures are dropped.", "confidence": "high"},
-        "fr2": {"score": 4, "evidence": "data-ui's side panel with Open in Rerun, ‹ › stepping and what it adds (tool path, per-joint only-it cells, step 5); no joint motion over time.", "confidence": "high"},
-        "fr3": {"score": 5, "evidence": "Stock facets with text search, split/kind/tags ticks and range sliders over duration and new cells; eight saved views; slices recount the maps.", "confidence": "high"},
-        "fr4": {"score": 5, "evidence": "The gear holds colour map, Reverse and scale and applies to every map; the joint picker shows on One joint only.", "confidence": "high"},
-        "fr5": {"score": 4, "evidence": "data-ui's table, rail, tabs, KPI cards and side panel; the maps are two views registered from the page, not yet stock (7 named gaps).", "confidence": "high"},
-        "fr6": {"score": 4, "evidence": "Every map has its colour/white/grey/red-frame key and a \"subset n of 54\" label; split chips are keyed in the header.", "confidence": "medium"}
-      }
+     "label": "Figures",
+     "value": "Vega-Lite inside .base: rect heatmaps with the limit box, stacked histograms, a polar tilt map, stock voxels."
     },
     {
-      "id": "v3",
-      "name": "Coverage views in data-ui",
-      "thesis": "Move the coverage figures into data-ui as stock view types (plane, histogram, tool projection, tilt map) with a page-wide settings gear, so every dataset page in every app gets them in the common visual language.",
-      "accent": "#7c3aed",
-      "bestWhen": "Coverage should look and behave like the rest of your apps and be reusable: any app with rows gets these figures, the table, saved views and side panel from data-ui, and PROPOSED-CONTRACT.md is ready for a data-ui lane to land.",
-      "losesWhen": "You want the whole picture on the landing (it is a wall of KPI cards; the tool is a tab away), or the figures data-ui can't host yet: the 3-D direction sphere, parallel coordinates, the dataset spaghetti and envelope. Changing a setting redraws the page.",
-      "decisions": [
-        {"label": "New view types", "value": "coverage-plane, coverage-hist, coverage-projection and coverage-polar, registered as data-ui plugins from v3/views/."},
-        {"label": "Rows", "value": "One row per grid with counts as list cells (one row per cell only for the stock voxels)."},
-        {"label": "Settings", "value": "A settings: block on the dashboard and a gear every coverage view reads (colour map, Reverse, scale)."},
-        {"label": "Drill", "value": "data-ui's side panel: what it adds (first-visit and only-it cells), its tool path from three sides over every trajectory, its motion, Open in Rerun."}
-      ],
-      "keepParts": ["the four coverage view types", "PROPOSED-CONTRACT.md (data-ui §52: coverage views + dashboard settings)", "the drill's \"what it adds\" with the tool path over every trajectory"],
-      "proof": ["check.cjs 8 of 8 (shots/v3.check.json)", "numbers in the stills match data/ (elbow q×qd 49 % visited, 25 % with ≥ 10 samples, 18 % evenness)", "Open in Rerun posts data/rrd/<name>.rrd"],
-      "scores": {
-        "fr1": {"score": 4, "evidence": "The Overview has the headline cards, the limits ridgeline for every joint and a joint table; each other aspect is one calm tab (step 2). The tool isn't on the landing, the cards truncate labels and the joint table clips a column.", "confidence": "high"},
-        "fr2": {"score": 5, "evidence": "The side panel shows 125 first-visit and 66 only-it cells, the tool path from three sides over all trajectories and the motion, with Open in Rerun and ‹ › stepping; the table stays beside it (step 5).", "confidence": "high"},
-        "fr3": {"score": 5, "evidence": "data-ui's table: five saved views as tabs with counts plus +, search, sort on a header click, split badges (step 4).", "confidence": "high"},
-        "fr4": {"score": 4, "evidence": "The Settings gear repaints every coverage view and each figure keeps its own colour-by toggle; the joint picker is the One joint page's rail. The stock voxels ignore the gear and the rail can't hide \"Any\".", "confidence": "medium"},
-        "fr5": {"score": 5, "evidence": "Built from data-ui parts, and the coverage figures become data-ui view types with the contract amendment written (PROPOSED-CONTRACT.md).", "confidence": "high"},
-        "fr6": {"score": 5, "evidence": "Every figure carries its own key (colour, white, red frame, zero line, clipping note) and a hover readout; split badge colours are keyed above the table.", "confidence": "high"}
-      }
+     "label": "Gear",
+     "value": "A thin page script rewrites every chart's colour scale (data-ui has no page-wide setting)."
     },
     {
-      "id": "v4",
-      "name": "Tidy",
-      "thesis": "Keep today's page, which you like for its glance and its tabs, and fix exactly what you flagged, nothing structural.",
-      "accent": "#0f9d58",
-      "bestWhen": "You want today's page back with its paper cuts gone and nothing to relearn: same tabs, figures, colours and words.",
-      "losesWhen": "You want the page to be data-ui: the table only looks like data-ui, its filters and saved views are its own code, and the figures still don't talk to the table.",
-      "decisions": [
-        {"label": "Gear", "value": "One popover (colour maps as ramps, Reverse, scale, \"enough\", frame note); the gear button itself shows the current ramp and \"map · scale\"."},
-        {"label": "Controls", "value": "Each tab has its own header line; the joint picker is six buttons on One joint."},
-        {"label": "Table", "value": "Hand-built in data-ui's look: view tabs + Save view, search, split/kind chips, number ranges, group by with fold."},
-        {"label": "Drill", "value": "A two-column drawer: numbers, what only it adds and its rank, spans against the dataset, tool path over the other 53, joints over time, Open in Rerun; ↑/↓ step, Esc closes."}
-      ],
-      "keepParts": ["the drill drawer (works over any table)", "the gear button that shows the current colour map", "the split chip with its legend"],
-      "proof": ["check.cjs 8 of 8 (shots/v4.check.json)", "every existing figure repaints from the gear", "Open in Rerun posts data/rrd/<name>.rrd"],
-      "scores": {
-        "fr1": {"score": 4, "evidence": "Today's Overview, tidier: one numbers card (Dataset / Joints / Tool) over the limits ridgeline and joint table; tool position and orientation are their own tabs (step 1).", "confidence": "high"},
-        "fr2": {"score": 5, "evidence": "The drawer shows its numbers, only-it rank, spans vs the dataset, tool path from above and front over the other 53, q/qd over time, and Open in Rerun; the table stays behind it (step 5).", "confidence": "high"},
-        "fr3": {"score": 5, "evidence": "Search, split/kind chips with counts, number ranges per column, group by with fold, sort, saved views that persist, rename and delete (step 4).", "confidence": "high"},
-        "fr4": {"score": 5, "evidence": "The control strip is gone; the gear holds the global colours and shows them on its button; every tab's controls sit in its own header.", "confidence": "high"},
-        "fr5": {"score": 2, "evidence": "It looks like data-ui's table but shares no code with it; the figures stay bespoke to this page.", "confidence": "high"},
-        "fr6": {"score": 5, "evidence": "The blue square is now a labelled dev/holdout chip keyed in the status line; every figure keeps its legend and \"How to read this\".", "confidence": "high"}
-      }
-    },
-    {
-      "id": "v5",
-      "name": "Focus rail",
-      "thesis": "Keep the whole dataset on screen, and let a trajectory list on the left light up what any trajectory (or a few) contributes, in every figure at once.",
-      "accent": "#e05a3f",
-      "bestWhen": "The question is about a trajectory or a set: what dev-029 adds, whether holdout covers anything dev doesn't, which trajectory you could drop. Pressing ↓ in the list and watching every map change scans the set one by one.",
-      "losesWhen": "You only want the dataset picture: the list takes 300 px all the time. With thousands of trajectories it needs virtualising, and selecting many washes out the highlight.",
-      "decisions": [
-        {"label": "Layout", "value": "A resizable trajectory list on the left (filter, sort, group with a dot-colour legend, saved-view chips); tabs on the right."},
-        {"label": "Selection overlay", "value": "Selected cells in the colour map, the rest of the dataset in grey, cells only the selection reaches in cyan, plus \"adds N cells nobody else visits\"."},
-        {"label": "Landing", "value": "Every joint's position × speed map, the tool from three sides and the pointing disc on one screen, under a compact numbers sheet."},
-        {"label": "Drill", "value": "A trajectory page inside the app with a back link, Previous/Next, its motion, spans vs the dataset and Open in Rerun."}
-      ],
-      "keepParts": ["the selection overlay rule (colour / grey / cyan)", "the one-screen landing of joints + tool + pointing", "the in-app trajectory page"],
-      "proof": ["check.cjs 8 of 8 (shots/v5.check.json)", "a single selection's \"only it\" count equals trajectories.json's only_it_q_qd_cells", "Open in Rerun posts data/rrd/<name>.rrd"],
-      "scores": {
-        "fr1": {"score": 5, "evidence": "The landing shows a numbers sheet, all six joints' position × speed maps, the tool from above/front/side and the pointing disc on one 1440 × 900 screen (step 2).", "confidence": "high"},
-        "fr2": {"score": 5, "evidence": "The trajectory page has its numbers, joint q/qd over time, spans vs the dataset, Open in Rerun with the command, a breadcrumb back and Previous/Next (step 4).", "confidence": "high"},
-        "fr3": {"score": 4, "evidence": "Filter, sort, group and saved-view chips with + Save and delete; no per-column or range filters in the list.", "confidence": "medium"},
-        "fr4": {"score": 5, "evidence": "Gear top right (plus how unselected cells draw); the joint picker on One joint only.", "confidence": "high"},
-        "fr5": {"score": 1, "evidence": "Fully bespoke; nothing shared with data-ui or your other apps.", "confidence": "high"},
-        "fr6": {"score": 5, "evidence": "Every map keys selected / rest / only-the-selection / never visited / limit box; the list keys its dot colours and \"blue = selected\".", "confidence": "high"}
-      }
-    },
-    {
-      "id": "v6",
-      "name": "Who goes there",
-      "thesis": "The figures are the query: click any coloured cell to list the trajectories that made it, or an empty one to see who comes closest; clicks add up (AND).",
-      "accent": "#d97706",
-      "bestWhen": "You are curating the dataset: who is behind a hot spot, who almost reaches a gap, so which trajectory to extend or which task to add. Click a region, read the list, drill in, open it in Rerun.",
-      "losesWhen": "You want coverage recounted for a subset (it fades, never recounts); the 2 cm tool pixels are 3–4 px click targets, and there is no 3-D voxel view, parallel coordinates or growth curve.",
-      "decisions": [
-        {"label": "Query", "value": "A sticky \"Who goes there\" bar of chips in plain words (\"visits shoulder_pan q 0–20°, qd 0–15°/s\"), ANDed, with \"n of 54 trajectories\"."},
-        {"label": "Holes", "value": "On Tool position, reachable-but-unvisited pixels turn amber; pins mark the three spots farthest from any path, and a click ranks who comes closest."},
-        {"label": "Who list", "value": "A compact list docked beside every figure tab; hovering a row inks its cells in every figure."},
-        {"label": "Drill", "value": "A drawer that keeps the dataset visible: its cells over the faded dataset, its motion, ‹ › through the answer, Open in Rerun."}
-      ],
-      "keepParts": ["figures that write the query (a view emits {grid, cells, label})", "Holes + closest trajectories", "saved views that also keep the figure query"],
-      "proof": ["check.cjs 8 of 8 (shots/v6.check.json)", "the walkthrough: one q×qd cell → 8 trajectories, AND a front-view pixel → 1", "Open in Rerun posts data/rrd/<name>.rrd"],
-      "scores": {
-        "fr1": {"score": 5, "evidence": "The landing shows the numbers, every joint's q/qd/qdd histograms against its limits, the tool from above and the pointing disc, plus the who list, on one screen (step 1).", "confidence": "high"},
-        "fr2": {"score": 5, "evidence": "The drawer keeps the dataset visible behind it: numbers, its cells over the faded dataset with only-it cells in blue, q/qd over time, ‹ › stepping, Open in Rerun with the command (step 5).", "confidence": "high"},
-        "fr3": {"score": 5, "evidence": "Text and column filters, sort, group with fold, four views plus + Save current that also keeps the figure query and persists.", "confidence": "high"},
-        "fr4": {"score": 5, "evidence": "Gear top right (plus trajectories vs samples per cell); the joint picker on One joint only; the Holes toggle only on Tool position.", "confidence": "high"},
-        "fr5": {"score": 1, "evidence": "Fully bespoke; its click-to-query protocol is small enough for data-ui to adopt, but nothing is shared today.", "confidence": "high"},
-        "fr6": {"score": 5, "evidence": "Every figure keys faded / the band you asked about / holes / pins / rows under the mouse; no colour beside a trajectory.", "confidence": "high"}
-      }
+     "label": "Drill",
+     "value": "The stock side panel with the row's numbers, joint angles over time and an Open in Rerun link."
     }
-  ]
+   ],
+   "keepParts": [
+    "rows.py: the payload as row tables, nothing recomputed",
+    "the stock trajectories table with saved views and folding split groups",
+    "the list of 11 data-ui gaps"
+   ],
+   "proof": [
+    "check.cjs 8 of 8 (shots/v1.check.json)",
+    "every .base passes data-ui check",
+    "Open in Rerun posts data/rrd/<name>.rrd (intercepted in the check)"
+   ],
+   "scores": {
+    "fr1": {
+     "score": 3,
+     "evidence": "The Overview is mostly 15 KPI cards (each footed \"the producer's number\") plus one tool map; joints, tool and pointing each need their own page, and the front/side tool views stretch.",
+     "confidence": "high"
+    },
+    "fr2": {
+     "score": 4,
+     "evidence": "Clicking a row opens data-ui's side panel with its numbers, joint angles over time and Open in Rerun; the table stays beside it. It doesn't draw what the trajectory adds.",
+     "confidence": "high"
+    },
+    "fr3": {
+     "score": 5,
+     "evidence": "Stock filter rail, text filter, five saved views as tabs plus + Save, groups that fold, one-click sort (step 4).",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 4,
+     "evidence": "Settings gear top right repaints every heatmap; the joint picker is a filter on One joint only. The 3-D voxels ignore the gear, and the picker shows a stray \"Any\" option with counts.",
+     "confidence": "medium"
+    },
+    "fr5": {
+     "score": 5,
+     "evidence": "Zero new data-ui code: stock rail, dashboards, KPI, table, facets, side panel, voxels; the figures are .base Vega-Lite that any data-ui app can use.",
+     "confidence": "high"
+    },
+    "fr6": {
+     "score": 3,
+     "evidence": "One legend line per page instead of per figure; histograms keep a split legend; the KPI footers are noise. No colour beside a trajectory.",
+     "confidence": "medium"
+    }
+   }
+  },
+  {
+   "id": "v2",
+   "name": "Rows first",
+   "thesis": "The dataset is a table of trajectories, and coverage is what the rows you've filtered add up to: tick \"holdout\" in data-ui's filter rail and every map redraws as what those 12 alone cover.",
+   "accent": "#2a78d6",
+   "bestWhen": "The question is about a slice: what holdout covers that dev doesn't, what you'd lose by dropping a kind, which trajectory is alone in a corner. Clicking a map cell lists the trajectories through it in data-ui's side panel.",
+   "losesWhen": "You want density over time (a map counts trajectories, so a long dwell counts once) or the motion itself: the spaghetti, envelope, slabs, parallel coordinates, growth curve and 3-D views are gone because none of them recounts from cell lists.",
+   "decisions": [
+    {
+     "label": "Spine",
+     "value": "One stock data-ui table with a stock filter rail; the tabs are data-ui view tabs."
+    },
+    {
+     "label": "Maps",
+     "value": "A registered \"occupancy\" view counts trajectories per cell over whatever rows data-ui hands it, labelled \"subset n of 54\"."
+    },
+    {
+     "label": "Honesty check",
+     "value": "With nothing filtered, all 22 grids, the 1 283 voxels and 10 headline numbers must equal analyze's at load, or the page logs an error."
+    },
+    {
+     "label": "Drill",
+     "value": "data-ui's side panel plus \"what it adds\": tool path from above and each joint's position × speed with its only-it cells in black."
+    }
+   ],
+   "keepParts": [
+    "the generic occupancy view (rows list their cells; the view counts)",
+    "filter rows → every map recounts, labelled as a subset",
+    "click a cell → data-ui's side panel lists who goes there"
+   ],
+   "proof": [
+    "check.cjs 8 of 8 (shots/v2.check.json)",
+    "load-time equality with the payload on every grid",
+    "data-ui check: 0 errors"
+   ],
+   "scores": {
+    "fr1": {
+     "score": 4,
+     "evidence": "The Overview shows the numbers plus small maps of all six joints, the tool from three sides and the pointing map on one screen (step 1); many live figures are dropped.",
+     "confidence": "high"
+    },
+    "fr2": {
+     "score": 4,
+     "evidence": "data-ui's side panel with Open in Rerun, ‹ › stepping and what it adds (tool path, per-joint only-it cells, step 5); no joint motion over time.",
+     "confidence": "high"
+    },
+    "fr3": {
+     "score": 5,
+     "evidence": "Stock facets with text search, split/kind/tags ticks and range sliders over duration and new cells; eight saved views; slices recount the maps.",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 5,
+     "evidence": "The gear holds colour map, Reverse and scale and applies to every map; the joint picker shows on One joint only.",
+     "confidence": "high"
+    },
+    "fr5": {
+     "score": 4,
+     "evidence": "data-ui's table, rail, tabs, KPI cards and side panel; the maps are two views registered from the page, not yet stock (7 named gaps).",
+     "confidence": "high"
+    },
+    "fr6": {
+     "score": 4,
+     "evidence": "Every map has its colour/white/grey/red-frame key and a \"subset n of 54\" label; split chips are keyed in the header.",
+     "confidence": "medium"
+    }
+   }
+  },
+  {
+   "id": "v3",
+   "name": "Coverage views in data-ui",
+   "thesis": "Move the coverage figures into data-ui as stock view types (plane, histogram, tool projection, tilt map) with a page-wide settings gear, so every dataset page in every app gets them in the common visual language.",
+   "accent": "#7c3aed",
+   "bestWhen": "Coverage should look and behave like the rest of your apps and be reusable: any app with rows gets these figures, the table, saved views and side panel from data-ui, and PROPOSED-CONTRACT.md is ready for a data-ui lane to land.",
+   "losesWhen": "You want the whole picture on the landing (it is a wall of KPI cards; the tool is a tab away), or the figures data-ui can't host yet: the 3-D direction sphere, parallel coordinates, the dataset spaghetti and envelope. Changing a setting redraws the page.",
+   "decisions": [
+    {
+     "label": "New view types",
+     "value": "coverage-plane, coverage-hist, coverage-projection and coverage-polar, registered as data-ui plugins from v3/views/."
+    },
+    {
+     "label": "Rows",
+     "value": "One row per grid with counts as list cells (one row per cell only for the stock voxels)."
+    },
+    {
+     "label": "Settings",
+     "value": "A settings: block on the dashboard and a gear every coverage view reads (colour map, Reverse, scale)."
+    },
+    {
+     "label": "Drill",
+     "value": "data-ui's side panel: what it adds (first-visit and only-it cells), its tool path from three sides over every trajectory, its motion, Open in Rerun."
+    }
+   ],
+   "keepParts": [
+    "the four coverage view types",
+    "PROPOSED-CONTRACT.md (data-ui §52: coverage views + dashboard settings)",
+    "the drill's \"what it adds\" with the tool path over every trajectory"
+   ],
+   "proof": [
+    "check.cjs 8 of 8 (shots/v3.check.json)",
+    "numbers in the stills match data/ (elbow q×qd 49 % visited, 25 % with ≥ 10 samples, 18 % evenness)",
+    "Open in Rerun posts data/rrd/<name>.rrd"
+   ],
+   "scores": {
+    "fr1": {
+     "score": 4,
+     "evidence": "The Overview has the headline cards, the limits ridgeline for every joint and a joint table; each other aspect is one calm tab (step 2). The tool isn't on the landing, the cards truncate labels and the joint table clips a column.",
+     "confidence": "high"
+    },
+    "fr2": {
+     "score": 5,
+     "evidence": "The side panel shows 125 first-visit and 66 only-it cells, the tool path from three sides over all trajectories and the motion, with Open in Rerun and ‹ › stepping; the table stays beside it (step 5).",
+     "confidence": "high"
+    },
+    "fr3": {
+     "score": 5,
+     "evidence": "data-ui's table: five saved views as tabs with counts plus +, search, sort on a header click, split badges (step 4).",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 4,
+     "evidence": "The Settings gear repaints every coverage view and each figure keeps its own colour-by toggle; the joint picker is the One joint page's rail. The stock voxels ignore the gear and the rail can't hide \"Any\".",
+     "confidence": "medium"
+    },
+    "fr5": {
+     "score": 5,
+     "evidence": "Built from data-ui parts, and the coverage figures become data-ui view types with the contract amendment written (PROPOSED-CONTRACT.md).",
+     "confidence": "high"
+    },
+    "fr6": {
+     "score": 5,
+     "evidence": "Every figure carries its own key (colour, white, red frame, zero line, clipping note) and a hover readout; split badge colours are keyed above the table.",
+     "confidence": "high"
+    }
+   }
+  },
+  {
+   "id": "v4",
+   "name": "Tidy",
+   "thesis": "Keep today's page, which you like for its glance and its tabs, and fix exactly what you flagged, nothing structural.",
+   "accent": "#0f9d58",
+   "bestWhen": "You want today's page back with its paper cuts gone and nothing to relearn: same tabs, figures, colours and words.",
+   "losesWhen": "You want the page to be data-ui: the table only looks like data-ui, its filters and saved views are its own code, and the figures still don't talk to the table.",
+   "decisions": [
+    {
+     "label": "Gear",
+     "value": "One popover (colour maps as ramps, Reverse, scale, \"enough\", frame note); the gear button itself shows the current ramp and \"map · scale\"."
+    },
+    {
+     "label": "Controls",
+     "value": "Each tab has its own header line; the joint picker is six buttons on One joint."
+    },
+    {
+     "label": "Table",
+     "value": "Hand-built in data-ui's look: view tabs + Save view, search, split/kind chips, number ranges, group by with fold."
+    },
+    {
+     "label": "Drill",
+     "value": "A two-column drawer: numbers, what only it adds and its rank, spans against the dataset, tool path over the other 53, joints over time, Open in Rerun; ↑/↓ step, Esc closes."
+    }
+   ],
+   "keepParts": [
+    "the drill drawer (works over any table)",
+    "the gear button that shows the current colour map",
+    "the split chip with its legend"
+   ],
+   "proof": [
+    "check.cjs 8 of 8 (shots/v4.check.json)",
+    "every existing figure repaints from the gear",
+    "Open in Rerun posts data/rrd/<name>.rrd"
+   ],
+   "scores": {
+    "fr1": {
+     "score": 4,
+     "evidence": "Today's Overview, tidier: one numbers card (Dataset / Joints / Tool) over the limits ridgeline and joint table; tool position and orientation are their own tabs (step 1).",
+     "confidence": "high"
+    },
+    "fr2": {
+     "score": 5,
+     "evidence": "The drawer shows its numbers, only-it rank, spans vs the dataset, tool path from above and front over the other 53, q/qd over time, and Open in Rerun; the table stays behind it (step 5).",
+     "confidence": "high"
+    },
+    "fr3": {
+     "score": 5,
+     "evidence": "Search, split/kind chips with counts, number ranges per column, group by with fold, sort, saved views that persist, rename and delete (step 4).",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 5,
+     "evidence": "The control strip is gone; the gear holds the global colours and shows them on its button; every tab's controls sit in its own header.",
+     "confidence": "high"
+    },
+    "fr5": {
+     "score": 2,
+     "evidence": "It looks like data-ui's table but shares no code with it; the figures stay bespoke to this page.",
+     "confidence": "high"
+    },
+    "fr6": {
+     "score": 5,
+     "evidence": "The blue square is now a labelled dev/holdout chip keyed in the status line; every figure keeps its legend and \"How to read this\".",
+     "confidence": "high"
+    }
+   }
+  },
+  {
+   "id": "v5",
+   "name": "Focus rail",
+   "thesis": "Keep the whole dataset on screen, and let a trajectory list on the left light up what any trajectory (or a few) contributes, in every figure at once.",
+   "accent": "#e05a3f",
+   "bestWhen": "The question is about a trajectory or a set: what dev-029 adds, whether holdout covers anything dev doesn't, which trajectory you could drop. Pressing ↓ in the list and watching every map change scans the set one by one.",
+   "losesWhen": "You only want the dataset picture: the list takes 300 px all the time. With thousands of trajectories it needs virtualising, and selecting many washes out the highlight.",
+   "decisions": [
+    {
+     "label": "Layout",
+     "value": "A resizable trajectory list on the left (filter, sort, group with a dot-colour legend, saved-view chips); tabs on the right."
+    },
+    {
+     "label": "Selection overlay",
+     "value": "Selected cells in the colour map, the rest of the dataset in grey, cells only the selection reaches in cyan, plus \"adds N cells nobody else visits\"."
+    },
+    {
+     "label": "Landing",
+     "value": "Every joint's position × speed map, the tool from three sides and the pointing disc on one screen, under a compact numbers sheet."
+    },
+    {
+     "label": "Drill",
+     "value": "A trajectory page inside the app with a back link, Previous/Next, its motion, spans vs the dataset and Open in Rerun."
+    }
+   ],
+   "keepParts": [
+    "the selection overlay rule (colour / grey / cyan)",
+    "the one-screen landing of joints + tool + pointing",
+    "the in-app trajectory page"
+   ],
+   "proof": [
+    "check.cjs 8 of 8 (shots/v5.check.json)",
+    "a single selection's \"only it\" count equals trajectories.json's only_it_q_qd_cells",
+    "Open in Rerun posts data/rrd/<name>.rrd"
+   ],
+   "scores": {
+    "fr1": {
+     "score": 5,
+     "evidence": "The landing shows a numbers sheet, all six joints' position × speed maps, the tool from above/front/side and the pointing disc on one 1440 × 900 screen (step 2).",
+     "confidence": "high"
+    },
+    "fr2": {
+     "score": 5,
+     "evidence": "The trajectory page has its numbers, joint q/qd over time, spans vs the dataset, Open in Rerun with the command, a breadcrumb back and Previous/Next (step 4).",
+     "confidence": "high"
+    },
+    "fr3": {
+     "score": 4,
+     "evidence": "Filter, sort, group and saved-view chips with + Save and delete; no per-column or range filters in the list.",
+     "confidence": "medium"
+    },
+    "fr4": {
+     "score": 5,
+     "evidence": "Gear top right (plus how unselected cells draw); the joint picker on One joint only.",
+     "confidence": "high"
+    },
+    "fr5": {
+     "score": 1,
+     "evidence": "Fully bespoke; nothing shared with data-ui or your other apps.",
+     "confidence": "high"
+    },
+    "fr6": {
+     "score": 5,
+     "evidence": "Every map keys selected / rest / only-the-selection / never visited / limit box; the list keys its dot colours and \"blue = selected\".",
+     "confidence": "high"
+    }
+   }
+  },
+  {
+   "id": "v6",
+   "name": "Who goes there",
+   "thesis": "The figures are the query: click any coloured cell to list the trajectories that made it, or an empty one to see who comes closest; clicks add up (AND).",
+   "accent": "#d97706",
+   "bestWhen": "You are curating the dataset: who is behind a hot spot, who almost reaches a gap, so which trajectory to extend or which task to add. Click a region, read the list, drill in, open it in Rerun.",
+   "losesWhen": "You want coverage recounted for a subset (it fades, never recounts); the 2 cm tool pixels are 3–4 px click targets, and there is no 3-D voxel view, parallel coordinates or growth curve.",
+   "decisions": [
+    {
+     "label": "Query",
+     "value": "A sticky \"Who goes there\" bar of chips in plain words (\"visits shoulder_pan q 0–20°, qd 0–15°/s\"), ANDed, with \"n of 54 trajectories\"."
+    },
+    {
+     "label": "Holes",
+     "value": "On Tool position, reachable-but-unvisited pixels turn amber; pins mark the three spots farthest from any path, and a click ranks who comes closest."
+    },
+    {
+     "label": "Who list",
+     "value": "A compact list docked beside every figure tab; hovering a row inks its cells in every figure."
+    },
+    {
+     "label": "Drill",
+     "value": "A drawer that keeps the dataset visible: its cells over the faded dataset, its motion, ‹ › through the answer, Open in Rerun."
+    }
+   ],
+   "keepParts": [
+    "figures that write the query (a view emits {grid, cells, label})",
+    "Holes + closest trajectories",
+    "saved views that also keep the figure query"
+   ],
+   "proof": [
+    "check.cjs 8 of 8 (shots/v6.check.json)",
+    "the walkthrough: one q×qd cell → 8 trajectories, AND a front-view pixel → 1",
+    "Open in Rerun posts data/rrd/<name>.rrd"
+   ],
+   "scores": {
+    "fr1": {
+     "score": 5,
+     "evidence": "The landing shows the numbers, every joint's q/qd/qdd histograms against its limits, the tool from above and the pointing disc, plus the who list, on one screen (step 1).",
+     "confidence": "high"
+    },
+    "fr2": {
+     "score": 5,
+     "evidence": "The drawer keeps the dataset visible behind it: numbers, its cells over the faded dataset with only-it cells in blue, q/qd over time, ‹ › stepping, Open in Rerun with the command (step 5).",
+     "confidence": "high"
+    },
+    "fr3": {
+     "score": 5,
+     "evidence": "Text and column filters, sort, group with fold, four views plus + Save current that also keeps the figure query and persists.",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 5,
+     "evidence": "Gear top right (plus trajectories vs samples per cell); the joint picker on One joint only; the Holes toggle only on Tool position.",
+     "confidence": "high"
+    },
+    "fr5": {
+     "score": 1,
+     "evidence": "Fully bespoke; its click-to-query protocol is small enough for data-ui to adopt, but nothing is shared today.",
+     "confidence": "high"
+    },
+    "fr6": {
+     "score": 5,
+     "evidence": "Every figure keys faded / the band you asked about / holes / pins / rows under the mouse; no colour beside a trajectory.",
+     "confidence": "high"
+    }
+   }
+  },
+  {
+   "id": "v7",
+   "name": "Splice (V3 + V5/V6)",
+   "thesis": "data-ui's common visual language and V3's coverage views, with V5/V6's one-screen landing and V6's \"click a cell → who made it\", and the richest drill from V4/V5.",
+   "accent": "#0e7490",
+   "bestWhen": "You want both: the dataset at a glance on one screen and your other apps' table, filters, saved views and side panel, with the figures reusable as data-ui views.",
+   "losesWhen": "You need what it left out: holes and who-comes-closest (V6), recounting a filtered subset (V2), clickable slabs, histograms and voxels; saved views don't keep the cell chips yet (they live in the URL), and the drill loads every sample (9.3 MB) on first open.",
+   "decisions": [
+    {
+     "label": "Landing",
+     "value": "A three-column numbers sheet (Dataset / Joints / Tool), every joint's position × speed plane, the tool from three sides at one scale and an equal-area pointing disk, on one 1440 × 900 screen."
+    },
+    {
+     "label": "Who made it",
+     "value": "Clicking a plane, pixel or direction cell adds a plain-words chip; chips AND; the docked who-list and the Trajectories table filter through data-ui's own all-views filter; non-answer cells fade."
+    },
+    {
+     "label": "Drill",
+     "value": "data-ui's side panel widened to a drawer: Open in Rerun with the command, its numbers, first-visit and only-it cells inked on every joint, its tool path over the set, q/qd over time as stock charts."
+    },
+    {
+     "label": "Base",
+     "value": "V3's four coverage view types plus a new coverage-sheet view; two data-ui additions proposed (§52.8, §52.9) for the host-side bits."
+    }
+   ],
+   "keepParts": [
+    "the one-screen landing",
+    "click a cell → chip → data-ui's tables filter",
+    "the drawer drill with only-it cells inked per joint"
+   ],
+   "proof": [
+    "check.cjs 8 of 8 (shots/v7.check.json)",
+    "the walkthrough: one shoulder_pan cell → 8 of 54, AND a front pixel → 1 of 54",
+    "the inked only-it cells are checked against the table's \"Only it\" count at load"
+   ],
+   "scores": {
+    "fr1": {
+     "score": 5,
+     "evidence": "Numbers sheet, all six joints' planes, the tool from above/front/side and the pointing disk on one 1440 × 900 screen with no scroll (step 1).",
+     "confidence": "high"
+    },
+    "fr2": {
+     "score": 5,
+     "evidence": "Side panel drawer: Open in Rerun with the command, its numbers, 17 first-visit / 14 only-it cells, its path through each joint's plane, q/qd over time, ‹ › stepping; the figures stay beside it (step 4).",
+     "confidence": "high"
+    },
+    "fr3": {
+     "score": 5,
+     "evidence": "data-ui's table with saved views, search, sort, groups; cell chips filter it too (in the URL; Save view doesn't keep them yet).",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 4,
+     "evidence": "Settings gear repaints every coverage view and keeps the chips; the joint picker is on One joint only. Inherits V3's stock voxels, which ignore the gear.",
+     "confidence": "medium"
+    },
+    "fr5": {
+     "score": 5,
+     "evidence": "Built on data-ui's table, side panel, filter and V3's view types; the two host-side additions are written up as data-ui contract text.",
+     "confidence": "high"
+    },
+    "fr6": {
+     "score": 5,
+     "evidence": "Every figure keys colour, white, grey, red frame, faded and framed-asked cells; the who-list keys split badges and the new-cells bar (step 3).",
+     "confidence": "high"
+    }
+   }
+  }
+ ]
 }

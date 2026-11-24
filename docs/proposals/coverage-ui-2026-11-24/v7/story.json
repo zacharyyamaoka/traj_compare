@@ -1,0 +1,78 @@
+[
+  {
+    "label": "The whole dataset on one screen",
+    "caption": "The landing is one calm screen in data-ui's language: the 15 headline numbers as one sheet (Overview only; the code id on hover), every joint's position × speed plane as small multiples, the tool from above, the front and the side at one metric scale, where it points on an equal-area disk, each with its legend, and the who list beside them.",
+    "actions": [],
+    "highlight": "[data-page=overview] .dd-grid"
+  },
+  {
+    "label": "Click a plane cell: who made it",
+    "caption": "A click on shoulder_pan's q 0–20°, qd 0–15 °/s cell writes a plain-words chip under the tabs and frames the cell; the who list keeps the 8 trajectories that visit it, and every figure fades the cells none of the 8 visits.",
+    "actions": [
+      {
+        "click": "[data-page=overview] [data-cov-hit=\"plane/shoulder_pan_joint/q_qd\"]"
+      },
+      {
+        "wait": 900
+      }
+    ],
+    "highlight": "[data-querybar]"
+  },
+  {
+    "label": "AND a tool pixel",
+    "caption": "A click on the tool seen from the front (x 0–20 mm, z 620–640 mm) ANDs a second chip: 1 of 54 trajectories does both, the who list shows it, and every figure keeps full colour only where that one trajectory went.",
+    "actions": [
+      {
+        "click": "[data-page=overview] [data-cov-hit=\"xz\"]"
+      },
+      {
+        "wait": 900
+      }
+    ],
+    "highlight": "[data-who]"
+  },
+  {
+    "label": "Drill in, Open in Rerun",
+    "caption": "A row opens data-ui's side peek as a drawer over the figures' right edge: Open in Rerun (with the command and Copy), its numbers, what it alone adds (first-visit and only-it cells, inked on every joint's plane), and below its tool path, its joints over time and its spans against the set; ‹ › steps through the answer.",
+    "actions": [
+      {
+        "click": "#cov-who tr.dv-row[data-id] td[data-col=name]"
+      },
+      {
+        "wait": 2500
+      },
+      {
+        "click": "#cov-who .dv-open-rec [data-open-elsewhere]"
+      },
+      {
+        "wait": 800
+      }
+    ],
+    "highlight": "#cov-who .dv-peek"
+  },
+  {
+    "label": "The gear repaints everything",
+    "caption": "Colour map, Reverse and Scale live behind one gear, top right: picking cividis repaints every coverage figure on every tab at once, and the question (the chips, the fade) stays as it was.",
+    "actions": [
+      {
+        "press": "Escape"
+      },
+      {
+        "wait": 400
+      },
+      {
+        "click": "[data-settings-gear]"
+      },
+      {
+        "wait": 400
+      },
+      {
+        "click": "[data-setting=colormap] [data-value=cividis]"
+      },
+      {
+        "wait": 1200
+      }
+    ],
+    "highlight": "[data-settings-panel]"
+  }
+]

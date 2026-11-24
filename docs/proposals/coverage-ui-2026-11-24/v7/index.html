@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coverage · V7 · Splice</title>
+<link rel="stylesheet" href="../vendor/data-ui/data-ui.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body class="data-ui">
+<!-- V7 · "Splice": V3's page (one .base, coverage.base, drawn by data-ui's <data-dashboard> and <data-views>, four
+     coverage view types registered from views/, the gear's <data-settings>) with V5/V6's one-screen landing and V6's
+     "click a cell → who made it": the query bar under the tabs, and the who dock (a stock <data-views>) beside every
+     figure page. The host is this page and app.js. -->
+<header class="cv-top">
+  <div class="cv-titles">
+    <h1 data-cov-title>Trajectory coverage</h1>
+    <p class="cv-sub" data-cov-subtitle></p>
+  </div>
+  <data-settings key="coverage-ur5e-workspace"></data-settings>
+</header>
+<nav class="cv-tabs" role="tablist" aria-label="Coverage pages" data-cov-nav></nav>
+<div class="cv7-query" data-querybar aria-label="Who made it: the cells you asked about"></div>
+<div class="cv7-layout">
+  <main class="cv-pages" id="pages">
+    <p class="cv-loading" data-cov-loading>Loading the coverage rows…</p>
+  </main>
+  <aside class="cv7-dock" data-who aria-label="Who made it: the trajectories in the answer"></aside>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
