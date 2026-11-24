@@ -1,0 +1,84 @@
+{
+  "frozen": "2026-11-24, before any proposal was built (the lanes were dispatched after this file, CONTRACT.md and check.cjs)",
+  "requirements": [
+    {
+      "id": "fr1",
+      "name": "One filter drives every dashboard",
+      "weight": 25,
+      "why": "\"this view is powerful because it lets us filter specifically and then see the analysis on all of the views\"; dataset first, split across every dataset ticked.",
+      "passCondition": "A pick in the rail (dataset, split, kind, a trajectory) changes what every dashboard shows, honestly labelled as the subset, and the filter is always visible or one glance away.",
+      "anchors": {
+        "1": "Filters are per dashboard, or a dashboard ignores the rail.",
+        "3": "Every dashboard follows the rail, but the current filter is hard to see from a dashboard, or some figures don't recount.",
+        "5": "Every dashboard recounts from the rail, says it is a subset, and the active filter stays legible on every tab."
+      }
+    },
+    {
+      "id": "fr2",
+      "name": "Drops into any app",
+      "weight": 20,
+      "why": "\"I want the viewer to be a bit more compact … so it can drop into anything\"; tabs at the top top make it \"harder to put it in another app\".",
+      "passCondition": "The same component works full page and inside a host's 1000 × 680 slot, owns no page-level chrome, and stays usable at that size.",
+      "anchors": {
+        "1": "Needs the whole page (page-top tabs, fixed layers) or breaks in the slot.",
+        "3": "Fits the slot but cramped: the rail or the figures become hard to use.",
+        "5": "Fits the slot comfortably (the rail folds or narrows, figures re-fit), with nothing outside it."
+      }
+    },
+    {
+      "id": "fr3",
+      "name": "Switching dashboards feels like tabs",
+      "weight": 15,
+      "why": "\"I do like kinda a more Tab feeling view though for those top tabs, because … we are filtering data and then switching between dashboards almost\".",
+      "passCondition": "One click switches the dashboard, the set of dashboards is visible at once, and the filter and scroll context survive the switch.",
+      "anchors": {
+        "1": "Dashboards are separate pages or buried in a menu.",
+        "3": "Switching works but the dashboards' names aren't all visible, or switching loses context.",
+        "5": "All dashboards visible as one row or list, one click, nothing lost."
+      }
+    },
+    {
+      "id": "fr4",
+      "name": "A reusable data-ui pattern",
+      "weight": 20,
+      "why": "\"this general pattern … should be supported in data-ui … this will happen again and again!\"",
+      "passCondition": "The pattern is expressed in data-ui's grammar (.base + elements) with little host code, and a second app could use it unchanged.",
+      "anchors": {
+        "1": "Mostly host code; another app would copy and adapt it.",
+        "3": "Partly data-ui, partly host glue that each app would redo.",
+        "5": "A small, named data-ui addition (an element or .base keys) that any app drops in with its own rows and dashboards."
+      }
+    },
+    {
+      "id": "fr5",
+      "name": "Within-dashboard filters stay local; settings set once",
+      "weight": 10,
+      "why": "\"We also need like further filtering within the page though... For example for the joints\"; colours behind a gear (round 2).",
+      "passCondition": "A dashboard's own controls (the joint picker) show only there; component-wide settings live behind one gear inside the component.",
+      "anchors": {
+        "1": "Local and global controls mixed into one strip everywhere.",
+        "3": "Mostly scoped, with a stray control.",
+        "5": "Every control acts on what's in view; one gear for the rest."
+      }
+    },
+    {
+      "id": "fr6",
+      "name": "Across datasets and within one",
+      "weight": 10,
+      "why": "\"So 1 is across datasets, 2 is within a particular dataset. now I want to be able to filter for particular trajectories\".",
+      "passCondition": "You can compare datasets (which dataset covers what) and narrow to particular trajectories inside one, in the same component.",
+      "anchors": {
+        "1": "Only one level works.",
+        "3": "Both work, but comparing datasets means flipping filters back and forth.",
+        "5": "Datasets are distinguishable at a glance (colour or side by side), and narrowing to trajectories is one step."
+      }
+    }
+  ],
+  "hardGates": [
+    {"id": "g1", "name": "Dataset first; one dataset leaves its trajectories", "why": "check.cjs P1."},
+    {"id": "g2", "name": "Split applies across the datasets ticked", "why": "check.cjs P2."},
+    {"id": "g3", "name": "≥ 4 dashboards switch like tabs and keep the filter", "why": "check.cjs P3."},
+    {"id": "g4", "name": "Drops into a host app's 1000 × 680 slot", "why": "check.cjs P4."},
+    {"id": "g5", "name": "Joint picker scoped; gear inside; drill + Rerun; no errors", "why": "check.cjs P5, P6, P7."}
+  ]
+}
