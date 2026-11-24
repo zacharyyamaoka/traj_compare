@@ -2273,7 +2273,7 @@ def _write_coverage(output_dir: Path, targets: Sequence[_Target], poses: Callabl
         name = target.title if target.title not in references else f"{target.title} ({target.slug})"
         references[name] = target.reference
     tool = {name: poses(reference) for name, reference in references.items()} if poses is not None else None
-    result = analyze(references, tool=tool, title=f"{title} · coverage",
+    result = analyze(references, tool=tool, title=title,  # the page's <title> adds "· coverage"
                      subtitle=f"the {len(references)} target trajectories of this dataset, each once")
     folder = output_dir / "coverage"
     folder.mkdir(parents=True, exist_ok=True)

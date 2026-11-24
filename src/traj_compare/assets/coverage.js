@@ -2046,6 +2046,11 @@
 
   function show(id) {
     const tab = tabs.find((item) => item.id === id) || tabs[0];
+    // WHY anchor the tab bar (2026-11-23, found recording the review clip): hiding the old tab before the new one is built
+    // shrinks the page, the browser clamps the scroll, and the first visit to a tab jumped to the top, leaving the new
+    // figures below a 560 px header. Keep the tab bar where it was on screen (at the top if it had scrolled past it).
+    const nav = document.querySelector('[data-cov-nav]');
+    const navTop = nav ? Math.max(0, nav.getBoundingClientRect().top) : null;
     for (const item of tabs) {
       item.section.hidden = item !== tab;
       item.button.setAttribute('aria-selected', String(item === tab));
@@ -2059,6 +2064,7 @@
       tab.dirty = true;
     }
     if (tab.dirty) drawTab(tab);
+    if (nav && navTop !== null) global.scrollBy(0, nav.getBoundingClientRect().top - navTop);
   }
 
   function hashTab() {

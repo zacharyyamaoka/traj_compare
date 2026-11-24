@@ -169,3 +169,7 @@ table.cov-table td.problem { color: #a4372a; }
   .cov-split > .cov-figure { flex: 1 1 auto !important; margin: 0 0 14px; }
   .cov-split-handle { display: none; }
 }
+
+/* WHY at least a window tall (2026-11-23, tests/test_coverage_page_scroll.py): a short tab shrank the page under the
+   reader, the browser clamped the scroll and the tab bar jumped; with this the bar always stays where it was. */
+[data-cov-view] { min-height: 100vh; }
