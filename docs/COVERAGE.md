@@ -218,6 +218,42 @@ Views (figure ids):
 - **trajectories**: `table` (one row per trajectory: name, tags, duration, span % per joint, new cells), click a row to
   highlight it in the spaghetti views.
 
+## The workbench (`traj_compare.coverage.workbench`, 2026-11-24)
+
+The same figures as data-ui's stock `<data-workbench>` (data-ui `docs/CONTRACT.md` §52 coverage views, §53 scope and
+workbench): a filter rail of **trajectories** (Dataset first, then split, kind, tags, ranges), tabs that switch dashboards
+(Overview, One joint, Limits, Tool position, Tool orientation, Trajectories), one gear for the heatmap colours, and a
+record's Open in Rerun. Every figure re-sums the part rows of the trajectories the rail keeps (`coverage.sum: grid`), so a
+tick recounts every tab. It sits beside the hand-rolled page (which keeps its 3-D views, growth and parallel coordinates);
+it does not replace it. Zach, 2026-11-24: "the atomic unit here is trajectories"; dev/holdout "will apply then to all of
+the datasets you include"; compact enough to drop into any app.
+
+```python
+from traj_compare.coverage.workbench import write_workbench, write_trajectory_rrd
+coverage = analyze(trajectories, tool=poses, tags=tags, group_by="dataset")     # tags: {"dataset", "split", "kind", ...}
+for name in trajectories:
+    write_trajectory_rrd(out / f"rrd/{name}.rrd", name, trajectories[name], tool=poses[name])  # optional
+write_workbench(coverage, trajectories, out, tool=poses, title="UR5e", rrd_for=lambda name: f"rrd/{name}.rrd")
+# python -m traj_compare.serve out   ->  /index.html, /embed.html  (http needed; Open in Rerun is its endpoint)
+```
+
+- Inputs: the `analyze()` result and the **same** `trajectories` / `tool` it was given, in the same order (else
+  `ValueError`). Every part is binned with analysis.py's own functions on the payload's own grids, so the parts of every
+  trajectory add back up to the payload exactly (planes' samples, paths and max |qdd|; histograms and their groups;
+  projections' samples, paths and max speed; the tool speed histogram; the direction sphere, the pointing disk, tilt ×
+  yaw). `tests/test_coverage_workbench.py` is that oracle, plus `data-ui check` on the `.base` and a headless-Chrome run.
+- Files: `trajectories.json` (one row per trajectory: name, every tag, `rrd`, duration, samples, new cells, each joint's
+  range used, the tool's path length, top speed and largest tilt), `parts.json` (one row per trajectory × figure; a big grid
+  is sparse, `at` + `samples`), `coverage.base`, `index.html`, `embed.html` (the page in a host app's 1000 × 680 slot),
+  `vendor/data-ui/` (data-ui `main`, vendored by `data-ui vendor`; `kit="<href>"` reuses one instead, `vendor=` picks a ref).
+- `workbench_rows(coverage, trajectories, tool=, rrd_for=)` returns the two row lists without writing anything.
+- The direction grids as §52 rows: the pointing disk is `coverage-polar` (x azimuth, y tilt); the equal-area sphere is a
+  plane of azimuth × the tool axis's z (its rings are equal bands of z: Lambert's cylindrical equal-area map); tilt × yaw
+  is a plane with yaw along x.
+- Not in it (yet): the projections' reachable mask (a per-trajectory part cannot carry the whole set's reach; data-ui would
+  need a whole-set layer row the rail does not filter), the 3-D views, the growth curve, parallel coordinates, slabs.
+- The UR5e case: `arm_motion_bench/docs/build_ur_workbench_1124.py`, all four datasets in one page.
+
 ## The other viewers
 
 - **Matplotlib** `plot_coverage(payload, out_dir, *, cmap="viridis", reverse=False, scale="linear") -> list[Path]`: one
