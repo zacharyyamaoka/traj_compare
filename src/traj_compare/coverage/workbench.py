@@ -59,6 +59,7 @@ SLOTS = (1, 2, 3, 7, 5)
 FACES = {"xy": "from above", "xz": "from the front", "yz": "from the side"}
 LABELS = {"dataset": "Dataset", "split": "Split", "kind": "Kind", "tags": "Tags", "rung": "Speed rung"}
 SPLIT_ORDER = ("dev", "holdout")
+SPLIT_SLOTS = (5, 4, 6)  # pink, amber, dark green: data-ui series slots the datasets reach last; never 8 (red)
 
 
 # ── the rows ────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -472,9 +473,12 @@ def _base(payload: Mapping, rows: list[dict], *, title: str, dataset: str, facet
         properties[dataset] = {"displayName": _label(dataset, labels), "colors": colours}
     splits = _first_seen(rows, "split")
     if splits and dataset != "split":
-        # WHY muted: an unlisted value gets a hashed slot, and "holdout" landed on red, which reads as a problem; a split
-        # is a word, not a status (the round's P5: "Split has no colour")
-        properties["split"] = {"displayName": _label("split", labels), "colors": {value: 0 for value in splits}}
+        # WHY named slots: an unlisted value gets a hashed slot, and "holdout" landed on red (slot 8), which reads as a
+        # problem; muting both (the first fix) drew dev and holdout in one grey under a two-entry legend in the
+        # "Trajectories per dataset" chart. So each split takes a slot no dataset uses, never red.
+        free = [slot for slot in SPLIT_SLOTS if slot not in colours.values()]
+        properties["split"] = {"displayName": _label("split", labels),
+                               "colors": {value: (free[i] if i < len(free) else 0) for i, value in enumerate(splits)}}
     style: dict[str, Any] = {"numbers": {"digits": 3}}
     if group_by:
         group_colours = colours if group_by == dataset else {

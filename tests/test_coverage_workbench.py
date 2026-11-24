@@ -284,6 +284,20 @@ def test_the_base_is_dataset_first_with_the_pages_the_drill_and_the_gear(site):
 
 
 @needs_data_ui
+def test_each_split_has_its_own_colour_never_red_and_never_a_datasets(site):
+    """Found on the UR page (2026-11-24): both splits were muted, so the 'Trajectories per dataset' chart stacked dev and
+    holdout in one grey under a two-entry legend. A split is keyed in that chart, so each needs its own slot; not red
+    (slot 8 reads as a problem) and not a dataset's slot (the rail and badges colour datasets)."""
+    yaml = pytest.importorskip("yaml")
+    base = yaml.safe_load((site / "coverage.base").read_text("utf-8"))
+    split = base["properties"]["split"]["colors"]
+    dataset = set(base["properties"]["dataset"]["colors"].values())
+    assert set(split) == {"dev", "holdout"}
+    assert len(set(split.values())) == 2 and all(1 <= slot <= 7 for slot in split.values()), split
+    assert not set(split.values()) & dataset, (split, dataset)
+
+
+@needs_data_ui
 def test_index_and_embed_are_one_workbench_tag_over_the_vendored_kit(site):
     index = (site / "index.html").read_text("utf-8")
     embed = (site / "embed.html").read_text("utf-8")
