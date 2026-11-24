@@ -1,0 +1,28 @@
+{
+  "ready": "body[data-v4-ready] [data-v4-stats]",
+  "tabs": {
+    "overview": "[data-cov-tab=\"overview\"]",
+    "joint": "[data-cov-tab=\"joint\"]",
+    "trajectories": "[data-cov-tab=\"trajectories\"]"
+  },
+  "stats": "[data-v4-stats]",
+  "joint_picker": "[data-v4-joint-picker]",
+  "settings": "[data-v4-gear]",
+  "settings_panel": "[data-v4-settings]",
+  "cmap": "[data-v4-cmap]",
+  "cmap_value": "magma",
+  "cmap_option": "[data-v4-cmap] [data-cmap=\"magma\"]",
+  "reverse": "[data-v4-reverse]",
+  "scale": "[data-v4-scale]",
+  "figure": "[data-cov-figure=\"heat-q-qd\"]",
+  "table_rows": "[data-v4-table] tr[data-row]",
+  "filter": "[data-v4-filter]",
+  "filter_query": "holdout",
+  "sort_header": "[data-v4-table] th[data-col=\"duration\"]",
+  "saved_view_items": "[data-v4-table] .v4-viewtab[data-view]",
+  "drill_trigger": "[data-v4-table] tr[data-row]",
+  "drill_action": "click",
+  "drill": "[data-v4-drawer]",
+  "open_rerun": "[data-v4-drawer] [data-v4-rerun]",
+  "row_colours": {"legend": "[data-v4-split-legend]"}
+}

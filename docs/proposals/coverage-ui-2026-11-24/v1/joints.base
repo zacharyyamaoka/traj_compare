@@ -1,0 +1,72 @@
+# V1 · All joints: how the joints move together (the payload's parallel-coordinates line density between adjacent
+# joints, every axis from its low limit to its high limit) and how coverage grows as trajectories are added (the
+# payload's growth curve and its 32-shuffle band). The rail's Signal pick is a stock select facet (q, qd, qdd); it
+# applies to this page only. rows/parallel.json holds each pair's non-empty [gx, gy, lines] cells as a list, which
+# the chart's own Vega-Lite transforms expand (data-ui hands a list to Vega as "a, b, c" text, hence the split).
+# Check: node /home/bam/data-ui/bin/data-ui.mjs check joints.base
+data: rows/parallel.json
+viewTypes: [chart, table]
+style:
+  chrome: minimal
+  numbers: { digits: 3, compact: true }
+datasets:
+  parallel:
+    data: rows/parallel.json
+    label: Signal
+    facets:
+      - { property: signal, as: select, label: Signal, any: "Every signal, overlaid", order: [q, qd, qdd], info: "Which signal the joint-to-joint image shows: q position, qd speed, qdd acceleration." }
+    filters: 'signal == "q"'
+  growth: rows/growth.json
+layout:
+  arrange: false
+  panels:
+    - { key: parallel, view: How do the joints move together?, w: 12, h: 4.6, toolbar: none }
+    - text: "**Growth** · blue = visited % as the dataset's trajectories are added in order · dashed grey = the mean over 32 shuffled orders · grey band = their p10 to p90. Blue under the band: the early trajectories add less than a random order would."
+      w: 12
+    - { key: growth, view: How does coverage grow as trajectories are added?, w: 12, h: 3.4, toolbar: none }
+properties:
+  lines: { displayName: lines through the cell }
+  added: { displayName: trajectories added }
+  visited_pct: { displayName: "position × speed cells visited (%)" }
+  shuffled_mean: { displayName: "shuffled order, mean (%)" }
+  shuffled_p10: { displayName: "shuffled, p10 (%)" }
+  shuffled_p90: { displayName: "shuffled, p90 (%)" }
+views:
+  - type: chart
+    name: How do the joints move together?
+    chart:
+      transform:
+        - { calculate: "split(datum.cells, ', ')", as: cell_list }
+        - { flatten: [cell_list], as: [cell_text] }
+        - { calculate: "split(datum.cell_text, ',')", as: cell }
+        - { calculate: "toNumber(datum.cell[0]) / datum.width", as: x_from }
+        - { calculate: "(toNumber(datum.cell[0]) + 1) / datum.width", as: x_to }
+        - { calculate: "toNumber(datum.cell[1]) / datum.height * 100", as: y_from }
+        - { calculate: "(toNumber(datum.cell[1]) + 1) / datum.height * 100", as: y_to }
+        - { calculate: "toNumber(datum.cell[2])", as: line_count }
+      mark: { type: rect, cornerRadius: 0, strokeWidth: 0 }
+      encoding:
+        x: { field: x_from, type: quantitative, title: null, axis: null, scale: { domain: [0, 1], nice: false, zero: false } }
+        x2: { field: x_to }
+        'y': { field: y_from, type: quantitative, title: "% of the joint's range (0 = low limit, 100 = high limit)", scale: { domain: [0, 100], nice: false, zero: false } }
+        y2: { field: y_to }
+        color: { field: line_count, type: quantitative, title: lines through the cell, scale: { scheme: viridis, type: linear } }
+        column: { field: pair, type: nominal, title: null, spacing: 2, header: { labelAngle: 0, labelOrient: bottom } }
+  - type: chart
+    name: How does coverage grow as trajectories are added?
+    from: growth
+    chart:
+      layer:
+        - mark: { type: area, color: "#9ca3af", opacity: 0.3 }
+          encoding:
+            x: { field: added, type: quantitative, title: trajectories added (dataset order) }
+            'y': { field: shuffled_p10, type: quantitative, title: "q × qd cells visited (%)" }
+            y2: { field: shuffled_p90, title: "q × qd cells visited (%)" }
+        - mark: { type: line, color: "#9ca3af", strokeDash: [4, 3] }
+          encoding:
+            x: { field: added, type: quantitative, title: trajectories added (dataset order) }
+            'y': { field: shuffled_mean, type: quantitative, title: "q × qd cells visited (%)" }
+        - mark: { type: line, color: "#2a78d6", strokeWidth: 2 }
+          encoding:
+            x: { field: added, type: quantitative, title: trajectories added (dataset order) }
+            'y': { field: visited_pct, type: quantitative, title: "q × qd cells visited (%)" }

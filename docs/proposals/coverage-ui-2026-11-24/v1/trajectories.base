@@ -1,0 +1,107 @@
+# V1 · Trajectories: data-ui's stock table over one row per trajectory (rows/trajectories.json, from data/trajectories.json
+# by rows.py: a re-shape, nothing computed). The views are the saved views (the tabs across the top); the reader's own
+# Save view lands beside them. A row opens data-ui's side peek: the trajectory's own numbers, its joint angles over time
+# (rows/samples.json filtered to it) and Open in Rerun (the host's openElsewhere hook, the one thing not in the file).
+# Check: node /home/bam/data-ui/bin/data-ui.mjs check trajectories.base --data rows/trajectories.json
+data: rows/trajectories.json
+# the drill's embedded view reads samples (a plain <data-views> gets it from the host as el.sections; the checker reads it here)
+datasets:
+  trajectories: rows/trajectories.json
+  samples: rows/samples.json
+viewTypes: [table, cards, chart]
+# the filter rail (a stock <data-facets for> beside the table): words over name / split / kind / tags, then the tags
+facets:
+  - { property: name, as: search, label: Filter, properties: [name, split, kind, tags], placeholder: "name, split, kind…" }
+  - { property: split, label: Split }
+  - { property: kind, label: Kind }
+  - { property: tags, label: Tags }
+properties:
+  order: { displayName: Order, description: "the trajectory's place in the dataset (its growth order)" }
+  name: { displayName: Trajectory }
+  split: { displayName: Split, description: "split tag: dev (tuning) or holdout (kept out of tuning)" }
+  kind: { displayName: Kind }
+  rung: { displayName: Rung, description: "speed rung (1× = full speed)" }
+  tags: { displayName: Tags }
+  duration_s: { displayName: Duration (s), decimals: 2 }
+  samples: { displayName: Samples }
+  shoulder_pan_q_span: { displayName: shoulder_pan, description: "% of shoulder_pan_joint's position range this trajectory alone covers (p0.1–p99.9)", digits: 2 }
+  shoulder_lift_q_span: { displayName: shoulder_lift, description: "% of shoulder_lift_joint's position range this trajectory alone covers", digits: 2 }
+  elbow_q_span: { displayName: elbow, description: "% of elbow_joint's position range this trajectory alone covers", digits: 2 }
+  wrist_1_q_span: { displayName: wrist_1, description: "% of wrist_1_joint's position range this trajectory alone covers", digits: 2 }
+  wrist_2_q_span: { displayName: wrist_2, description: "% of wrist_2_joint's position range this trajectory alone covers", digits: 2 }
+  wrist_3_q_span: { displayName: wrist_3, description: "% of wrist_3_joint's position range this trajectory alone covers", digits: 2 }
+  shoulder_pan_qd_span: { displayName: shoulder_pan qd, description: "% of shoulder_pan_joint's speed range this trajectory covers", digits: 2 }
+  shoulder_lift_qd_span: { displayName: shoulder_lift qd, digits: 2 }
+  elbow_qd_span: { displayName: elbow qd, digits: 2 }
+  wrist_1_qd_span: { displayName: wrist_1 qd, digits: 2 }
+  wrist_2_qd_span: { displayName: wrist_2 qd, digits: 2 }
+  wrist_3_qd_span: { displayName: wrist_3 qd, digits: 2 }
+  new_cells: { displayName: New cells, description: "position × speed cells (all joints) this trajectory was first to visit, in the dataset's order" }
+  only_it_q_qd_cells: { displayName: Only it, description: "position × speed cells no other trajectory visits" }
+  tool_path_m: { displayName: Tool path (m), decimals: 2 }
+  tool_speed_max_m_s: { displayName: Tool speed max (m/s), decimals: 2 }
+  tool_z_min_mm: { displayName: Tool z min (mm), decimals: 0 }
+  tool_z_max_mm: { displayName: Tool z max (mm), decimals: 0 }
+  tool_tilt_max_deg: { displayName: Tilt max (°), decimals: 0 }
+  shoulder_pan_q_deg: { displayName: shoulder_pan }
+  shoulder_lift_q_deg: { displayName: shoulder_lift }
+  elbow_q_deg: { displayName: elbow }
+  wrist_1_q_deg: { displayName: wrist_1 }
+  wrist_2_q_deg: { displayName: wrist_2 }
+  wrist_3_q_deg: { displayName: wrist_3 }
+  rerun: { displayName: Rerun file }
+views:
+  - type: table
+    name: By split
+    groupBy: { property: split, direction: ASC }
+    order: [order, name, kind, rung, tags, duration_s, samples, shoulder_pan_q_span, shoulder_lift_q_span, elbow_q_span, wrist_1_q_span, wrist_2_q_span, wrist_3_q_span, new_cells]
+    sort:
+      - { property: order, direction: ASC }
+    columnSize: { order: 70, name: 180, kind: 112, rung: 64, tags: 120 }
+    display: { new_cells: bar }
+    rowHeight: short
+    record:
+      sections:
+        - { name: Trajectory, properties: [split, kind, rung, tags, duration_s, samples, new_cells, only_it_q_qd_cells] }
+        - { name: Tool, properties: [tool_path_m, tool_speed_max_m_s, tool_z_min_mm, tool_z_max_mm, tool_tilt_max_deg] }
+        - name: Joint angles over time
+          view:
+            type: timeseries
+            name: Joint angles
+            from: samples
+            filters: 'trajectory == this.name'
+            timeseries: { x: t, 'y': [shoulder_pan_q_deg, shoulder_lift_q_deg, elbow_q_deg, wrist_1_q_deg, wrist_2_q_deg, wrist_3_q_deg], legend: top, unit: '°', height: 220 }
+        - { name: Position range used, properties: [shoulder_pan_q_span, shoulder_lift_q_span, elbow_q_span, wrist_1_q_span, wrist_2_q_span, wrist_3_q_span] }
+  - type: table
+    name: Most new cells
+    order: [order, name, split, kind, new_cells, only_it_q_qd_cells, duration_s, samples]
+    sort:
+      - { property: new_cells, direction: DESC }
+    columnSize: { order: 70, name: 180 }
+    display: { new_cells: bar, only_it_q_qd_cells: bar }
+    rowHeight: short
+  - type: table
+    name: Holdout only
+    filters: 'split == "holdout"'
+    order: [order, name, kind, rung, tags, duration_s, shoulder_pan_q_span, shoulder_lift_q_span, elbow_q_span, wrist_1_q_span, wrist_2_q_span, wrist_3_q_span, new_cells]
+    sort:
+      - { property: order, direction: ASC }
+    columnSize: { order: 70, name: 180 }
+    rowHeight: short
+  - type: table
+    name: Speed span
+    groupBy: { property: split, direction: ASC }
+    order: [order, name, kind, shoulder_pan_qd_span, shoulder_lift_qd_span, elbow_qd_span, wrist_1_qd_span, wrist_2_qd_span, wrist_3_qd_span]
+    sort:
+      - { property: order, direction: ASC }
+    columnSize: { order: 70, name: 180 }
+    rowHeight: short
+  - type: table
+    name: Tool
+    groupBy: { property: split, direction: ASC }
+    order: [order, name, kind, tool_path_m, tool_speed_max_m_s, tool_z_min_mm, tool_z_max_mm, tool_tilt_max_deg]
+    sort:
+      - { property: tool_path_m, direction: DESC }
+    columnSize: { order: 70, name: 180 }
+    display: { tool_path_m: bar }
+    rowHeight: short

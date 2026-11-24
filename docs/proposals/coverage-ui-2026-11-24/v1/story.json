@@ -1,0 +1,32 @@
+[
+  {
+    "label": "Overview",
+    "caption": "The landing is a stock <data-dashboard>: the payload's 15 headline numbers as data-ui's own KPI cards (here and nowhere else), each joint in numbers, and the tool from above; the left rail is data-ui's stock app rail.",
+    "actions": [],
+    "highlight": "data-dashboard [data-panel=\"numbers\"]"
+  },
+  {
+    "label": "One joint",
+    "caption": "Each page is a .base file swapped on the same dashboard; the Joint pick is a stock select facet that exists only on this page, and every heatmap is a Vega-Lite rect over the payload's own cells.",
+    "actions": [{ "click": "data-rail a.dv-rail-dest[data-id=\"joint\"]" }, { "wait": 1800 }],
+    "highlight": "data-dashboard .dd-rail data-facets[data-dataset=\"cells\"]"
+  },
+  {
+    "label": "Settings gear",
+    "caption": "Colormap, Reverse and scale are set once behind the gear and repaint every heatmap; data-ui has no dashboard-wide setting, so this one control is the host's (it rewrites each chart's Vega-Lite colour scale).",
+    "actions": [{ "click": "#gear" }, { "select": ["#cmap", "plasma"] }, { "wait": 400 }, { "select": ["#scale", "log"] }, { "wait": 1400 }],
+    "highlight": "#settings"
+  },
+  {
+    "label": "Trajectories table",
+    "caption": "The stock data-ui table Zach pointed at: saved views as tabs (+ saves the current one), a filter rail (here: holdout), groups by split that fold, one-click sort.",
+    "actions": [{ "click": "#settings-done" }, { "click": "data-rail a.dv-rail-dest[data-id=\"trajectories\"]" }, { "wait": 1800 }, { "fill": ["data-facets[for=\"traj\"] input[type=\"search\"]", "holdout"] }, { "wait": 900 }],
+    "highlight": "#traj .dv-bar"
+  },
+  {
+    "label": "Drill + Open in Rerun",
+    "caption": "A row opens data-ui's side peek: that trajectory's numbers, its joint angles over time, and Open in Rerun, which asks the round server to open its .rrd.",
+    "actions": [{ "click": "#traj tbody tr.dv-row td[data-col=\"name\"]" }, { "wait": 1800 }],
+    "highlight": "#traj .dv-peek a[data-open-elsewhere]"
+  }
+]

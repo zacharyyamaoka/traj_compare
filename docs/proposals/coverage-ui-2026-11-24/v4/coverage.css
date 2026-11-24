@@ -1,0 +1,175 @@
+/* coverage.css — the coverage page (docs/COVERAGE.md "The custom page"), on top of style.css's family tokens:
+   1px structure, shallow radii, compact type, colour reserved for data; amber/red only for problems. */
+
+.cov [hidden] { display: none !important; }
+.cov-head .cov-subtitle:empty { display: none; }
+.cov-siblings { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 8px; }
+.cov-siblings:empty { display: none; }
+.cov-sibgroup { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.cov-sibgroup .grouplabel, .cov-ctl .ctl-label, .cov-number .label, .cov-cardhead .grouplabel {
+  font-size: 11px; color: #8a8983; text-transform: uppercase; letter-spacing: 0.04em; }
+.cov-sibgroup a.chip { text-decoration: none; }
+.cov-sibgroup a.chip.on { cursor: default; }
+
+/* one calm answer first, then the headline numbers */
+.cov-top { padding: 12px 22px 0; }
+.cov-answer { background: #fcfcfb; border: 1px solid #dddcd6; border-radius: 8px; padding: 10px 14px;
+              margin: 0 0 10px; font-size: 14px; color: #22211f; max-width: 1200px; line-height: 1.55; }
+.cov-answer b { font-variant-numeric: tabular-nums; }
+.cov-answer .cov-problem { color: #a4372a; }
+.cov-numbers { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 8px;
+               margin: 0 0 12px; }
+.cov-number { background: #fcfcfb; border: 1px solid #dddcd6; border-radius: 8px; padding: 7px 10px; min-width: 0; }
+.cov-number .label { display: block; text-transform: none; letter-spacing: 0; font-size: 11.5px; color: #52514e;
+                     line-height: 1.3; }
+.cov-number .value { display: block; font-size: 18px; font-weight: 650; color: #0b0b0b; line-height: 1.25;
+                     margin-top: 3px; font-variant-numeric: tabular-nums; }
+.cov-number .key { display: block; font: 10.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: #a3a29c;
+                   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-bottom: 1px; }
+
+/* the sticky bar: tabs and the global colour controls stay in reach while scrolling */
+.cov-bar { position: sticky; top: 0; z-index: 30; background: #f4f4f2; padding: 6px 22px 0;
+           border-bottom: 1px solid #dddcd6; }
+.cov-tabs { display: flex; flex-wrap: wrap; gap: 2px; }
+.cov-tab { border: 1px solid transparent; border-bottom: 0; background: transparent; margin-bottom: -1px;
+           border-radius: 6px 6px 0 0; padding: 7px 12px; font: inherit; font-size: 13px; color: #52514e;
+           cursor: pointer; }
+.cov-tab:hover { color: #0b0b0b; }
+.cov-tab[aria-selected="true"] { background: #fcfcfb; border-color: #dddcd6; color: #0b0b0b;
+                                 box-shadow: inset 0 2px 0 #2a78d6; }
+.cov-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 7px 0 7px;
+                border-top: 1px solid #dddcd6; }
+.cov-ctl { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: #22211f; }
+.cov-ctl select { font: inherit; font-size: 12.5px; padding: 3px 6px; border: 1px solid #cfcec8; border-radius: 6px;
+                  background: #fcfcfb; color: #22211f; }
+.cov-ctl input[type="checkbox"] { accent-color: #2a78d6; margin: 0; }
+.cov-ramp { display: inline-block; width: 74px; height: 10px; border-radius: 2px; border: 1px solid #dddcd6; }
+.cov-scale-note { flex: 1 1 320px; font-size: 11.5px; color: #8a8983; min-width: 220px; }
+.cov-highlight { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #0b0b0b;
+                 border: 1px solid #0b0b0b; border-radius: 6px; padding: 2px 4px 2px 8px; background: #fcfcfb; }
+.cov-highlight button { border: 0; background: transparent; cursor: pointer; font-size: 13px; color: #52514e;
+                        padding: 0 4px; }
+
+main.cov-main { padding: 12px 22px 30px; }
+.cov-view > .cov-intro { margin: 2px 0 12px; color: #52514e; max-width: 1000px; font-size: 13px; }
+
+/* figures */
+.cov-figure { background: #fcfcfb; border: 1px solid #dddcd6; border-radius: 8px; padding: 10px 14px 8px;
+              margin: 0 0 14px; min-width: 0; }
+.cov-fighead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 0 0 4px; }
+.cov-fighead h3 { font-size: 13.5px; margin: 0; color: #22211f; flex: 1 1 auto; min-width: 0; }
+.cov-id { font: 10.5px ui-monospace, SFMono-Regular, Menlo, monospace; color: #a3a29c; font-weight: 400;
+          margin-left: 6px; }
+.cov-figtools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cov-figtools label { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #52514e; }
+.cov-figtools input[type="checkbox"] { accent-color: #2a78d6; margin: 0; }
+.cov-lead { margin: 0 0 8px; font-size: 12.5px; color: #52514e; font-variant-numeric: tabular-nums; }
+.cov-lead:empty { display: none; }
+.cov-lead .cov-problem { color: #a4372a; }
+.cov-figbody { position: relative; min-width: 0; }
+.cov-figbody canvas { display: block; }
+.cov-error { color: #a4372a; font-size: 12.5px; }
+.cov-missing { color: #8a8983; border: 1px dashed #cfcec8; border-radius: 6px; padding: 26px 16px; text-align: center;
+               font-size: 12.5px; }
+
+/* legend: every mark a figure draws, named */
+.cov-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 8px 0 2px; font-size: 11.5px; color: #52514e;
+              line-height: 1.4; }
+.cov-li { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; }
+.cov-sw { flex: 0 0 auto; display: inline-block; width: 14px; height: 10px; border-radius: 2px; }
+.cov-sw.empty { background: #ffffff; border: 1px solid #b9b8b2; }
+.cov-sw.outside { background: rgb(221, 220, 214); }
+.cov-sw.line { height: 0; border-top: 2px solid currentColor; border-radius: 0; }
+.cov-sw.thin { height: 0; border-top: 1px solid currentColor; border-radius: 0; }
+.cov-sw.dash { height: 0; border-top: 2px dashed currentColor; border-radius: 0; }
+.cov-sw.tick { width: 2px; height: 12px; border-radius: 0; background: currentColor; }
+.cov-sw.frame { background: transparent; border: 1.5px solid currentColor; }
+.cov-sw.ramp { width: 42px; }
+.cov-sw.cross { width: 12px; height: 12px; background:
+  linear-gradient(currentColor, currentColor) center / 12px 1.5px no-repeat,
+  linear-gradient(currentColor, currentColor) center / 1.5px 12px no-repeat; }
+.cov-li .note { color: #8a8983; }
+.cov-li.problem { color: #a4372a; }
+
+.cov-how { margin: 4px 0 2px; font-size: 12px; color: #52514e; }
+.cov-how summary { cursor: pointer; color: #8a8983; font-size: 11.5px; width: max-content; }
+.cov-how p { margin: 6px 0 2px; max-width: 1000px; }
+.cov-how .cov-prior { color: #8a8983; }
+
+/* heatmaps and their colorbar */
+.cov-heatrow { display: flex; align-items: flex-start; gap: 8px; }
+.cov-panels { display: flex; flex-wrap: nowrap; gap: 8px; align-items: flex-start; min-width: 0; }
+.cov-panel { min-width: 0; }
+.cov-panel-title { font-size: 11.5px; color: #52514e; margin: 0 0 2px; white-space: nowrap; overflow: hidden;
+                   text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.cov-panel-title b { color: #22211f; font-weight: 600; }
+.cov-colorbar { flex: 0 0 auto; width: 92px; font-size: 10.5px; color: #52514e; padding-top: 2px; }
+.cov-cb-title { font-size: 11px; color: #22211f; margin: 0 0 6px; line-height: 1.25; }
+.cov-cb-body { position: relative; }
+.cov-cb-body canvas { border: 1px solid #dddcd6; }
+.cov-cb-tick { position: absolute; left: 22px; transform: translateY(50%); white-space: nowrap;
+               font-variant-numeric: tabular-nums; }
+.cov-cb-tick::before { content: ''; position: absolute; left: -7px; top: 50%; width: 4px; border-top: 1px solid #8a8983; }
+.cov-cb-note { margin-top: 8px; color: #8a8983; line-height: 1.3; }
+
+/* segmented switch (samples / trajectories, q / qd / qdd) */
+.cov-seg { display: inline-flex; border: 1px solid #cfcec8; border-radius: 6px; overflow: hidden; }
+.cov-seg button { border: 0; border-left: 1px solid #cfcec8; background: #fcfcfb; font: inherit; font-size: 12px;
+                  color: #52514e; padding: 3px 10px; cursor: pointer; }
+.cov-seg button:first-child { border-left: 0; }
+.cov-seg button[aria-pressed="true"] { background: #eef3fa; color: #0b0b0b; box-shadow: inset 0 -2px 0 #2a78d6; }
+.cov-seg-label { font-size: 11px; color: #8a8983; text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* two figures side by side with a draggable boundary (Zach's resizable-panels rule); double-click resets */
+.cov-split { display: flex; align-items: stretch; margin: 0 0 14px; }
+.cov-split > .cov-figure { margin: 0; }
+.cov-split > .cov-pane-right { flex: 1 1 0; }
+.cov-split-handle { flex: 0 0 12px; cursor: col-resize; position: relative; touch-action: none; }
+.cov-split-handle::after { content: ''; position: absolute; top: 12px; bottom: 12px; left: 5px; width: 2px;
+                           border-radius: 1px; background: transparent; }
+.cov-split-handle:hover::after, .cov-split-handle.dragging::after { background: #9dbde4; }
+
+/* limit bars: one card per joint */
+.cov-cards { display: grid; gap: 10px 14px; }
+.cov-card { border: 1px solid #e6e5e0; border-radius: 6px; padding: 6px 8px 4px; min-width: 0; background: #fcfcfb; }
+.cov-cardhead { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; color: #22211f; margin: 0 0 2px; }
+.cov-cardhead b { font-weight: 600; }
+.cov-cardhead .unit { color: #8a8983; font-size: 11.5px; }
+
+/* tables: the summary and the trajectories */
+.cov-tablewrap { overflow-x: auto; }
+table.cov-table { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
+table.cov-table th, table.cov-table td { border-top: 1px solid #e6e5e0; padding: 4px 8px; text-align: right;
+                                        white-space: nowrap; }
+table.cov-table th.left, table.cov-table td.left { text-align: left; }
+table.cov-table thead th { color: #52514e; font-weight: 600; background: #f7f7f5; border-top: 0;
+                           vertical-align: bottom; line-height: 1.25; }
+table.cov-table thead th .sub { display: block; font-weight: 400; color: #8a8983; font-size: 10.5px; }
+table.cov-table thead th.sortable { cursor: pointer; }
+table.cov-table thead th.sortable:hover { color: #0b0b0b; }
+table.cov-table tbody tr { cursor: pointer; }
+table.cov-table tbody tr:hover td { background: #f2f6fb; }
+table.cov-table tbody tr.selected td { background: #eef3fa; box-shadow: inset 0 1px 0 #0b0b0b, inset 0 -1px 0 #0b0b0b; }
+table.cov-table td.muted { color: #a3a29c; }
+table.cov-table td.problem { color: #a4372a; }
+.cov-cell { display: inline-flex; align-items: center; gap: 6px; justify-content: flex-end; }
+.cov-minibar { display: inline-block; width: 46px; height: 6px; background: #ecebe6; border-radius: 3px;
+               overflow: hidden; vertical-align: middle; }
+.cov-minibar > span { display: block; height: 100%; background: #7f9cc0; border-radius: 3px; }
+.cov-dot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+
+/* the one tooltip */
+.cov-tip { position: fixed; z-index: 60; pointer-events: none; background: rgba(30, 30, 28, 0.92); color: #f4f4f2;
+           font-size: 11.5px; line-height: 1.4; padding: 5px 8px; border-radius: 5px; max-width: 360px;
+           font-variant-numeric: tabular-nums; }
+.cov-tip b { color: #ffffff; }
+
+@media (max-width: 900px) {
+  .cov-split { flex-direction: column; }
+  .cov-split > .cov-figure { flex: 1 1 auto !important; margin: 0 0 14px; }
+  .cov-split-handle { display: none; }
+}
+
+/* WHY at least a window tall (2026-11-23, tests/test_coverage_page_scroll.py): a short tab shrank the page under the
+   reader, the browser clamped the scroll and the tab bar jumped; with this the bar always stays where it was. */
+[data-cov-view] { min-height: 100vh; }

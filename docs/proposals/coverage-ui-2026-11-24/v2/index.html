@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coverage · rows first (V2)</title>
+<link rel="stylesheet" href="../vendor/data-ui/data-ui.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="v2-head">
+  <div class="v2-titles">
+    <div class="v2-crumb">traj_compare · trajectory coverage · <span title="babble round 2026-11-24, proposal V2">V2 rows first</span></div>
+    <h1 data-v2-title>Trajectory coverage</h1>
+    <p class="v2-subtitle" data-v2-subtitle></p>
+  </div>
+  <div class="v2-headtools">
+    <span class="v2-chip" data-v2-chip aria-live="polite"></span>
+    <span class="v2-keyrow data-ui" data-v2-key title="What the colours beside a trajectory mean (its split)"></span>
+    <button type="button" id="v2-gear" class="v2-gear" aria-label="Colour settings" aria-haspopup="dialog" aria-expanded="false" aria-controls="v2-settings" title="Colour settings: set once, apply to every map">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    </button>
+    <div id="v2-settings" class="v2-settings" role="dialog" aria-label="Colour settings" hidden>
+      <div class="v2-settings-head">
+        <div><b>Colour settings</b><span>Set once: every map on every tab uses them.</span></div>
+        <button type="button" id="v2-settings-close" class="v2-x" aria-label="Close colour settings">✕</button>
+      </div>
+      <label class="v2-field"><span>Colour map</span><select id="v2-cmap" aria-label="Colour map"></select></label>
+      <div class="v2-ramp" data-v2-ramp title="the colour map now in use: low → high"></div>
+      <label class="v2-check"><input type="checkbox" id="v2-reverse"> Reverse (high = dark)</label>
+      <label class="v2-field"><span>Scale</span><select id="v2-scale" aria-label="Colour scale"></select></label>
+      <p class="v2-settings-note" data-v2-scale-note></p>
+    </div>
+  </div>
+</header>
+<main class="v2-main">
+  <data-facets for="cov" theme="light"></data-facets>
+  <data-views id="cov" theme="light" toolbar="bar" views="tabs" filters="rail pills" promote="" display="panel" open="side"></data-views>
+</main>
+<script src="js/coverage_color.js"></script>
+<script src="../data/coverage.js"></script>
+<script src="../data/trajectories.js"></script>
+<script src="../data/membership.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

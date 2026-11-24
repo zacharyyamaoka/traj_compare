@@ -1,0 +1,29 @@
+{
+  "ready": "body[data-ready] [data-page=overview] .dv-kpi-grid",
+  "tabs": {
+    "overview": "[data-cov-tab=overview]",
+    "joint": "[data-cov-tab=joint]",
+    "trajectories": "[data-cov-tab=trajectories]"
+  },
+  "stats": "[data-page=overview] .dv-kpi-grid",
+  "joint_picker": "[data-page=joint] data-facets",
+  "settings": "[data-settings-gear]",
+  "settings_panel": "[data-settings-panel]",
+  "settings_close": "[data-settings-close]",
+  "cmap": "[data-setting=colormap]",
+  "cmap_value": "magma",
+  "cmap_option": "[data-setting=colormap] [data-value=magma]",
+  "reverse": "[data-settings-panel] input[data-setting=reverse]",
+  "scale": "[data-settings-panel] select[data-setting=scale]",
+  "figure": "[data-page=joint] .dd-panel:first-of-type canvas[data-cov-heat]",
+  "table_rows": "[data-page=trajectories] tr.dv-row[data-id]",
+  "filter": "[data-page=trajectories] input.dv-qinput",
+  "filter_query": "holdout",
+  "sort_header": "[data-page=trajectories] th[data-col=duration_s]",
+  "saved_view_items": "[data-page=trajectories] button.dv-vtab",
+  "drill_trigger": "[data-page=trajectories] tr.dv-row[data-id] td[data-col=name]",
+  "drill_action": "click",
+  "drill": "[data-page=trajectories] .dv-open-rec",
+  "open_rerun": "[data-page=trajectories] .dv-open-rec [data-open-elsewhere]",
+  "row_colours": { "legend": "[data-page=trajectories] [data-row-legend]" }
+}

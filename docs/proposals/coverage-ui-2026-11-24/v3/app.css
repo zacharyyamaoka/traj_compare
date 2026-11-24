@@ -1,0 +1,81 @@
+/* The host page around data-ui: the header, the page tabs (§52.5's prototype), the gear (§52.6's), the drill's
+ * additions. Colours only from data-ui's host tokens with their defaults, so the page reads as data-ui's. */
+:root {
+  --cv-bg: var(--data-bg, var(--background, #ffffff));
+  --cv-fg: var(--data-fg, var(--foreground, #18181b));
+  --cv-muted: var(--data-muted, var(--muted-foreground, #71717a));
+  --cv-subtle: var(--data-subtle, var(--muted, #f4f4f5));
+  --cv-border: var(--data-border, var(--border, #e4e4e7));
+  --cv-accent: var(--data-accent, var(--primary, #2563eb));
+  --cv-hover: var(--data-hover, var(--accent, #f4f4f5));
+  --cv-font: var(--data-font, var(--font-sans, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif));
+  --cv-radius: var(--data-radius, var(--radius, 8px));
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--cv-bg); color: var(--cv-fg); font: 13px/1.45 var(--cv-font); }
+body { overflow-x: hidden; }
+.cv-top { display: flex; align-items: center; gap: 16px; padding: 10px 20px 4px; }
+.cv-titles { flex: 1 1 auto; min-width: 0; }
+.cv-titles h1 { font-size: 17px; font-weight: 650; margin: 0; letter-spacing: -0.01em; }
+.cv-sub { margin: 1px 0 0; color: var(--cv-muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* the page tabs: data-ui's view tabs' look (an underline on the open one), one row */
+.cv-tabs { display: flex; gap: 2px; padding: 0 20px; border-bottom: 1px solid var(--cv-border); overflow: hidden; }
+.cv-tab { font: inherit; font-size: 13px; color: var(--cv-muted); background: none; border: 0; border-bottom: 2px solid transparent;
+  padding: 8px 12px 7px; cursor: pointer; white-space: nowrap; border-radius: 6px 6px 0 0; }
+.cv-tab:hover { color: var(--cv-fg); background: var(--cv-hover); }
+.cv-tab[aria-selected="true"] { color: var(--cv-fg); font-weight: 600; border-bottom-color: var(--cv-fg); }
+.cv-tab svg { width: 14px; height: 14px; vertical-align: -2px; margin-right: 6px; opacity: .7; }
+
+.cv-pages { padding: 10px 20px 24px; min-width: 0; }
+.cv-page[hidden] { display: none !important; }
+.cv-loading { color: var(--cv-muted); }
+.cv-page-error { color: var(--data-warn, #dc2626); }
+
+/* a dashboard page: data-ui draws everything inside; the chips/actions bar shrinks to a line */
+.cv-page data-dashboard { display: block; }
+.cv-page data-dashboard .dd-bar { min-height: 0; }
+
+/* the Trajectories page */
+.cv-rowlegend { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 0 0 8px; color: var(--cv-muted); font-size: 12.5px; }
+.cv-rowlegend .cv-sw { display: inline-flex; align-items: center; gap: 6px; color: var(--cv-fg); }
+.cv-rowlegend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.cv-page[data-page="trajectories"] data-views { --data-height: calc(100vh - 168px); }
+
+/* the drill (inside data-ui's side peek, through el.peekExtra and el.openElsewhere) */
+.cv-drill h3 { font-size: 12.5px; font-weight: 600; margin: 14px 0 4px; }
+.cv-drill .cv-drill-note { color: var(--cv-muted); margin: 0 0 6px; font-size: 12px; }
+.cv-drill-adds { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 4px 0 2px; }
+.cv-drill-adds div { border: 1px solid var(--cv-border); border-radius: 6px; padding: 6px 8px; }
+.cv-drill-adds b { display: block; font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.cv-drill-adds span { color: var(--cv-muted); font-size: 11.5px; }
+.cv-rerun-cmd { margin: 6px 0 4px; padding: 8px 10px; border: 1px solid var(--cv-border); border-radius: 6px; background: var(--cv-subtle); font-size: 12px; }
+.cv-rerun-cmd code { display: block; font: 11.5px/1.4 var(--data-mono, ui-monospace, monospace); word-break: break-all; margin: 4px 0; }
+.cv-rerun-cmd.cv-ok { color: var(--cv-muted); }
+a.cv-rerun-busy { opacity: .6; pointer-events: none; }
+
+/* <data-settings>: the gear, top right; its panel a popover under it (data-ui's View settings look) */
+data-settings { position: relative; flex: 0 0 auto; }
+.ds-gear { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 12.5px; color: var(--cv-fg); background: var(--cv-bg);
+  border: 1px solid var(--cv-border); border-radius: var(--cv-radius); padding: 5px 10px 5px 8px; cursor: pointer; }
+.ds-gear:hover, .ds-gear[aria-expanded="true"] { background: var(--cv-hover); }
+.ds-panel { position: absolute; right: 0; top: calc(100% + 6px); z-index: 80; width: 340px; background: var(--cv-bg); color: var(--cv-fg);
+  border: 1px solid var(--cv-border); border-radius: calc(var(--cv-radius) + 2px); box-shadow: 0 12px 32px rgb(0 0 0 / .14); padding: 12px 14px; }
+.ds-head { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+.ds-head div { flex: 1; }
+.ds-head h2 { margin: 0; font-size: 14px; font-weight: 650; }
+.ds-head p { margin: 2px 0 0; color: var(--cv-muted); font-size: 12px; }
+.ds-close { font: inherit; border: 0; background: none; color: var(--cv-muted); cursor: pointer; border-radius: 4px; padding: 2px 6px; }
+.ds-close:hover { background: var(--cv-hover); color: var(--cv-fg); }
+.ds-row { display: block; border: 0; padding: 0; margin: 10px 0 0; }
+.ds-row legend, .ds-select > span { display: block; font-size: 11.5px; font-weight: 600; color: var(--cv-muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 5px; }
+.ds-maps { display: grid; gap: 3px; }
+.ds-map { display: flex; align-items: center; gap: 10px; font: inherit; font-size: 12.5px; background: none; color: var(--cv-fg); border: 1px solid transparent; border-radius: 6px; padding: 4px 6px; cursor: pointer; text-align: left; }
+.ds-map:hover { background: var(--cv-hover); }
+.ds-map[aria-checked="true"] { border-color: var(--cv-accent); background: var(--cv-subtle); font-weight: 600; }
+.ds-map i { width: 120px; height: 12px; border-radius: 3px; flex: 0 0 auto; }
+.ds-check { display: flex; align-items: center; gap: 8px; font-size: 12.5px; cursor: pointer; }
+.ds-select select { width: 100%; font: inherit; font-size: 12.5px; padding: 4px 6px; border: 1px solid var(--cv-border); border-radius: 6px; background: var(--cv-bg); color: var(--cv-fg); }
+.ds-note { margin: 5px 0 0; color: var(--cv-muted); font-size: 11.5px; line-height: 1.35; }
+.ds-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--cv-border); color: var(--cv-muted); font-size: 11.5px; }
+.ds-reset { font: inherit; font-size: 11.5px; border: 1px solid var(--cv-border); background: var(--cv-bg); color: var(--cv-fg); border-radius: 6px; padding: 2px 8px; cursor: pointer; }

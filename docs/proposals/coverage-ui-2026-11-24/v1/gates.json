@@ -1,0 +1,28 @@
+{
+  "ready": "data-dashboard [data-panel=\"numbers\"] data-kpi",
+  "tabs": {
+    "overview": "data-rail a.dv-rail-dest[data-id=\"overview\"]",
+    "joint": "data-rail a.dv-rail-dest[data-id=\"joint\"]",
+    "trajectories": "data-rail a.dv-rail-dest[data-id=\"trajectories\"]"
+  },
+  "stats": "data-dashboard [data-panel=\"numbers\"]",
+  "joint_picker": "data-dashboard .dd-rail data-facets[data-dataset=\"cells\"]",
+  "settings": "#gear",
+  "settings_panel": "#settings",
+  "settings_close": "#settings-done",
+  "cmap": "#cmap",
+  "cmap_value": "magma",
+  "reverse": "#reverse",
+  "scale": "#scale",
+  "figure": "data-dashboard [data-panel=\"qqd\"]",
+  "table_rows": "#traj tbody tr.dv-row",
+  "filter": "data-facets[for=\"traj\"] input[type=\"search\"]",
+  "filter_query": "holdout",
+  "sort_header": "#traj thead th[data-sort=\"new_cells\"]",
+  "saved_view_items": "#traj .dv-vtab[data-kind=\"preset\"]",
+  "drill_trigger": "#traj tbody tr.dv-row td[data-col=\"name\"]",
+  "drill_action": "click",
+  "drill": "#traj .dv-peek",
+  "open_rerun": "#traj .dv-peek a[data-open-elsewhere]",
+  "row_colours": "none"
+}

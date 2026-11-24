@@ -1,0 +1,54 @@
+[
+  {
+    "label": "Overview: the answer first",
+    "caption": "The landing is one calm screen: the 15 headline numbers (data-ui's stock kpi cards, on this tab only), every joint's range against its limits (the new coverage-hist view as a ridgeline) and the joints in numbers (the stock table).",
+    "actions": [],
+    "highlight": "[data-page=overview] .dd-panel[data-type=coverage-hist]"
+  },
+  {
+    "label": "One joint: its own picker, its own legend",
+    "caption": "The joint picker is data-ui's stock rail and lives on One joint only; each coverage-plane draws the limit box, a colorbar with the scale's real numbers, a legend for every mark, a hover readout and its own 'colour =' switch.",
+    "actions": [
+      { "click": "[data-cov-tab=joint]" },
+      { "wait": 900 },
+      { "click": "[data-page=joint] data-facets input[data-value=elbow_joint]" },
+      { "wait": 1000 },
+      { "hover": "[data-page=joint] .dd-panel:first-of-type canvas[data-cov-heat]" }
+    ],
+    "highlight": "[data-page=joint] .dd-rail"
+  },
+  {
+    "label": "Colours, set once behind the gear",
+    "caption": "The gear (top right) holds the colour map, Reverse and Scale for the whole dashboard; picking cividis repaints every coverage figure on every tab, and the pick is kept in this browser.",
+    "actions": [
+      { "click": "[data-settings-gear]" },
+      { "wait": 400 },
+      { "click": "[data-setting=colormap] [data-value=cividis]" },
+      { "wait": 1000 }
+    ],
+    "highlight": "[data-settings-panel]"
+  },
+  {
+    "label": "Trajectories: data-ui's own table",
+    "caption": "The stock table: saved views as tabs (and + for your own), the search box, groups that fold, a header click sorts; the split badge is the only colour beside a trajectory and is keyed above the table.",
+    "actions": [
+      { "press": "Escape" },
+      { "click": "[data-cov-tab=trajectories]" },
+      { "wait": 1000 },
+      { "click": "[data-page=trajectories] button.dv-vtab:has-text(\"What each one adds\")" },
+      { "wait": 900 }
+    ],
+    "highlight": "[data-page=trajectories] .dv-viewtabs"
+  },
+  {
+    "label": "Drill in, Open in Rerun",
+    "caption": "A row opens data-ui's side peek as the drill: Open in Rerun at its top, its fields, what it adds to the set, and its tool path and joint paths drawn over the whole set by the same coverage views.",
+    "actions": [
+      { "click": "[data-page=trajectories] tr.dv-row[data-id] td[data-col=name]" },
+      { "wait": 1400 },
+      { "click": "[data-page=trajectories] .dv-open-rec [data-open-elsewhere]" },
+      { "wait": 800 }
+    ],
+    "highlight": "[data-page=trajectories] .dv-peek"
+  }
+]

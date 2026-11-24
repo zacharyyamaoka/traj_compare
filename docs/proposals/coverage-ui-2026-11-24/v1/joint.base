@@ -1,0 +1,126 @@
+# V1 · One joint: which combinations of position, speed and acceleration one joint visits, inside its limit box.
+# A stock <data-dashboard>; the rail's Joint pick (a stock select facet on the cells dataset) is the joint picker, and
+# the links carry it to the slabs and the paths. Every heatmap is a Vega-Lite rect over the payload's own cells
+# (rows/cells.json: one row per VISITED cell, so white = never visited); `scheme: viridis` is the default the host's
+# gear rewrites (the one dashboard-wide setting data-ui lacks). Check:
+#   node /home/bam/data-ui/bin/data-ui.mjs check joint.base
+data: rows/cells.json
+style:
+  chrome: minimal
+  numbers: { digits: 3, compact: true }
+  palette: { dev: "#2a78d6", holdout: "#19a979" }
+datasets:
+  cells:
+    data: rows/cells.json
+    label: Joint
+    facets:
+      - { property: joint, as: select, label: Joint, any: "Every joint, overlaid", order: [shoulder_pan_joint, shoulder_lift_joint, elbow_joint, wrist_1_joint, wrist_2_joint, wrist_3_joint], info: "The joint every panel shows. The number beside a joint is how many cells of its three planes it visits." }
+    filters: 'joint == "shoulder_pan_joint"'
+  slabs: rows/slabs.json
+  paths: rows/paths.json
+links:
+  - { from: cells.joint, to: slabs.joint, direction: one-way }
+  - { from: cells.joint, to: paths.joint, direction: one-way }
+layout:
+  arrange: false
+  panels:
+    - { key: qqd, view: "Which positions and speeds does it visit?", w: 6, h: 4.6, toolbar: none }
+    - { key: qdqdd, view: "Which speeds and accelerations does it combine?", w: 6, h: 4.6, toolbar: none }
+    - text: "**Reading the heatmaps** · colour = samples in the cell (the gear sets the colormap and scale for every page) · white = never visited · red frame = the joint's limit box (the plot spans exactly the limits) · the Joint pick on the left applies to this page only"
+      w: 12
+    - { key: slabs, view: "At each acceleration, which positions and speeds?", w: 12, h: 3.2, toolbar: none }
+    - { key: paths, view: "What paths do the trajectories trace?", w: 6, h: 4.6, toolbar: none }
+    - { key: maxqdd, view: "How hard does it accelerate at each position and speed?", w: 6, h: 4.6, toolbar: none }
+properties:
+  samples: { displayName: samples per cell }
+  paths: { displayName: trajectories through the cell }
+  max_qdd: { displayName: "max |qdd| reached (°/s²)" }
+  x_lo: { displayName: from }
+  y_lo: { displayName: from }
+views:
+  - type: chart
+    name: "Which positions and speeds does it visit?"
+    filters: 'plane == "q_qd"'
+    chart:
+      layer:
+        - mark: { type: rect, cornerRadius: 0, strokeWidth: 0.3 }
+          encoding:
+            x: { field: x_lo, type: quantitative, title: "q · position (°)", scale: { zero: false, nice: false } }
+            x2: { field: x_hi, title: "q · position (°)" }
+            'y': { field: y_lo, type: quantitative, title: "qd · speed (°/s)", scale: { zero: false, nice: false } }
+            y2: { field: y_hi, title: "qd · speed (°/s)" }
+            color: { field: samples, type: quantitative, title: samples per cell, scale: { scheme: viridis, type: linear } }
+        - mark: { type: rect, fill: null, stroke: "#c0392b", strokeWidth: 1.2, cornerRadius: 0 }
+          encoding:
+            x: { field: x_min, aggregate: min, type: quantitative, title: "q · position (°)" }
+            x2: { field: x_max, aggregate: max, title: "q · position (°)" }
+            'y': { field: y_min, aggregate: min, type: quantitative, title: "qd · speed (°/s)" }
+            y2: { field: y_max, aggregate: max, title: "qd · speed (°/s)" }
+  - type: chart
+    name: "Which speeds and accelerations does it combine?"
+    filters: 'plane == "qd_qdd"'
+    chart:
+      layer:
+        - mark: { type: rect, cornerRadius: 0, strokeWidth: 0.3 }
+          encoding:
+            x: { field: x_lo, type: quantitative, title: "qd · speed (°/s)", scale: { zero: false, nice: false } }
+            x2: { field: x_hi, title: "qd · speed (°/s)" }
+            'y': { field: y_lo, type: quantitative, title: "qdd · acceleration (°/s²)", scale: { zero: false, nice: false } }
+            y2: { field: y_hi, title: "qdd · acceleration (°/s²)" }
+            color: { field: samples, type: quantitative, title: samples per cell, scale: { scheme: viridis, type: linear } }
+        - mark: { type: rect, fill: null, stroke: "#c0392b", strokeWidth: 1.2, cornerRadius: 0 }
+          encoding:
+            x: { field: x_min, aggregate: min, type: quantitative, title: "qd · speed (°/s)" }
+            x2: { field: x_max, aggregate: max, title: "qd · speed (°/s)" }
+            'y': { field: y_min, aggregate: min, type: quantitative, title: "qdd · acceleration (°/s²)" }
+            y2: { field: y_max, aggregate: max, title: "qdd · acceleration (°/s²)" }
+  - type: chart
+    name: "At each acceleration, which positions and speeds?"
+    from: slabs
+    chart:
+      mark: { type: rect, cornerRadius: 0, strokeWidth: 0.2 }
+      encoding:
+        x: { field: x_lo, type: quantitative, title: "q · position (°)", scale: { zero: false, nice: false } }
+        x2: { field: x_hi, title: "q · position (°)" }
+        'y': { field: y_lo, type: quantitative, title: "qd (°/s)", scale: { zero: false, nice: false } }
+        y2: { field: y_hi, title: "qd (°/s)" }
+        color: { field: samples, type: quantitative, title: samples per cell, scale: { scheme: viridis, type: linear } }
+        column: { field: band, type: nominal, title: null }
+  - type: chart
+    name: "What paths do the trajectories trace?"
+    from: paths
+    chart:
+      transform:
+        # WHY split: data-ui hands a list cell to Vega as its text ("a, b, c"); split turns it back into the list, then
+        # flatten makes one point per element (the payload's numbers, unchanged)
+        - { calculate: "split(datum.q, ', ')", as: q_list }
+        - { calculate: "split(datum.qd, ', ')", as: qd_list }
+        - { flatten: [q_list, qd_list], as: [q_text, qd_text] }
+        - { calculate: "toNumber(datum.q_text)", as: q_deg }
+        - { calculate: "toNumber(datum.qd_text)", as: qd_deg }
+        - { window: [{ op: row_number, as: step }], groupby: [trajectory] }
+      mark: { type: line, strokeWidth: 0.9, opacity: 0.5 }
+      encoding:
+        x: { field: q_deg, type: quantitative, title: "q · position (°)" }
+        'y': { field: qd_deg, type: quantitative, title: "qd · speed (°/s)" }
+        detail: { field: trajectory, type: nominal }
+        order: { field: step, type: quantitative }
+        color: { field: split, type: nominal, title: split }
+  - type: chart
+    name: "How hard does it accelerate at each position and speed?"
+    filters: 'plane == "q_qd"'
+    chart:
+      layer:
+        - mark: { type: rect, cornerRadius: 0, strokeWidth: 0.3 }
+          encoding:
+            x: { field: x_lo, type: quantitative, title: "q · position (°)", scale: { zero: false, nice: false } }
+            x2: { field: x_hi, title: "q · position (°)" }
+            'y': { field: y_lo, type: quantitative, title: "qd · speed (°/s)", scale: { zero: false, nice: false } }
+            y2: { field: y_hi, title: "qd · speed (°/s)" }
+            color: { field: max_qdd, type: quantitative, title: "max |qdd| (°/s²)", scale: { scheme: viridis, type: linear } }
+        - mark: { type: rect, fill: null, stroke: "#c0392b", strokeWidth: 1.2, cornerRadius: 0 }
+          encoding:
+            x: { field: x_min, aggregate: min, type: quantitative, title: "q · position (°)" }
+            x2: { field: x_max, aggregate: max, title: "q · position (°)" }
+            'y': { field: y_min, aggregate: min, type: quantitative, title: "qd · speed (°/s)" }
+            y2: { field: y_max, aggregate: max, title: "qd · speed (°/s)" }

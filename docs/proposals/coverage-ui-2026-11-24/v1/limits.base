@@ -1,0 +1,231 @@
+# V1 · Limits: where each joint's data sits against its limits. One stock chart panel per joint; each is a layered
+# Vega-Lite chart over rows/hist.json (the payload's 120-bin histograms, split by group = the split tag), faceted by
+# signal (q, qd, qdd, qddd) with independent x: bars (height ∝ √ samples, so the rest pose's one tall bin does not flatten
+# the rest; Vega-Lite has no 'clip at p98') stacked by split (dev / holdout, named in the chart's legend), the
+# grey margin beyond the limit, the limit as a red rule, the data's p0.1 and p99.9 as black hairlines.
+# Check: node /home/bam/data-ui/bin/data-ui.mjs check limits.base
+data: rows/hist.json
+viewTypes: [chart, table]
+style:
+  chrome: minimal
+  numbers: { digits: 3, compact: true }
+  palette: { dev: "#2a78d6", holdout: "#19a979" }
+layout:
+  arrange: false
+  panels:
+    - text: "**Reading the bars** · blue = split dev, green = split holdout (stacked) · bar height ∝ √ samples · red line = the joint's limit · grey = beyond the limit · dotted black = p0.1 and p99.9 of the data (where it really went)"
+      w: 12
+    - { key: shoulder_pan, view: shoulder_pan_joint, w: 4, h: 6.6, toolbar: none }
+    - { key: shoulder_lift, view: shoulder_lift_joint, w: 4, h: 6.6, toolbar: none }
+    - { key: elbow, view: elbow_joint, w: 4, h: 6.6, toolbar: none }
+    - { key: wrist_1, view: wrist_1_joint, w: 4, h: 6.6, toolbar: none }
+    - { key: wrist_2, view: wrist_2_joint, w: 4, h: 6.6, toolbar: none }
+    - { key: wrist_3, view: wrist_3_joint, w: 4, h: 6.6, toolbar: none }
+properties:
+  count: { displayName: samples }
+  group: { displayName: split }
+  lo: { displayName: bin from }
+  hi: { displayName: bin to }
+  limit_low: { displayName: low limit }
+  limit_high: { displayName: high limit }
+  p001: { displayName: p0.1 }
+  p999: { displayName: p99.9 }
+views:
+  - type: chart
+    name: shoulder_pan_joint
+    filters: 'joint == "shoulder_pan_joint"'
+    chart:
+      resolve: { scale: { x: independent, 'y': independent }, axis: { x: independent } }
+      layer:
+        - mark: { type: bar, cornerRadiusEnd: 0, binSpacing: 0 }
+          encoding:
+            x: { field: lo, type: quantitative, bin: binned, title: null, scale: { zero: false, nice: false } }
+            x2: { field: hi, title: null }
+            'y': { field: count, type: quantitative, title: √ samples, axis: { labels: false, ticks: false, titleFontSize: 10 }, scale: { type: sqrt }, stack: zero }
+            color: { field: group, type: nominal, title: split }
+            row: { field: signal, type: nominal, title: null, header: { labelAngle: 0, labelAlign: left, labelAnchor: start, labelOrient: top, labelPadding: 2 }, sort: [q · position (°), qd · speed (°/s), qdd · acceleration (°/s²), qddd · jerk (°/s³)] }
+        - mark: { type: rect, color: "#cfcac2", opacity: 0.55, cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: edge_low, aggregate: min, type: quantitative, title: null }
+            x2: { field: limit_low, aggregate: min, title: null }
+        - mark: { type: rect, color: "#cfcac2", opacity: 0.55, cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: limit_high, aggregate: max, type: quantitative, title: null }
+            x2: { field: edge_high, aggregate: max, title: null }
+        - mark: { type: rule, color: "#c0392b", strokeWidth: 1.4 }
+          encoding:
+            x: { field: limit_low, aggregate: min, type: quantitative, title: null }
+        - mark: { type: rule, color: "#c0392b", strokeWidth: 1.4 }
+          encoding:
+            x: { field: limit_high, aggregate: max, type: quantitative, title: null }
+        - mark: { type: rule, color: "#18181b", strokeWidth: 1, strokeDash: [2, 2] }
+          encoding:
+            x: { field: p001, aggregate: min, type: quantitative, title: null }
+        - mark: { type: rule, color: "#18181b", strokeWidth: 1, strokeDash: [2, 2] }
+          encoding:
+            x: { field: p999, aggregate: max, type: quantitative, title: null }
+  - type: chart
+    name: shoulder_lift_joint
+    filters: 'joint == "shoulder_lift_joint"'
+    chart:
+      resolve: { scale: { x: independent, 'y': independent }, axis: { x: independent } }
+      layer:
+        - mark: { type: bar, cornerRadiusEnd: 0, binSpacing: 0 }
+          encoding:
+            x: { field: lo, type: quantitative, bin: binned, title: null, scale: { zero: false, nice: false } }
+            x2: { field: hi, title: null }
+            'y': { field: count, type: quantitative, title: √ samples, axis: { labels: false, ticks: false, titleFontSize: 10 }, scale: { type: sqrt }, stack: zero }
+            color: { field: group, type: nominal, title: split }
+            row: { field: signal, type: nominal, title: null, header: { labelAngle: 0, labelAlign: left, labelAnchor: start, labelOrient: top, labelPadding: 2 }, sort: [q · position (°), qd · speed (°/s), qdd · acceleration (°/s²), qddd · jerk (°/s³)] }
+        - mark: { type: rect, color: "#cfcac2", opacity: 0.55, cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: edge_low, aggregate: min, type: quantitative, title: null }
+            x2: { field: limit_low, aggregate: min, title: null }
+        - mark: { type: rect, color: "#cfcac2", opacity: 0.55, cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: limit_high, aggregate: max, type: quantitative, title: null }
+            x2: { field: edge_high, aggregate: max, title: null }
+        - mark: { type: rule, color: "#c0392b", strokeWidth: 1.4 }
+          encoding:
+            x: { field: limit_low, aggregate: min, type: quantitative, title: null }
+        - mark: { type: rule, color: "#c0392b", strokeWidth: 1.4 }
+          encoding:
+            x: { field: limit_high, aggregate: max, type: quantitative, title: null }
+        - mark: { type: rule, color: "#18181b", strokeWidth: 1, strokeDash: [2, 2] }
+          encoding:
+            x: { field: p001, aggregate: min, type: quantitative, title: null }
+        - mark: { type: rule, color: "#18181b", strokeWidth: 1, strokeDash: [2, 2] }
+          encoding:
+            x: { field: p999, aggregate: max, type: quantitative, title: null }
+  - type: chart
+    name: elbow_joint
+    filters: 'joint == "elbow_joint"'
+    chart:
+      resolve: { scale: { x: independent, 'y': independent }, axis: { x: independent } }
+      layer:
+        - mark: { type: bar, cornerRadiusEnd: 0, binSpacing: 0 }
+          encoding:
+            x: { field: lo, type: quantitative, bin: binned, title: null, scale: { zero: false, nice: false } }
+            x2: { field: hi, title: null }
+            'y': { field: count, type: quantitative, title: √ samples, axis: { labels: false, ticks: false, titleFontSize: 10 }, scale: { type: sqrt }, stack: zero }
+            color: { field: group, type: nominal, title: split }
+            row: { field: signal, type: nominal, title: null, header: { labelAngle: 0, labelAlign: left, labelAnchor: start, labelOrient: top, labelPadding: 2 }, sort: [q · position (°), qd · speed (°/s), qdd · acceleration (°/s²), qddd · jerk (°/s³)] }
+        - mark: { type: rect, color: "#cfcac2", opacity: 0.55, cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: edge_low, aggregate: min, type: quantitative, title: null }
+            x2: { field: limit_low, aggregate: min, title: null }
+        - mark: { type: rect, color: "#cfcac2", opacity: 0.55, cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: limit_high, aggregate: max, type: quantitative, title: null }
+            x2: { field: edge_high, aggregate: max, title: null }
+        - mark: { type: rule, color: "#c0392b", strokeWidth: 1.4 }
+          encoding:
+            x: { field: limit_low, aggregate: min, type: quantitative, title: null }
+        - mark: { type: rule, color: "#c0392b", strokeWidth: 1.4 }
+          encoding:
+            x: { field: limit_high, aggregate: max, type: quantitative, title: null }
+        - mark: { type: rule, color: "#18181b", strokeWidth: 1, strokeDash: [2, 2] }
+          encoding:
+            x: { field: p001, aggregate: min, type: quantitative, title: null }
+        - mark: { type: rule, color: "#18181b", strokeWidth: 1, strokeDash: [2, 2] }
+          encoding:
+            x: { field: p999, aggregate: max, type: quantitative, title: null }
+  - type: chart
+    name: wrist_1_joint
+    filters: 'joint == "wrist_1_joint"'
+    chart:
+      resolve: { scale: { x: independent, 'y': independent }, axis: { x: independent } }
+      layer:
+        - mark: { type: bar, cornerRadiusEnd: 0, binSpacing: 0 }
+          encoding:
+            x: { field: lo, type: quantitative, bin: binned, title: null, scale: { zero: false, nice: false } }
+            x2: { field: hi, title: null }
+            'y': { field: count, type: quantitative, title: √ samples, axis: { labels: false, ticks: false, titleFontSize: 10 }, scale: { type: sqrt }, stack: zero }
+            color: { field: group, type: nominal, title: split }
+            row: { field: signal, type: nominal, title: null, header: { labelAngle: 0, labelAlign: left, labelAnchor: start, labelOrient: top, labelPadding: 2 }, sort: [q · position (°), qd · speed (°/s), qdd · acceleration (°/s²), qddd · jerk (°/s³)] }
+        - mark: { type: rect, color: "#cfcac2", opacity: 0.55, cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: edge_low, aggregate: min, type: quantitative, title: null }
+            x2: { field: limit_low, aggregate: min, title: null }
+        - mark: { type: rect, color: "#cfcac2", opacity: 0.55, cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: limit_high, aggregate: max, type: quantitative, title: null }
+            x2: { field: edge_high, aggregate: max, title: null }
+        - mark: { type: rule, color: "#c0392b", strokeWidth: 1.4 }
+          encoding:
+            x: { field: limit_low, aggregate: min, type: quantitative, title: null }
+        - mark: { type: rule, color: "#c0392b", strokeWidth: 1.4 }
+          encoding:
+            x: { field: limit_high, aggregate: max, type: quantitative, title: null }
+        - mark: { type: rule, color: "#18181b", strokeWidth: 1, strokeDash: [2, 2] }
+          encoding:
+            x: { field: p001, aggregate: min, type: quantitative, title: null }
+        - mark: { type: rule, color: "#18181b", strokeWidth: 1, strokeDash: [2, 2] }
+          encoding:
+            x: { field: p999, aggregate: max, type: quantitative, title: null }
+  - type: chart
+    name: wrist_2_joint
+    filters: 'joint == "wrist_2_joint"'
+    chart:
+      resolve: { scale: { x: independent, 'y': independent }, axis: { x: independent } }
+      layer:
+        - mark: { type: bar, cornerRadiusEnd: 0, binSpacing: 0 }
+          encoding:
+            x: { field: lo, type: quantitative, bin: binned, title: null, scale: { zero: false, nice: false } }
+            x2: { field: hi, title: null }
+            'y': { field: count, type: quantitative, title: √ samples, axis: { labels: false, ticks: false, titleFontSize: 10 }, scale: { type: sqrt }, stack: zero }
+            color: { field: group, type: nominal, title: split }
+            row: { field: signal, type: nominal, title: null, header: { labelAngle: 0, labelAlign: left, labelAnchor: start, labelOrient: top, labelPadding: 2 }, sort: [q · position (°), qd · speed (°/s), qdd · acceleration (°/s²), qddd · jerk (°/s³)] }
+        - mark: { type: rect, color: "#cfcac2", opacity: 0.55, cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: edge_low, aggregate: min, type: quantitative, title: null }
+            x2: { field: limit_low, aggregate: min, title: null }
+        - mark: { type: rect, color: "#cfcac2", opacity: 0.55, cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: limit_high, aggregate: max, type: quantitative, title: null }
+            x2: { field: edge_high, aggregate: max, title: null }
+        - mark: { type: rule, color: "#c0392b", strokeWidth: 1.4 }
+          encoding:
+            x: { field: limit_low, aggregate: min, type: quantitative, title: null }
+        - mark: { type: rule, color: "#c0392b", strokeWidth: 1.4 }
+          encoding:
+            x: { field: limit_high, aggregate: max, type: quantitative, title: null }
+        - mark: { type: rule, color: "#18181b", strokeWidth: 1, strokeDash: [2, 2] }
+          encoding:
+            x: { field: p001, aggregate: min, type: quantitative, title: null }
+        - mark: { type: rule, color: "#18181b", strokeWidth: 1, strokeDash: [2, 2] }
+          encoding:
+            x: { field: p999, aggregate: max, type: quantitative, title: null }
+  - type: chart
+    name: wrist_3_joint
+    filters: 'joint == "wrist_3_joint"'
+    chart:
+      resolve: { scale: { x: independent, 'y': independent }, axis: { x: independent } }
+      layer:
+        - mark: { type: bar, cornerRadiusEnd: 0, binSpacing: 0 }
+          encoding:
+            x: { field: lo, type: quantitative, bin: binned, title: null, scale: { zero: false, nice: false } }
+            x2: { field: hi, title: null }
+            'y': { field: count, type: quantitative, title: √ samples, axis: { labels: false, ticks: false, titleFontSize: 10 }, scale: { type: sqrt }, stack: zero }
+            color: { field: group, type: nominal, title: split }
+            row: { field: signal, type: nominal, title: null, header: { labelAngle: 0, labelAlign: left, labelAnchor: start, labelOrient: top, labelPadding: 2 }, sort: [q · position (°), qd · speed (°/s), qdd · acceleration (°/s²), qddd · jerk (°/s³)] }
+        - mark: { type: rect, color: "#cfcac2", opacity: 0.55, cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: edge_low, aggregate: min, type: quantitative, title: null }
+            x2: { field: limit_low, aggregate: min, title: null }
+        - mark: { type: rect, color: "#cfcac2", opacity: 0.55, cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: limit_high, aggregate: max, type: quantitative, title: null }
+            x2: { field: edge_high, aggregate: max, title: null }
+        - mark: { type: rule, color: "#c0392b", strokeWidth: 1.4 }
+          encoding:
+            x: { field: limit_low, aggregate: min, type: quantitative, title: null }
+        - mark: { type: rule, color: "#c0392b", strokeWidth: 1.4 }
+          encoding:
+            x: { field: limit_high, aggregate: max, type: quantitative, title: null }
+        - mark: { type: rule, color: "#18181b", strokeWidth: 1, strokeDash: [2, 2] }
+          encoding:
+            x: { field: p001, aggregate: min, type: quantitative, title: null }
+        - mark: { type: rule, color: "#18181b", strokeWidth: 1, strokeDash: [2, 2] }
+          encoding:
+            x: { field: p999, aggregate: max, type: quantitative, title: null }

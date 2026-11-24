@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coverage · V1 Stock dashboard</title>
+<link rel="icon" href="data:,">
+<!-- V1 "Stock dashboard": the coverage page as data-ui as it is today, with ZERO new data-ui code. Every page is a stock
+     element over a .base file beside this one: <data-rail> (the app's navigation), <data-dashboard> (Overview, Limits,
+     One joint, All joints, Tool position, Tool orientation) and <data-views> + <data-facets> (Trajectories). The rows
+     are rows.py's re-shape of ../data/coverage.json and ../data/trajectories.json.
+     The host script below is the whole of what is not stock, and each piece is a gap named in NOTES.md:
+       1. the hash router (data-ui's own app shell pattern: gallery/examples/admin-shopify/app),
+       2. the gear: one dashboard-wide colormap / Reverse / scale (data-ui has none) rewrites the heatmaps' Vega-Lite
+          colour scales and re-draws through the dashboard's public load(),
+       3. Open in Rerun per trajectory: the stock openElsewhere link, its click POSTed to the round server,
+       4. one-click header sort on the trajectories table (data-ui's header click opens Notion's column menu). -->
+<link rel="stylesheet" href="../vendor/data-ui/data-ui.css">
+<style>
+  :root { --page-bg: #ffffff; --page-fg: #18181b; --page-muted: #71717a; --page-rule: #e4e4e7; --page-soft: #f4f4f5; --accent: #2563eb; }
+  html, body { height: 100%; margin: 0; }
+  body { display: flex; background: var(--page-bg); color: var(--page-fg); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  data-rail { flex: none; position: sticky; top: 0; height: 100vh; }
+  main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+  .head { position: relative; display: flex; align-items: flex-start; gap: 16px; padding: 14px 24px 10px; border-bottom: 1px solid var(--page-rule); }
+  .head .titles { flex: 1 1 auto; min-width: 0; }
+  .crumb { margin: 0; font-size: 12px; color: var(--page-muted); }
+  .head h1 { margin: 2px 0 0; font-size: 19px; font-weight: 650; letter-spacing: -0.01em; }
+  .head .page-name { color: var(--page-muted); font-weight: 500; }
+  .sub { margin: 2px 0 0; font-size: 13px; color: var(--page-muted); }
+  .gear { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border: 1px solid var(--page-rule); border-radius: 8px; background: var(--page-bg); color: var(--page-fg); font: inherit; font-size: 13px; cursor: pointer; }
+  .gear:hover, .gear[aria-expanded="true"] { background: var(--page-soft); }
+  .gear svg { width: 17px; height: 17px; }
+  .settings { position: absolute; z-index: 50; top: 52px; right: 24px; width: 320px; padding: 14px 16px 12px; border: 1px solid var(--page-rule); border-radius: 12px; background: var(--page-bg); box-shadow: 0 12px 32px rgba(0,0,0,.14); }
+  .settings[hidden] { display: none; }
+  .settings h2 { margin: 0 0 2px; font-size: 14px; font-weight: 650; }
+  .settings .note { margin: 0 0 12px; font-size: 12px; color: var(--page-muted); }
+  .settings label { display: grid; grid-template-columns: 92px 1fr; align-items: center; gap: 8px; margin: 8px 0; font-size: 13px; }
+  .settings select { height: 30px; border: 1px solid var(--page-rule); border-radius: 6px; padding: 0 6px; font: inherit; font-size: 13px; background: var(--page-bg); color: var(--page-fg); }
+  .settings .check { grid-template-columns: 92px auto 1fr; }
+  .ramp { height: 10px; border-radius: 3px; margin: 2px 0 6px 100px; }
+  .settings .how { margin: 2px 0 8px 100px; font-size: 12px; color: var(--page-muted); min-height: 32px; }
+  .settings .foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--page-rule); font-size: 11.5px; color: var(--page-muted); }
+  .settings .done { height: 28px; padding: 0 12px; border: 0; border-radius: 6px; background: var(--page-fg); color: var(--page-bg); font: inherit; font-size: 13px; cursor: pointer; }
+  .page { padding: 12px 16px 24px; min-width: 0; }
+  .page[hidden] { display: none; }
+  .tablepage { display: flex; gap: 12px; align-items: flex-start; }
+  .tablepage data-facets { flex: none; width: 220px; position: sticky; top: 12px; }
+  .tablepage data-views { flex: 1 1 auto; min-width: 0; }
+  /* skin: the dashboard's selection-chip bar takes a row even with no chip and no action (arrange: false); hide it
+     while it holds nothing (named in NOTES.md as a skin tweak, not a data-ui change) */
+  data-dashboard .dd-bar:has(.dd-chips:empty):has(.dd-actions:empty) { display: none; }
+  .toast { position: fixed; z-index: 60; right: 20px; bottom: 20px; max-width: 560px; display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 10px; background: #18181b; color: #fafafa; font-size: 13px; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+  .toast[hidden] { display: none; }
+  .toast code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; background: rgba(255,255,255,.1); padding: 2px 5px; border-radius: 4px; word-break: break-all; }
+  .toast button { flex: none; height: 26px; padding: 0 10px; border: 1px solid rgba(255,255,255,.3); border-radius: 6px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+</style>
+</head>
+<body>
+<data-rail id="nav" mode="expanded" open-mode="expanded" storage-key="coverage-v1" brand="Coverage" label="Coverage pages" current="overview" hotkey="off">
+  <span data-brand-icon><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1" opacity=".55"/><rect x="3" y="14" width="7" height="7" rx="1" opacity=".55"/><rect x="14" y="14" width="7" height="7" rx="1" opacity=".25"/></svg></span>
+  <a href="#overview" data-id="overview" data-group="Dataset"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Overview</a>
+  <a href="#limits" data-id="limits" data-group="Joints"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v16M20 4v16M8 18v-4M12 18V8M16 18v-6"/></svg>Limits</a>
+  <a href="#joint" data-id="joint" data-group="Joints"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 12h16M12 4v16" opacity=".5"/></svg>One joint</a>
+  <a href="#joints" data-id="joints" data-group="Joints"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 4v16M9 4v16M15 4v16M21 4v16M3 15l6-8 6 10 6-12"/></svg>All joints</a>
+  <a href="#tool" data-id="tool" data-group="Tool"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><path d="M8 14c2-5 5-1 8-5"/></svg>Tool position</a>
+  <a href="#orientation" data-id="orientation" data-group="Tool"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 12l5-6"/><circle cx="12" cy="12" r="1.5"/></svg>Tool orientation</a>
+  <a href="#trajectories" data-id="trajectories" data-group="Data"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16M8 3v18"/></svg>Trajectories</a>
+</data-rail>
+<main>
+  <header class="head">
+    <div class="titles">
+      <p class="crumb">traj_compare · coverage · <span id="page-name">Overview</span></p>
+      <h1 id="title">Coverage</h1>
+      <p class="sub" id="subtitle"></p>
+    </div>
+    <button type="button" class="gear" id="gear" aria-haspopup="dialog" aria-expanded="false" aria-controls="settings" title="Settings for every page: colormap, Reverse, scale">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      <span>Settings</span>
+    </button>
+    <div class="settings" id="settings" role="dialog" aria-label="Settings for every page" hidden>
+      <h2>Settings</h2>
+      <p class="note">Set once, applies to every heatmap on every page.</p>
+      <label>Colormap <select id="cmap" data-cov-cmap>
+        <option value="viridis">viridis</option><option value="magma">magma</option><option value="plasma">plasma</option><option value="inferno">inferno</option><option value="cividis">cividis</option>
+      </select></label>
+      <div class="ramp" id="ramp" aria-hidden="true"></div>
+      <label class="check">Reverse <input type="checkbox" id="reverse" data-cov-reverse><span>high = dark</span></label>
+      <label>Scale <select id="scale" data-cov-scale>
+        <option value="linear">linear</option><option value="log">log</option><option value="equalized">equalized</option><option value="enough">enough</option>
+      </select></label>
+      <p class="how" id="scale-how"></p>
+      <div class="foot"><span>The 3-D voxels keep data-ui's own ramp.</span><button type="button" class="done" id="settings-done">Done</button></div>
+    </div>
+  </header>
+  <section class="page" id="dashpage"><data-dashboard id="dash" no-url></data-dashboard></section>
+  <section class="page tablepage" id="trajpage" hidden>
+    <data-facets for="traj"></data-facets>
+    <data-views id="traj" src="trajectories.base" views="tabs" no-url fill="16" aria-label="Trajectories"></data-views>
+  </section>
+</main>
+<div class="toast" id="toast" role="status" hidden><span id="toast-text"></span><button type="button" id="toast-copy" hidden>Copy</button></div>
+<script type="module">
+import { loadDataset } from '../vendor/data-ui/data-ui.js';
+import '../vendor/data-ui/dashboard.js';
+
+const PAGES = {
+  overview: ['overview.base', 'Overview'], limits: ['limits.base', 'Limits'], joint: ['joint.base', 'One joint'],
+  joints: ['joints.base', 'All joints'], tool: ['tool.base', 'Tool position'], orientation: ['orientation.base', 'Tool orientation'],
+  trajectories: [null, 'Trajectories'],
+};
+const $ = (id) => document.getElementById(id);
+const rail = $('nav'), dash = $('dash'), traj = $('traj');
+const store = { get(k, d) { try { const v = localStorage.getItem('coverage-v1/' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('coverage-v1/' + k, JSON.stringify(v)); } catch {} } };
+
+// ── the header: the payload's own title and subtitle (rows/meta.json, written by rows.py)
+let meta = { enough: 10 };
+fetch('rows/meta.json').then((r) => r.json()).then(([m]) => { meta = m; $('title').textContent = m.title; $('subtitle').textContent = m.subtitle; });
+
+// ── 1. the router: one hash per page; a page is a .base file on the one <data-dashboard>, or the trajectories table
+function route() {
+  const id = PAGES[location.hash.slice(1)] ? location.hash.slice(1) : 'overview';
+  rail.current = id;
+  $('page-name').textContent = PAGES[id][1];
+  document.title = `${PAGES[id][1]} · Coverage · V1 Stock dashboard`;
+  const table = id === 'trajectories';
+  $('dashpage').hidden = table;
+  $('trajpage').hidden = !table;
+  if (table) { openTable(); requestAnimationFrame(() => traj.fit && traj.fit()); return; }
+  if (dash.getAttribute('src') !== PAGES[id][0]) dash.setAttribute('src', PAGES[id][0]);
+}
+addEventListener('hashchange', route);
+
+// ── 2. the gear: colormap, Reverse and scale for every heatmap. WHY a rewrite of the parsed .base: data-ui has no
+//    dashboard-wide colour setting, and a Vega-Lite colour scale lives in each chart's spec. A heatmap is any colour
+//    channel whose scale names a `scheme` (the .base files' default, viridis); it is re-drawn through the dashboard's
+//    public load(base, datasets, {keepState}), so the rails, picks and tabs stay.
+const settings = { cmap: store.get('cmap', 'viridis'), reverse: store.get('reverse', false), scale: store.get('scale', 'linear') };
+const HOW = {
+  linear: 'Colour grows in proportion to the count (the payload\'s numbers as they are).',
+  log: 'Symmetric log: small counts get room next to the one hot cell (zero stays white).',
+  equalized: 'Nine colours, each holding the same number of cells (Vega-Lite quantile).',
+  enough: 'Two colours: below / at least "enough" samples per cell (the payload\'s enough).',
+};
+const RAMPS = { viridis: '#440154,#3b528b,#21918c,#5ec962,#fde725', magma: '#000004,#51127c,#b73779,#fc8961,#fcfdbf', plasma: '#0d0887,#7e03a8,#cc4778,#f89540,#f0f921', inferno: '#000004,#56106e,#bb3754,#f98e09,#fcffa4', cividis: '#00204d,#414d6b,#7c7b78,#bcaf6f,#ffea46' };
+function colourScale(c) {
+  const s = { ...c.scale };
+  for (const k of ['domain', 'type', 'reverse', 'zero', 'nice']) delete s[k];
+  s.scheme = settings.cmap;
+  if (settings.reverse) s.reverse = true;
+  if (settings.scale === 'log') s.type = 'symlog';
+  else if (settings.scale === 'equalized') { s.type = 'quantile'; s.scheme = { name: settings.cmap, count: 9 }; }
+  else if (settings.scale === 'enough' && c.field === 'samples') { s.type = 'threshold'; s.domain = [meta.enough]; s.scheme = { name: settings.cmap, count: 2 }; }
+  else s.type = 'linear';
+  return s;
+}
+function rewrite(node) {
+  if (Array.isArray(node)) { node.forEach(rewrite); return; }
+  if (!node || typeof node !== 'object') return;
+  if (node.encoding && node.encoding.color && node.encoding.color.scale && node.encoding.color.scale.scheme) node.encoding.color.scale = colourScale(node.encoding.color);
+  for (const v of Object.values(node)) rewrite(v);
+}
+const key = () => JSON.stringify(settings);
+function applyGear() {
+  if (!dash.base || !dash.datasets || dash._gearKey === key()) return;
+  const base = structuredClone(dash.base);
+  rewrite(base.views);
+  dash._gearKey = key();
+  dash.load(base, dash.datasets, { keepState: true });
+}
+// a page that has just loaded from its file is in the file's colours: put the gear's on it (once per load)
+const FILE_COLOURS = JSON.stringify({ cmap: 'viridis', reverse: false, scale: 'linear' });
+dash.addEventListener('data-dashboard-change', () => {
+  const src = dash.getAttribute('src');
+  if (dash._gearSrc !== src) { dash._gearSrc = src; dash._gearKey = FILE_COLOURS; }   // a fresh file: in the file's colours
+  applyGear();   // no-op when the drawn colours are the gear's already
+});
+function showSettings() {
+  $('cmap').value = settings.cmap; $('reverse').checked = settings.reverse; $('scale').value = settings.scale;
+  $('ramp').style.background = `linear-gradient(90deg, ${(settings.reverse ? RAMPS[settings.cmap].split(',').reverse().join(',') : RAMPS[settings.cmap])})`;
+  $('scale-how').textContent = HOW[settings.scale];
+}
+function setGear(open) { $('settings').hidden = !open; $('gear').setAttribute('aria-expanded', String(open)); if (open) $('cmap').focus(); }
+$('gear').addEventListener('click', () => setGear($('settings').hidden));
+$('settings-done').addEventListener('click', () => setGear(false));
+addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('settings').hidden) { setGear(false); $('gear').focus(); } });
+document.addEventListener('pointerdown', (e) => { if (!$('settings').hidden && !e.target.closest('#settings, #gear')) setGear(false); });
+for (const id of ['cmap', 'reverse', 'scale']) $(id).addEventListener('change', () => {
+  settings.cmap = $('cmap').value; settings.reverse = $('reverse').checked; settings.scale = $('scale').value;
+  for (const k of Object.keys(settings)) store.set(k, settings[k]);
+  showSettings();
+  dash._gearKey = null;
+  applyGear();
+});
+showSettings();
+
+// ── the trajectories table: the drill's joint angles read rows/samples.json (handed in as el.sections, as a
+//    dashboard's drill is), and 3. Open in Rerun is the stock openElsewhere link whose click asks the round server
+let tableReady = null;
+function openTable() {
+  if (!tableReady) tableReady = loadDataset(new URL('rows/samples.json', location.href).href).then((samples) => { traj.sections = { samples }; });
+}
+const rowsUrl = new URL('rows/trajectories.json', location.href);
+const roundRoot = new URL('../', location.href);
+traj.openElsewhere = (row) => (row && row.rerun ? { label: 'Rerun', href: new URL(row.rerun, rowsUrl).href } : null);
+function toast(text, command) {
+  $('toast-text').innerHTML = text + (command ? ` <code>${command.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c])}</code>` : '');
+  $('toast-copy').hidden = !command;
+  $('toast-copy').onclick = () => { try { navigator.clipboard.writeText(command); $('toast-copy').textContent = 'Copied'; } catch {} };
+  $('toast-copy').textContent = 'Copy';
+  $('toast').hidden = false;
+  clearTimeout(toast.t); toast.t = setTimeout(() => { $('toast').hidden = true; }, command ? 12000 : 5000);
+}
+document.addEventListener('click', async (e) => {
+  const a = e.target.closest('a[data-open-elsewhere]');
+  if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;   // a modified click stays the browser's (download)
+  e.preventDefault();
+  const rrd = decodeURIComponent(new URL(a.href).pathname).slice(decodeURIComponent(roundRoot.pathname).length);   // data/rrd/<name>.rrd
+  const name = rrd.split('/').pop();
+  const fallback = `uvx --from rerun-sdk==0.40.0 rerun ${location.protocol === 'file:' ? decodeURIComponent(new URL(rrd, roundRoot).pathname) : new URL(rrd, roundRoot).href}`;
+  try {
+    const r = await fetch(new URL(`/__rerun/open?rrd=${encodeURIComponent(rrd)}`, location.href), { method: 'POST' });
+    const j = await r.json();
+    if (j.ok) toast(`Opening <b>${name}</b> in Rerun.`);
+    else toast(`Rerun did not start here. Run it yourself:`, j.command || fallback);
+  } catch { toast('This page cannot start Rerun (opened from disk). Run it yourself:', fallback); }
+});
+// ── 4. one-click sort on a header (asc, desc, off). WHY a shim: data-ui's header click opens Notion's column menu
+//    (CONTRACT §28; shift-click adds a sort level), and the round's gate asks for one click. Alt-click still opens the menu.
+traj.addEventListener('click', (e) => {
+  const th = e.target.closest('thead th[data-sort]');
+  if (!th || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey || e.target.closest('.dv-resize, [data-col-menu], [data-col-first]')) return;
+  e.stopPropagation(); e.preventDefault();
+  const id = th.dataset.sort;
+  const cur = ((traj.view && traj.view.sort) || []).find((s) => s.property === id);
+  const next = !cur ? 'ASC' : cur.direction === 'ASC' ? 'DESC' : null;
+  traj.setView({ sort: next ? [{ property: id, direction: next }] : [] });
+}, true);
+
+route();
+</script>
+</body>
+</html>

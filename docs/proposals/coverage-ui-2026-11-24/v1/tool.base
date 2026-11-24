@@ -1,0 +1,172 @@
+# V1 · Tool position: where the tool goes (frame "cell"). The three projections are Vega-Lite rect heatmaps over
+# rows/pixels.json (visited 2 cm pixels, plus the reachable mask as runs: white = reachable, never visited; grey = the
+# robot cannot reach it); the fastest speed through each pixel; the tool speed histogram with its 99th percentile;
+# data-ui's stock voxels view (5 cm cells, the payload's counts) and its stock scene3d lines layer (every sample's tool
+# point, one path per trajectory, hue by split). Check: node /home/bam/data-ui/bin/data-ui.mjs check tool.base
+data: rows/pixels.json
+viewTypes: [chart, voxels, scene3d, table]
+style:
+  chrome: minimal
+  numbers: { digits: 3, compact: true }
+  families: { property: split, colors: { dev: 1, holdout: 2 } }
+  palette: { dev: "#2a78d6", holdout: "#19a979" }
+datasets:
+  pixels: rows/pixels.json
+  speed: rows/speed.json
+  voxels: rows/voxels.json
+  toolpath: rows/toolpath.json
+layout:
+  arrange: false
+  panels:
+    - { key: xy, view: "From above (x, y)", w: 4, h: 4, toolbar: none }
+    - { key: xz, view: "From the front (x, z)", w: 4, h: 4, toolbar: none }
+    - { key: yz, view: "From the side (y, z)", w: 4, h: 4, toolbar: none }
+    - text: "**Reading the projections** · colour = samples in the 2 cm pixel · white = reachable, never visited · grey = the robot cannot reach it · frame \"cell\", mm"
+      w: 12
+    - { key: fastest, view: "How fast does the tool move, and where?", w: 5, h: 4, toolbar: none }
+    - { key: speed, view: "Every tool speed", w: 7, h: 4, toolbar: none }
+    - { key: voxels, view: "Where does the tool go, in 3-D?", w: 6, h: 5, toolbar: none }
+    - { key: paths3d, view: "What paths does the tool trace?", w: 6, h: 5, toolbar: none }
+properties:
+  samples: { displayName: samples }
+  paths: { displayName: trajectories }
+  max_speed: { displayName: fastest tool speed (m/s) }
+  lo: { displayName: speed from (m/s) }
+  hi: { displayName: speed to (m/s) }
+  p99: { displayName: 99th percentile (m/s) }
+views:
+  - type: chart
+    name: "From above (x, y)"
+    filters: 'view == "from above (x, y)"'
+    chart:
+      layer:
+        - mark: { type: rect, color: "#dcdad5", cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: u_min, aggregate: min, type: quantitative, title: "x (mm)", scale: { zero: false, nice: false } }
+            x2: { field: u_max, aggregate: max, title: "x (mm)" }
+            'y': { field: v_min, aggregate: min, type: quantitative, title: "y (mm)", scale: { zero: false, nice: false } }
+            y2: { field: v_max, aggregate: max, title: "y (mm)" }
+        - transform: [{ filter: "datum.kind == 'reachable'" }]
+          mark: { type: rect, color: "#ffffff", cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: u_lo, type: quantitative, title: "x (mm)" }
+            x2: { field: u_hi, title: "x (mm)" }
+            'y': { field: v_lo, type: quantitative, title: "y (mm)" }
+            y2: { field: v_hi, title: "y (mm)" }
+        - transform: [{ filter: "datum.kind == 'pixel'" }]
+          mark: { type: rect, cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: u_lo, type: quantitative, title: "x (mm)" }
+            x2: { field: u_hi, title: "x (mm)" }
+            'y': { field: v_lo, type: quantitative, title: "y (mm)" }
+            y2: { field: v_hi, title: "y (mm)" }
+            color: { field: samples, type: quantitative, title: samples per pixel, scale: { scheme: viridis, type: linear } }
+  - type: chart
+    name: "From the front (x, z)"
+    filters: 'view == "from the front (x, z)"'
+    chart:
+      layer:
+        - mark: { type: rect, color: "#dcdad5", cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: u_min, aggregate: min, type: quantitative, title: "x (mm)", scale: { zero: false, nice: false } }
+            x2: { field: u_max, aggregate: max, title: "x (mm)" }
+            'y': { field: v_min, aggregate: min, type: quantitative, title: "z (mm)", scale: { zero: false, nice: false } }
+            y2: { field: v_max, aggregate: max, title: "z (mm)" }
+        - transform: [{ filter: "datum.kind == 'reachable'" }]
+          mark: { type: rect, color: "#ffffff", cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: u_lo, type: quantitative, title: "x (mm)" }
+            x2: { field: u_hi, title: "x (mm)" }
+            'y': { field: v_lo, type: quantitative, title: "z (mm)" }
+            y2: { field: v_hi, title: "z (mm)" }
+        - transform: [{ filter: "datum.kind == 'pixel'" }]
+          mark: { type: rect, cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: u_lo, type: quantitative, title: "x (mm)" }
+            x2: { field: u_hi, title: "x (mm)" }
+            'y': { field: v_lo, type: quantitative, title: "z (mm)" }
+            y2: { field: v_hi, title: "z (mm)" }
+            color: { field: samples, type: quantitative, title: samples per pixel, scale: { scheme: viridis, type: linear } }
+  - type: chart
+    name: "From the side (y, z)"
+    filters: 'view == "from the side (y, z)"'
+    chart:
+      layer:
+        - mark: { type: rect, color: "#dcdad5", cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: u_min, aggregate: min, type: quantitative, title: "y (mm)", scale: { zero: false, nice: false } }
+            x2: { field: u_max, aggregate: max, title: "y (mm)" }
+            'y': { field: v_min, aggregate: min, type: quantitative, title: "z (mm)", scale: { zero: false, nice: false } }
+            y2: { field: v_max, aggregate: max, title: "z (mm)" }
+        - transform: [{ filter: "datum.kind == 'reachable'" }]
+          mark: { type: rect, color: "#ffffff", cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: u_lo, type: quantitative, title: "y (mm)" }
+            x2: { field: u_hi, title: "y (mm)" }
+            'y': { field: v_lo, type: quantitative, title: "z (mm)" }
+            y2: { field: v_hi, title: "z (mm)" }
+        - transform: [{ filter: "datum.kind == 'pixel'" }]
+          mark: { type: rect, cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: u_lo, type: quantitative, title: "y (mm)" }
+            x2: { field: u_hi, title: "y (mm)" }
+            'y': { field: v_lo, type: quantitative, title: "z (mm)" }
+            y2: { field: v_hi, title: "z (mm)" }
+            color: { field: samples, type: quantitative, title: samples per pixel, scale: { scheme: viridis, type: linear } }
+  - type: chart
+    name: "How fast does the tool move, and where?"
+    filters: 'view == "from above (x, y)"'
+    chart:
+      layer:
+        - mark: { type: rect, color: "#dcdad5", cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: u_min, aggregate: min, type: quantitative, title: "x (mm)", scale: { zero: false, nice: false } }
+            x2: { field: u_max, aggregate: max, title: "x (mm)" }
+            'y': { field: v_min, aggregate: min, type: quantitative, title: "y (mm)", scale: { zero: false, nice: false } }
+            y2: { field: v_max, aggregate: max, title: "y (mm)" }
+        - transform: [{ filter: "datum.kind == 'reachable'" }]
+          mark: { type: rect, color: "#ffffff", cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: u_lo, type: quantitative, title: "x (mm)" }
+            x2: { field: u_hi, title: "x (mm)" }
+            'y': { field: v_lo, type: quantitative, title: "y (mm)" }
+            y2: { field: v_hi, title: "y (mm)" }
+        - transform: [{ filter: "datum.kind == 'pixel'" }]
+          mark: { type: rect, cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: u_lo, type: quantitative, title: "x (mm)" }
+            x2: { field: u_hi, title: "x (mm)" }
+            'y': { field: v_lo, type: quantitative, title: "y (mm)" }
+            y2: { field: v_hi, title: "y (mm)" }
+            color: { field: max_speed, type: quantitative, title: fastest speed through the pixel (m/s), scale: { scheme: viridis, type: linear } }
+  - type: chart
+    name: "Every tool speed"
+    from: speed
+    chart:
+      layer:
+        - mark: { type: bar, cornerRadiusEnd: 0, binSpacing: 0 }
+          encoding:
+            x: { field: lo, type: quantitative, bin: binned, title: "tool speed (m/s)", scale: { zero: true, nice: false } }
+            x2: { field: hi, title: "tool speed (m/s)" }
+            'y': { field: samples, type: quantitative, title: samples per speed band }
+        - mark: { type: rule, color: "#18181b", strokeDash: [4, 3], strokeWidth: 1.2 }
+          encoding:
+            x: { field: p99, aggregate: max, type: quantitative, title: "tool speed (m/s)" }
+        - mark: { type: text, align: left, dx: 4, dy: -6, fontSize: 11, color: "#18181b" }
+          encoding:
+            x: { field: p99, aggregate: max, type: quantitative, title: "tool speed (m/s)" }
+            'y': { value: 8 }
+            text: { value: "99th percentile" }
+  - type: voxels
+    name: "Where does the tool go, in 3-D?"
+    from: voxels
+    voxels: { x: x_mm, 'y': y_mm, z: z_mm, unit: mm, cell: 50, value: samples, summary: Sum }
+  # WHY scene3d's lines layer, not trajectory3d: trajectory3d draws a per-series strip (Line · Points · Frames · Z only)
+  # under the stage, 54 rows here, and fades each path to 1/n; a lines layer is one draw call, one hue per split
+  - type: scene3d
+    name: "What paths does the tool trace?"
+    from: toolpath
+    scene3d:
+      unit: mm
+      layers:
+        - { primitive: lines, x: x_mm, 'y': y_mm, z: z_mm, by: trajectory, color: split, opacity: 0.55 }

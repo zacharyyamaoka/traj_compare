@@ -1,0 +1,48 @@
+[
+  {
+    "label": "The whole set, at a glance",
+    "caption": "Overview: the headline numbers (only here) and every focus area in small, all from the 54 rows; with nothing filtered each number equals analyze's.",
+    "actions": [],
+    "highlight": "[data-v2-stats]"
+  },
+  {
+    "label": "Tick holdout: the maps redraw",
+    "caption": "Tick holdout in the rail and open Tool position: the maps are now what those 12 trajectories alone cover, and say so (subset 12 of 54).",
+    "actions": [
+      { "click": "data-facets input[data-p=\"split\"][data-value=\"holdout\"]" },
+      { "wait": 400 },
+      { "click": ".dv-vtab[data-name=\"Tool position\"]" }
+    ],
+    "highlight": "[data-v2-subset]"
+  },
+  {
+    "label": "Colours behind the gear",
+    "caption": "One joint, still on holdout; the colour map, Reverse and scale sit behind the gear (top right) and repaint every map, here to cividis.",
+    "actions": [
+      { "click": ".dv-vtab[data-name=\"One joint\"]" },
+      { "click": "[data-v2-joint-picker] [data-pick=\"elbow\"]" },
+      { "click": "#v2-gear" },
+      { "select": ["#v2-cmap", "cividis"] }
+    ],
+    "highlight": "#v2-settings"
+  },
+  {
+    "label": "A saved view",
+    "caption": "Saved views are data-ui's tabs: New ground ranks trajectories by the cells only they visit, inside the same holdout filter.",
+    "actions": [
+      { "click": "#v2-settings-close" },
+      { "click": ".dv-vtab[data-name=\"New ground\"]" }
+    ],
+    "highlight": ".dv-vtab[data-name=\"New ground\"]"
+  },
+  {
+    "label": "Drill in, open in Rerun",
+    "caption": "Click a row: data-ui's record pane shows what that trajectory adds (cells no other visits, in black) and Open in Rerun.",
+    "actions": [
+      { "click": ".dv-view-table tbody tr[data-id] td:first-child" },
+      { "wait": 600 },
+      { "click": ".dv-peek [data-v2-rerun]" }
+    ],
+    "highlight": ".dv-peek [data-v2-rerun]"
+  }
+]

@@ -1,0 +1,32 @@
+[
+  {
+    "label": "Overview: the headline lives here only",
+    "caption": "Today's page, tidied: the one-sentence answer and the numbers sit in one card on Overview only, the control strip is gone, and a gear at the top right holds the colours.",
+    "actions": [],
+    "highlight": "[data-v4-stats]"
+  },
+  {
+    "label": "Gear: colours set once",
+    "caption": "The gear opens colour map (with each ramp), Reverse, scale with its one-line meaning, the \"enough\" count and the tool-frame note; picking inferno repaints every figure and is remembered.",
+    "actions": [{"click": "[data-cov-tab=\"joint\"]"}, {"wait": 500}, {"click": "[data-v4-gear]"}, {"wait": 300}, {"click": "[data-v4-cmap] [data-cmap=\"inferno\"]"}],
+    "highlight": "[data-v4-settings]"
+  },
+  {
+    "label": "One joint: its own picker",
+    "caption": "The joint picker sits in the One joint tab's own header (and nowhere it doesn't apply); picking elbow_joint redraws the tab's figures.",
+    "actions": [{"press": "Escape"}, {"wait": 200}, {"click": "[data-v4-joint-picker] [data-joint=\"elbow_joint\"]"}],
+    "highlight": "[data-v4-joint-picker]"
+  },
+  {
+    "label": "Table: filter, group, save a view",
+    "caption": "Search, split and kind chips, group by and \"+ Save view\": the filtered table becomes a view tab beside the built-in ones, and the split chip beside each name is named in the legend.",
+    "actions": [{"click": "[data-cov-tab=\"trajectories\"]"}, {"wait": 500}, {"fill": ["[data-v4-filter]", "holdout"]}, {"click": "[data-v4-facet=\"kind\"] [data-value=\"a_to_b_joint\"]"}, {"click": "[data-v4-group] [data-value=\"none\"]"}, {"click": "[data-v4-table] th[data-col=\"only\"]"}, {"click": "[data-v4-save-view]"}],
+    "highlight": "[data-v4-table] .v4-viewtabs"
+  },
+  {
+    "label": "Drill in, Open in Rerun",
+    "caption": "A row opens the drill drawer: its numbers, what it alone adds, its spans against the dataset's, its tool path among the others and its joints over time; Open in Rerun starts the native viewer (Esc closes).",
+    "actions": [{"click": "[data-v4-table] tr[data-row]"}, {"wait": 1800}, {"click": "[data-v4-drawer] [data-v4-rerun]"}, {"wait": 400}],
+    "highlight": "[data-v4-drawer]"
+  }
+]

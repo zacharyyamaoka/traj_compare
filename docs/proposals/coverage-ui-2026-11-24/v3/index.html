@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coverage · V3 · data-ui views</title>
+<link rel="stylesheet" href="../vendor/data-ui/data-ui.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body class="data-ui">
+<!-- V3 · "Coverage views in data-ui": one .base (coverage.base) drawn by data-ui's <data-dashboard> and <data-views>,
+     with four coverage view types registered from views/ and the gear's <data-settings>. The host is this page and
+     app.js: it draws the page tabs (the prototype of PROPOSED-CONTRACT.md §52.5 `pages:`) and nothing else. -->
+<header class="cv-top">
+  <div class="cv-titles">
+    <h1 data-cov-title>Trajectory coverage</h1>
+    <p class="cv-sub" data-cov-subtitle></p>
+  </div>
+  <data-settings key="coverage-ur5e-workspace"></data-settings>
+</header>
+<nav class="cv-tabs" role="tablist" aria-label="Coverage pages" data-cov-nav></nav>
+<main class="cv-pages" id="pages">
+  <p class="cv-loading" data-cov-loading>Loading the coverage rows…</p>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+{
+  "ready": "html[data-v2-ready=\"ok\"] #cov[data-view]",
+  "tabs": {
+    "overview": ".dv-vtab[data-name=\"Overview\"]",
+    "joint": ".dv-vtab[data-name=\"One joint\"]",
+    "trajectories": ".dv-vtab[data-name=\"Trajectories\"]"
+  },
+  "stats": "[data-v2-stats]",
+  "joint_picker": "[data-v2-joint-picker]",
+  "settings": "#v2-gear",
+  "settings_panel": "#v2-settings",
+  "settings_close": "#v2-settings-close",
+  "cmap": "#v2-cmap",
+  "cmap_value": "magma",
+  "reverse": "#v2-reverse",
+  "scale": "#v2-scale",
+  "figure": ".v2-occupancy .v2-panel canvas",
+  "table_rows": ".dv-view-table tbody tr[data-id]",
+  "filter": "data-facets input.df-search",
+  "filter_query": "holdout",
+  "sort_header": ".dv-view-table thead th[data-sort=\"new_cells\"]",
+  "saved_view_items": ".dv-vtab",
+  "drill_trigger": ".dv-view-table tbody tr[data-id] td:first-child",
+  "drill_action": "click",
+  "drill": ".dv-peek",
+  "open_rerun": ".dv-peek [data-v2-rerun]",
+  "row_colours": { "legend": "[data-v2-key]" }
+}

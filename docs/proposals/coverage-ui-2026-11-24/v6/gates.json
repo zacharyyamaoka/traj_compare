@@ -1,0 +1,18 @@
+{
+  "ready": "#v6-app[data-ready=\"1\"]",
+  "tabs": {"overview": "[data-tab=\"overview\"]", "joint": "[data-tab=\"joint\"]", "trajectories": "[data-tab=\"trajectories\"]"},
+  "stats": "#v6-numbers",
+  "joint_picker": "#v6-joint-picker",
+  "settings": "#v6-gear", "settings_panel": "#v6-settings", "settings_close": "#v6-settings-close",
+  "cmap": "#v6-cmap", "cmap_value": "magma",
+  "reverse": "#v6-reverse", "scale": "#v6-scale",
+  "figure": "#v6-fig-qqd canvas.v6-canvas",
+  "table_rows": ".v6-full tbody tr.v6-trow",
+  "filter": "#v6-search", "filter_query": "holdout",
+  "sort_header": ".v6-full th[data-sort=\"duration_s\"]",
+  "saved_view_items": ".v6-viewtabs [data-view]",
+  "drill_trigger": ".v6-full tbody tr.v6-trow", "drill_action": "click",
+  "drill": "#v6-drill",
+  "open_rerun": "#v6-drill [data-open-rerun]",
+  "row_colours": "none"
+}

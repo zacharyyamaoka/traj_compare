@@ -1,0 +1,44 @@
+[
+  {
+    "label": "The whole dataset, one list",
+    "caption": "The rail lists all 54 trajectories (dot colour = split, explained right under the filter); the overview answers first, then every joint's position × speed map and the tool's path and pointing directions, all at once.",
+    "actions": [],
+    "highlight": "[data-v5-rail]"
+  },
+  {
+    "label": "Select one → it lights up everywhere",
+    "caption": "Clicking workspace-dev-029 keeps its cells in colour on every map, greys the rest of the dataset, and turns cyan the 72 position × speed cells nobody else visits.",
+    "actions": [{ "click": "[data-v5-rail-row][data-name=\"workspace-dev-029\"]" }],
+    "highlight": "[data-v5-readout]"
+  },
+  {
+    "label": "A saved view, a whole group",
+    "caption": "The Holdout view narrows the rail to 12 rows grouped by kind; Select shown lights all 12 up on Tool position — 304 pixels from above that only the holdout set reaches.",
+    "actions": [
+      { "click": "[data-v5-views] [data-view=\"holdout\"]" },
+      { "click": "[data-v5-select-shown]" },
+      { "click": "[data-v5-tab=\"position\"]" }
+    ],
+    "highlight": "[data-v5-fig=\"projections\"]"
+  },
+  {
+    "label": "Drill in, open in Rerun",
+    "caption": "Double-click a row to open its page inside the app: its numbers, joint motion over time, spans against the dataset, tool path — and Open in Rerun, which shows the exact command with Copy.",
+    "actions": [
+      { "dblclick": "[data-v5-rail-row][data-name=\"workspace-holdout-008\"]" },
+      { "wait": 600 },
+      { "click": "[data-v5-rerun]" }
+    ],
+    "highlight": "[data-v5-rerun-status]"
+  },
+  {
+    "label": "Colours set once, behind the gear",
+    "caption": "Colour map, Reverse and scale live behind the gear at the top right (plus how unselected cells are drawn); the joint picker exists only on One joint.",
+    "actions": [
+      { "click": "[data-v5-tab=\"joint\"]" },
+      { "click": "[data-v5-gear]" },
+      { "select": ["[data-v5-cmap]", "viridis"] }
+    ],
+    "highlight": "[data-v5-settings]"
+  }
+]

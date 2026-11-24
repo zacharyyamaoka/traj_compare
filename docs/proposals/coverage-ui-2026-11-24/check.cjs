@@ -181,6 +181,8 @@ async function act(page, a) {
   if (shotsRoot && story.length) {
     const out = path.join(shotsRoot, variant);
     fs.mkdirSync(out, { recursive: true });
+    // WHY: the gates above leave their picks in localStorage (G4b chose magma); the walkthrough starts as a first visit
+    await page.evaluate(() => { try { localStorage.clear(); sessionStorage.clear(); } catch (e) { /* storage blocked */ } });
     await page.goto(url, { waitUntil: 'load' });
     if (gates.ready) await page.waitForSelector(gates.ready, { timeout: 20000 });
     await page.waitForTimeout(1200);

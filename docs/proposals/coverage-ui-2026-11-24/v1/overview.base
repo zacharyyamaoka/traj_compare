@@ -1,0 +1,73 @@
+# V1 · Overview: the headline numbers (stock kpi cards, the producer's numbers from rows/numbers.json, never recomputed),
+# each joint in numbers (a stock table over rows/joints.json) and where the tool goes from above (a Vega-Lite rect
+# heatmap over rows/pixels.json). The headline numbers live on this page only (Zach, Nov 23: "it doesn't make sense to
+# be showing them the entire time"). Check: node /home/bam/data-ui/bin/data-ui.mjs check overview.base
+data: rows/numbers.json
+viewTypes: [kpi, table, chart]
+style:
+  chrome: minimal
+  numbers: { digits: 3, compact: false }
+datasets:
+  numbers: rows/numbers.json
+  joints: rows/joints.json
+  pixels: rows/pixels.json
+layout:
+  arrange: false
+  panels:
+    - { key: numbers, view: Headline numbers, w: 12, h: 4.25, toolbar: none }
+    - { key: joints, view: Each joint in numbers, w: 8, h: 3.9, toolbar: none }
+    - { key: above, view: "Where does the tool go? (from above)", w: 4, h: 3.9, toolbar: none }
+properties:
+  label: { displayName: Number }
+  joint: { displayName: Joint }
+  q_span_pct: { displayName: Range used (%), description: "q span, p0.1–p99.9, as a share of the joint's limit range", digits: 3 }
+  qd_peak_pct: { displayName: Peak speed (%), description: "highest |qd| as a share of the speed limit", digits: 3 }
+  qdd_peak_pct: { displayName: Peak accel. (%), description: "highest |qdd| as a share of the acceleration limit", digits: 3 }
+  qddd_peak_pct: { displayName: Peak jerk (%), digits: 3 }
+  q_qd_visited_pct: { displayName: q × qd cells (%), description: "share of the joint's 36 × 24 position × speed cells visited", digits: 3 }
+  q_qd_sufficient_pct: { displayName: "≥ 10 samples (%)", description: "share of the cells visited at least `enough` (10) times", digits: 3 }
+  qd_qdd_visited_pct: { displayName: qd × qdd cells (%), digits: 3 }
+  samples: { displayName: samples per pixel }
+views:
+  - type: kpi
+    name: Headline numbers
+    groupBy: { property: label }
+    groupOrder: [Trajectories, Samples, Total duration, Joint range used (median joint), Joint range used (least-used joint), "Peak speed, fastest joint (% of its limit)", "Peak acceleration, hardest joint (% of its limit)", Angle x speed cells visited (mean over joints), Speed x acceleration cells visited (mean over joints), "Tool path pixels, top view (2 cm)", Tool path voxels (5 cm), Reachable voxels the tool passed through, "Tool speed, 99th percentile", Tool directions visited (equal-area sphere cells), Largest tool tilt from the reference]
+    kpi:
+      value: { property: value }
+  - type: table
+    name: Each joint in numbers
+    from: joints
+    order: [joint, q_span_pct, qd_peak_pct, qdd_peak_pct, q_qd_visited_pct, q_qd_sufficient_pct, qd_qdd_visited_pct]
+    sort:
+      - { property: order, direction: ASC }
+    display: { q_span_pct: bar, qd_peak_pct: bar, qdd_peak_pct: bar, qddd_peak_pct: bar, q_qd_visited_pct: bar, q_qd_sufficient_pct: bar, qd_qdd_visited_pct: bar }
+    columnSize: { joint: 138, q_span_pct: 112, qd_peak_pct: 112, qdd_peak_pct: 112, q_qd_visited_pct: 112, q_qd_sufficient_pct: 112, qd_qdd_visited_pct: 112 }
+    rowHeight: short
+  - type: chart
+    name: "Where does the tool go? (from above)"
+    from: pixels
+    filters: 'view == "from above (x, y)"'
+    chart:
+      layer:
+        - mark: { type: rect, color: "#dcdad5", cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: u_min, aggregate: min, type: quantitative, title: "x (mm)", scale: { zero: false, nice: false } }
+            x2: { field: u_max, aggregate: max, title: "x (mm)" }
+            'y': { field: v_min, aggregate: min, type: quantitative, title: "y (mm)", scale: { zero: false, nice: false } }
+            y2: { field: v_max, aggregate: max, title: "y (mm)" }
+        - transform: [{ filter: "datum.kind == 'reachable'" }]
+          mark: { type: rect, color: "#ffffff", cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: u_lo, type: quantitative, title: "x (mm)" }
+            x2: { field: u_hi, title: "x (mm)" }
+            'y': { field: v_lo, type: quantitative, title: "y (mm)" }
+            y2: { field: v_hi, title: "y (mm)" }
+        - transform: [{ filter: "datum.kind == 'pixel'" }]
+          mark: { type: rect, cornerRadius: 0, strokeWidth: 0 }
+          encoding:
+            x: { field: u_lo, type: quantitative, title: "x (mm)" }
+            x2: { field: u_hi, title: "x (mm)" }
+            'y': { field: v_lo, type: quantitative, title: "y (mm)" }
+            y2: { field: v_hi, title: "y (mm)" }
+            color: { field: samples, type: quantitative, title: samples per pixel, scale: { scheme: viridis, type: linear } }

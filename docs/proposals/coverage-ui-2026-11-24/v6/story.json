@@ -1,0 +1,32 @@
+[
+  {
+    "label": "The dataset, every figure a question",
+    "caption": "One screen holds every joint's range, where the tool goes and which way it points; the dock lists all 54 trajectories until you click a cell.",
+    "actions": [],
+    "highlight": "#v6-overview-figs"
+  },
+  {
+    "label": "Click a q×qd cell: who made it",
+    "caption": "A click on shoulder_pan's q 0–20°, qd 0–15°/s cell writes a chip, frames the cell, fades cells nobody in the answer visits, and the dock lists the 8 trajectories that made it.",
+    "actions": [{"click": "[data-tab=\"joint\"]"}, {"click": "#v6-joint-picker [data-joint=\"0\"]"}, {"click": "#v6-fig-qqd .v6-hit"}],
+    "highlight": "#v6-querybar"
+  },
+  {
+    "label": "AND a tool pixel",
+    "caption": "On Tool position the faded pixels show where those 8 never went; clicking a pixel ANDs a second chip and the answer narrows to the one trajectory that does both.",
+    "actions": [{"click": "[data-tab=\"cartesian\"]"}, {"click": "#v6-fig-xz .v6-hit"}],
+    "highlight": "#v6-querybar"
+  },
+  {
+    "label": "Holes: who comes closest",
+    "caption": "Holes paints reachable pixels no trajectory visits amber and pins the three emptiest spots; clicking pin 1 ranks the 8 shoulder_pan trajectories by how close they pass (a nearest-pixel search), with a line to each one's nearest pixel.",
+    "actions": [{"click": ".v6-chip[data-grid=\"xz\"] .v6-chip-x"}, {"click": "#v6-holes"}, {"click": "[data-pin=\"xy-0\"]"}],
+    "highlight": "[data-pin=\"xy-0\"]"
+  },
+  {
+    "label": "Drill in, open in Rerun",
+    "caption": "A row opens that trajectory beside the dataset: its cells in ink over the faded dataset, its q and qd over time, and Open in Rerun, which shows the command it ran with a Copy button.",
+    "actions": [{"click": "#v6-dock tbody tr"}, {"wait": 1800}, {"click": "#v6-drill [data-open-rerun]"}, {"wait": 700}],
+    "highlight": "#v6-drill [data-open-rerun]"
+  }
+]

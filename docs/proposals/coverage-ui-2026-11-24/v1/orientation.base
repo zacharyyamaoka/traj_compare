@@ -1,0 +1,65 @@
+# V1 · Tool orientation: which way the tool points. The tilt map is stock Vega-Lite `arc` marks over the payload's
+# tilt × azimuth cells (rows/tilt_azimuth.json): centre = the tool along the reference (straight down), radius = tilt,
+# angle = which way it leans in the base x-y plane (+x right, +y up). Then tilt × jaw yaw as a rect heatmap, and the
+# tilt and yaw histograms. Every cell is the payload's count; degrees are the payload's radians at the display edge.
+# Check: node /home/bam/data-ui/bin/data-ui.mjs check orientation.base
+data: rows/tilt_azimuth.json
+viewTypes: [chart, table]
+style:
+  chrome: minimal
+  numbers: { digits: 3, compact: true }
+datasets:
+  tilt_azimuth: rows/tilt_azimuth.json
+  tilt_yaw: rows/tilt_yaw.json
+  angles: rows/angles.json
+layout:
+  arrange: false
+  panels:
+    - { key: tiltmap, view: "Which way does the tool tilt, and how far?", w: 5, h: 5, toolbar: none }
+    - { key: tiltyaw, view: "Which tilts and jaw headings occur together?", w: 7, h: 5, toolbar: none }
+    - text: "**Reading the tilt map** · centre = the tool along the reference (straight down) · each ring = 10° more tilt, the rim = 180° · angle = which way it leans in the base x-y plane (+x right, +y up) · white = never pointed there · colour = samples in the cell (the gear sets the colormap and scale)"
+      w: 12
+    - { key: angles, view: "Which tilts and jaw headings occur?", w: 12, h: 3.6, toolbar: none }
+properties:
+  samples: { displayName: samples }
+  tilt_lo: { displayName: "tilt from (°)" }
+  tilt_hi: { displayName: "tilt to (°)" }
+  azimuth_lo: { displayName: "leans toward, from (°)" }
+  yaw_lo: { displayName: "jaw yaw from (°)" }
+views:
+  - type: chart
+    name: "Which way does the tool tilt, and how far?"
+    chart:
+      # WHY a layer of one: data-ui adds Show Me x / y defaults to a single-mark chart with neither; an arc has neither
+      layer:
+        - mark: { type: arc, stroke: "#ffffff", strokeWidth: 0.3 }
+          encoding:
+            # WHY this range: Vega's theta runs clockwise from 12 o'clock; the payload's azimuth runs counter-clockwise
+            # from +x, so azimuth -180..180 maps to 3π/2..-π/2 and +x reads right, +y up
+            theta: { field: azimuth_lo, type: quantitative, stack: null, scale: { domain: [-180, 180], range: [4.712389, -1.570796] }, title: "leans toward (°)" }
+            theta2: { field: azimuth_hi }
+            radius: { field: tilt_lo, type: quantitative, scale: { domain: [0, 180], zero: true }, title: "tilt (°)" }
+            radius2: { field: tilt_hi }
+            color: { field: samples, type: quantitative, title: samples per cell, scale: { scheme: viridis, type: linear } }
+  - type: chart
+    name: "Which tilts and jaw headings occur together?"
+    from: tilt_yaw
+    chart:
+      mark: { type: rect, cornerRadius: 0, strokeWidth: 0.3 }
+      encoding:
+        x: { field: yaw_lo, type: quantitative, title: "yaw · jaw heading in the base x-y plane (°)", scale: { domain: [-180, 180], nice: false, zero: false } }
+        x2: { field: yaw_hi, title: "yaw · jaw heading in the base x-y plane (°)" }
+        'y': { field: tilt_lo, type: quantitative, title: "tilt from the reference (°)", scale: { domain: [0, 180], nice: false, zero: false } }
+        y2: { field: tilt_hi, title: "tilt from the reference (°)" }
+        color: { field: samples, type: quantitative, title: samples per cell, scale: { scheme: viridis, type: linear } }
+  - type: chart
+    name: "Which tilts and jaw headings occur?"
+    from: angles
+    chart:
+      resolve: { scale: { x: independent, 'y': independent } }
+      mark: { type: bar, cornerRadiusEnd: 0, binSpacing: 0 }
+      encoding:
+        x: { field: lo, type: quantitative, bin: binned, title: "angle (°)", scale: { nice: false, zero: false } }
+        x2: { field: hi, title: "angle (°)" }
+        'y': { field: samples, type: quantitative, title: samples per band }
+        column: { field: angle, type: nominal, title: null, header: { labelAngle: 0, labelOrient: top } }
