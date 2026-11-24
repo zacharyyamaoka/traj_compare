@@ -46,7 +46,7 @@ ul{margin:6px 0 6px 22px;padding:0}li{margin:3px 0}.pick{border-left:4px solid v
 """
 
 
-def image(name: str, width: int = 1100, quality: int = 62) -> str:
+def image(name: str, width: int = 1100, quality: int = 56) -> str:
     """A still as a WebP data URI, scaled to at most `width` px."""
     path = MEDIA / name
     if not path.is_file():
@@ -60,9 +60,9 @@ def image(name: str, width: int = 1100, quality: int = 62) -> str:
     return "data:image/webp;base64," + base64.b64encode(buffer.getvalue()).decode()
 
 
-def fig(name: str, caption: str, width: int = 1100, quality: int = 62) -> str:
+def fig(name: str, caption: str, width: int = 1100, quality: int = 56) -> str:
     uri = image(name, width, quality)
-    body = f'<img src="{uri}" alt="{html.escape(caption)}" loading="lazy">' if uri else f'<div class="gap">missing: {name}</div>'
+    body = f'<img src="{uri}" alt="{html.escape(caption)}">' if uri else f'<div class="gap">missing: {name}</div>'
     return f"<figure>{body}<figcaption>{caption}</figcaption></figure>"
 
 
@@ -75,7 +75,7 @@ def hero() -> str:
     small = MEDIA / "hero-inline.mp4"
     if not small.is_file() or small.stat().st_mtime < source.stat().st_mtime:
         subprocess.run(["taskset", "-c", "2-5,16,17", "/usr/bin/ffmpeg", "-y", "-loglevel", "error", "-i", str(source),
-                        "-vf", "scale=960:-2", "-c:v", "libx264", "-crf", "33", "-preset", "slow", "-pix_fmt", "yuv420p",
+                        "-vf", "scale=960:-2", "-c:v", "libx264", "-crf", "35", "-preset", "slow", "-pix_fmt", "yuv420p",
                         "-an", "-movflags", "+faststart", str(small)], check=True)
     uri = "data:video/mp4;base64," + base64.b64encode(small.read_bytes()).decode()
     poster = image("hero-poster.jpg", 960, 55)
@@ -255,7 +255,8 @@ coverage.write_page("/tmp/claude-1000/one-swing/index.html")</pre>
 <div class="grid g2">{fig("mpl-heat-q-qd.jpg", "Matplotlib: plot_coverage → heat-q-qd-&lt;joint&gt;.png (same maps, same legend rules).", 560)}{fig("mpl-projections.jpg", "Matplotlib: projections.png.", 560)}</div>
 <div class="grid g2">{fig("viser-voxels.jpg", "Viser (viser_3d_viewer: no logo, ViewCube): voxels with the Colours / Reverse / Scale controls.", 560)}{fig("viser-sphere.jpg", "Viser: the direction sphere.", 560)}</div>
 <p><b>W&amp;B:</b> project <i>trajectory-coverage</i>, one run per UR5e page (16), the 15 headline numbers as summary scalars and a
-small config naming the page. No tables or media (your Nov 21 rule). Tracker: bam_ws <code>tools/wandb_trackers/trackers/trajectory_coverage.py</code>.</p>
+small config naming the page. No tables or media (your Nov 21 rule).
+<a href="https://forge.coreweave.com/wandb/zach-yamaoka-independent/trajectory-coverage">Open the W&amp;B project</a>. Tracker: bam_ws <code>tools/wandb_trackers/trackers/trajectory_coverage.py</code>.</p>
 
 <h2>The 3-D proposals</h2>
 <p>Your point that histograms hide nothing while voxels do drove the set: most are <b>height maps</b> (a quantity over two
@@ -293,6 +294,10 @@ Prior art: TFDV / Facets Overview. Likely home: data-ui (the shared data-view li
 <h3>Done and proved</h3>
 <ul><li>Analysis: 23 frozen acceptance tests written before the code (sine spans, a robot standing still, a tool pointing down…) + 9 CLI tests + 2 edge tests, all green; the UR numbers were hand-checked against raw <code>np.percentile</code> / <code>histogram2d</code>, exact.</li>
 <li>Page: the frozen browser test (tabs, BAM Reach colour maps, linear default, a legend on every figure, repaint on every control, 3-D views draw, proposals bottom-right and remembered, dataset link) — 10 passed.</li>
+<li>Bench dashboards (ur5e / pendulum / bam_fb) now write their own coverage page and show <b>Coverage ↗</b> (the
+league-table session added <code>coverage=True</code>, arm_motion_bench a1b0fd5); I served the dashboard, clicked the link on
+ur5e and it opened the page over its 1 006 targets with no errors.</li>
+<li>A scroll regression test (tab switches kept the tab bar in place), red on the old code, green now; 64 coverage tests in all.</li>
 <li>Matplotlib / Viser / W&amp;B: 19 tests (one real offline W&amp;B run, Viser servers started and stopped); every PNG and Viser view looked at.</li>
 <li>Whole traj_compare suite: 634 passed; 1 failure is <code>test_playback</code>, a video-timing test that flips red/green on the same commit (also red before today) and touches nothing changed here.</li></ul>
 <h3>Decided for you (each one undoable)</h3>
@@ -300,10 +305,11 @@ Prior art: TFDV / Facets Overview. Likely home: data-ui (the shared data-view li
 <li><b>Cell frame for the UR5e tool numbers</b> (the cell arm hangs upside down, so base-frame z-up views were upside down). Undo: <code>--frame base</code>.</li>
 <li><b>Linear clips at p98</b> so one rest-pose cell does not wash the rest out; the legend says where it clipped. Undo: one constant in coverage_color.js.</li>
 <li><b>Derivatives take a first-order slope at each end</b> (the false jerk alarm). Undo: <code>git revert d39bd17</code>.</li>
+<li><b>Every tab is at least a window tall</b> so switching tabs never jumps the page (found while recording). Undo: one CSS rule.</li>
 <li><b>Coverage is a link at the end of the dataset tab bar</b>, not a tab: it is its own page. Undo: revert a5de694's dataset.js hunk.</li>
 <li><b>Pushed traj_compare main</b> (private remote), which also carried the league-table session's landed commits.</li></ul>
 <h3>Left</h3>
-<ul><li>Bench dashboards (ur5e / pendulum / bam_fb) get <code>coverage=True</code> in the league-table session's next rebuild — agreed with that session, not done by me.</li>
+<ul><li>The bench dashboards' coverage pages were built just before the tab-scroll fix; their next rebuild picks it up.</li>
 <li>Grasp and generic-dataset viewers (proposed above).</li>
 <li>arm_motion_bench's own <code>coverage.py</code> (the Nov 19 PNGs) could now call traj_compare.coverage instead of keeping its own math.</li>
 <li>A torque-limited acceleration envelope (the wave) needs the robot's dynamics passed in.</li></ul>
