@@ -1,0 +1,53 @@
+[
+  {
+    "label": "The rail is the rows; every figure colours by dataset",
+    "caption": "Landing: the four datasets are the run list's groups (a checkbox, a swatch, a count; unfold for its trajectories), Split and Kind apply across them, and the Overview draws one row per dataset in its colour: a runs table of headline numbers, then every joint's position × speed map.",
+    "actions": [],
+    "highlight": "p4-runs [data-p4-group=\"dataset\"]"
+  },
+  {
+    "label": "Tick two datasets and holdout: everything recounts",
+    "caption": "Tick Cell · Conveyor PnP and UR5e alone · Workspace, then holdout: 28 of 212. The runs table and every map re-aggregate from those 28 trajectories' cells, still one row per dataset in its colour, and the line under the tabs says which subset it is.",
+    "actions": [
+      { "click": "p4-runs [data-p4-dataset=\"Cell · Conveyor PnP\"]" },
+      { "click": "p4-runs [data-p4-dataset=\"UR5e alone · Workspace\"]" },
+      { "click": "p4-runs [data-p4-toggle=\"split\"][data-value=\"holdout\"]" },
+      { "wait": 500 }
+    ],
+    "highlight": "[data-p4-view=\"Overview\"] [data-p4-stats]"
+  },
+  {
+    "label": "Switch dashboards: the selection holds; narrow inside a dataset",
+    "caption": "Tool position keeps the 28 (the rail is beside every tab). Unfold Cell · Conveyor PnP and tick two of its holdout trajectories: that dataset narrows to them (its box shows −), the other stays whole, and the maps redraw at once: 14 of 212.",
+    "actions": [
+      { "click": ".dv-vtab[data-name=\"Tool position\"]" },
+      { "click": "p4-runs [data-p4-chev=\"Cell · Conveyor PnP\"]" },
+      { "click": "p4-runs [data-p4-traj=\"ur5e-conveyor/conveyor-holdout-000\"]" },
+      { "click": "p4-runs [data-p4-traj=\"ur5e-conveyor/conveyor-holdout-001\"]" },
+      { "wait": 600 }
+    ],
+    "highlight": "[data-p4-count]"
+  },
+  {
+    "label": "One joint: the picker lives on its dashboard only",
+    "caption": "One joint has the only joint picker; pick elbow and its three planes draw per dataset, with the share of cells each dataset visits as bars in the same colours below.",
+    "actions": [
+      { "click": ".dv-vtab[data-name=\"One joint\"]" },
+      { "click": "[data-p4-joint-picker] [data-pick=\"elbow\"]" },
+      { "wait": 500 }
+    ],
+    "highlight": "[data-p4-joint-picker]"
+  },
+  {
+    "label": "Trajectories: sort, drill, Open in Rerun",
+    "caption": "Trajectories is data-ui's own table over the same 14 rows (dataset, split and kind as columns, the dataset badge in its colour). Click a row: data-ui's record pane opens it, with Open in Rerun and what it adds to the 212.",
+    "actions": [
+      { "click": ".dv-vtab[data-name=\"Trajectories\"]" },
+      { "wait": 400 },
+      { "click": ".dv-view-table tbody tr[data-id] td:first-child" },
+      { "wait": 700 },
+      { "click": ".dv-peek [data-p4-rerun]" }
+    ],
+    "highlight": ".dv-peek [data-p4-rerun]"
+  }
+]

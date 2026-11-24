@@ -1,0 +1,27 @@
+{
+  "ready": "data-workbench[data-ready] [data-dw-page=\"overview\"] [data-cov-numbers]",
+  "count": "data-workbench [data-dw-count]",
+  "dataset_group": "data-workbench .dw-rail section.df-group[data-p=\"dataset\"]",
+  "first_group": "data-workbench .dw-rail section.df-group",
+  "dataset_option": "data-workbench .dw-rail section.df-group[data-p=\"dataset\"] input[data-value=\"{label}\"]",
+  "split_option": "data-workbench .dw-rail section.df-group[data-p=\"split\"] input[data-value=\"{split}\"]",
+  "figure": "data-workbench [data-dw-page=\"overview\"] .cov-occupancy .cov-panels",
+  "tabs": {
+    "overview": "data-workbench [data-dw-tab=\"overview\"]",
+    "datasets": "data-workbench [data-dw-tab=\"datasets-side-by-side\"]",
+    "joint": "data-workbench [data-dw-tab=\"one-joint\"]",
+    "tool": "data-workbench [data-dw-tab=\"tool-position\"]",
+    "orientation": "data-workbench [data-dw-tab=\"tool-orientation\"]",
+    "trajectories": "data-workbench [data-dw-tab=\"trajectories\"]"
+  },
+  "joint_picker": "data-workbench [data-cov-joint-picker]",
+  "settings": "data-workbench .dw-gear",
+  "cmap": "data-workbench select[data-dw-setting=\"cmap\"]",
+  "cmap_value": "magma",
+  "joint_figure": "data-workbench [data-dw-page=\"one-joint\"] .cov-panels",
+  "drill_trigger": "data-workbench [data-dw-page=\"trajectories\"] tbody tr:first-child td:first-child",
+  "drill_action": "click",
+  "drill": "data-workbench data-views.dd-drill .dv-peek",
+  "open_rerun": "data-workbench data-views.dd-drill [data-dw-action=\"0\"]",
+  "embed_root": "#host-slot data-workbench[data-ready]"
+}

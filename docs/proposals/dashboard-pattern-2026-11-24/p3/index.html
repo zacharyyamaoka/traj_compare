@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coverage · every tab is a saved view (P3)</title>
+<link rel="stylesheet" href="../vendor/data-ui/data-ui.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="p3-page">
+<!-- the host page: a title. Everything under it is the component (js/component.js), the same one embed.html drops
+     into a host app's slot. -->
+<header class="p3-pagehead">
+  <div class="p3-crumb">traj_compare · trajectory coverage · <span title="babble round 2026-11-24 (dashboard pattern), proposal P3">P3 every tab is a saved view</span></div>
+  <h1>UR5e trajectory datasets</h1>
+  <p>4 datasets · dev + holdout at full speed · 212 trajectories</p>
+</header>
+<main id="p3-mount" class="p3-mount"></main>
+<script src="js/coverage_color.js"></script>
+<script src="../data/coverage.js"></script>
+<script src="../data/trajectories.js"></script>
+<script src="../data/membership.js"></script>
+<script type="module">
+  import { mountCoverage } from './js/component.js';
+  mountCoverage(document.getElementById('p3-mount'), { id: 'cov' });
+</script>
+</body>
+</html>

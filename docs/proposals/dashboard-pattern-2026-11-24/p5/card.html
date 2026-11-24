@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coverage · P5 recomposed in cards</title>
+<link rel="stylesheet" href="../vendor/data-ui/data-ui.css">
+<link rel="stylesheet" href="css/parts.css">
+<link rel="stylesheet" href="css/coverage.css">
+<style>
+  /* HOST code: a fake robotparts datasheet page (UR5e) that drops two coverage cards beside its own spec table. Each card
+     is its own <data-scope> (its own filter, its own colour map) composed from the same parts as index.html, differently:
+     card 1 = a chip row + one dashboard, no tabs; card 2 = a folded "Filters" chip + tabs over two small dashboards. */
+  body { margin: 0; font: 13px/1.4 system-ui, sans-serif; background: #f3f4f6; color: #1f2328; }
+  .rp-head { height: 48px; display: flex; align-items: center; gap: 18px; padding: 0 20px; background: #fff; border-bottom: 1px solid #e5e7eb; }
+  .rp-head b { font-size: 15px; }
+  .rp-head span { color: #6b7280; }
+  .rp-page { display: grid; grid-template-columns: 270px 545px 545px; gap: 18px; padding: 18px 20px; align-items: start; }
+  .rp-spec { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; }
+  .rp-spec h2 { margin: 0 0 8px; font-size: 16px; }
+  .rp-spec table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .rp-spec td { padding: 5px 0; border-top: 1px solid #f0f0f2; }
+  .rp-spec td:last-child { text-align: right; color: #374151; }
+  .rp-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; }
+  .rp-card > h3 { margin: 0; padding: 10px 14px 0; font-size: 13.5px; }
+  .rp-card > data-scope { height: 400px; }
+  .card-frame { display: flex; flex-direction: column; height: 100%; }
+  .card-top { display: flex; align-items: center; gap: 8px; padding: 8px 12px; min-height: 30px; flex-wrap: wrap; }
+  .card-top > data-facets { flex: 1 1 auto; min-width: 0; }
+  .card-top > data-tabs { flex: 1 1 auto; height: 32px; border-bottom: 1px solid #ececef; }
+  .card-pages { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .card-pages > data-dashboard { display: block; padding: 0 8px 8px; }
+  .rp-card data-fold { --data-fold-top: 46px; }
+</style>
+</head>
+<body>
+<header class="rp-head"><b>robotparts</b><span>Arms</span><span>UR5e</span><span>Datasheet</span></header>
+<main class="rp-page">
+  <section class="rp-spec">
+    <h2>Universal Robots UR5e</h2>
+    <table>
+      <tr><td>Reach</td><td>850 mm</td></tr><tr><td>Payload</td><td>5 kg</td></tr><tr><td>Joints</td><td>6 revolute</td></tr>
+      <tr><td>Repeatability</td><td>± 0.03 mm</td></tr><tr><td>Trajectories logged</td><td>212 (4 datasets)</td></tr>
+    </table>
+  </section>
+
+  <article class="rp-card">
+    <h3>Where the tool has been</h3>
+    <!-- card 1: a chip row (the rail as one line) + one dashboard; no tabs -->
+    <data-scope id="card-reach" data-card="reach">
+      <div class="card-frame">
+        <div class="card-top">
+          <data-facets layout="row"></data-facets>
+          <data-count noun="trajectory"></data-count>
+          <data-settings></data-settings>
+        </div>
+        <div class="card-pages">
+          <data-dashboard tab="Reach"></data-dashboard>
+        </div>
+      </div>
+    </data-scope>
+  </article>
+
+  <article class="rp-card">
+    <h3>Joint coverage</h3>
+    <!-- card 2: the rail folded to its chip (fold="always"), tabs over two small dashboards, the count -->
+    <data-scope id="card-joints" data-card="joints">
+      <div class="card-frame">
+        <div class="card-top">
+          <data-fold label="Filters" fold="always"><data-facets></data-facets></data-fold>
+          <data-tabs aria-label="Card dashboards"></data-tabs>
+          <data-count noun="trajectory"></data-count>
+        </div>
+        <div class="card-pages">
+          <data-dashboard tab="Joints"></data-dashboard>
+          <data-dashboard tab="Datasets"></data-dashboard>
+        </div>
+      </div>
+    </data-scope>
+  </article>
+</main>
+<script src="js/coverage/coverage_color.js"></script>
+<script src="../data/coverage.js"></script>
+<script src="../data/trajectories.js"></script>
+<script src="../data/membership.js"></script>
+<script src="../data/datasets.js"></script>
+<script type="module">
+  import { start } from './js/app.js';
+  // each card shapes its own copy of the one document: which facets, which dashboards; the views and rows are shared
+  start((base, scope) => {
+    const swatch = base.facets.find((f) => f.property === 'dataset');
+    if (scope.dataset.card === 'reach') {
+      base.facets = [swatch, { property: 'split', as: 'chips', label: 'Split', order: ['dev', 'holdout'] }];
+      base.dashboards = { Reach: { layout: { columns: 12, rowHeight: 100, arrange: false, panels: [{ view: 'The tool from three sides', w: 12, h: 3, title: null }] } } };
+    } else {
+      base.dashboards = {
+        Joints: { layout: { columns: 12, rowHeight: 100, arrange: false, panels: [{ view: 'Every joint · position × speed', w: 12, h: 3, title: null }] } },
+        Datasets: { layout: { columns: 12, rowHeight: 100, arrange: false, panels: [{ view: 'Datasets in this subset', w: 12, h: 3, title: null }] } },
+      };
+    }
+    return base;
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,110 @@
+/* parts.css — the CSS of P5's proposed data-ui parts: what data-ui.css would ship beside <data-scope> and its parts.
+   Every size decision is a container query on the scope (`@container data-scope`), never the viewport: the same parts
+   fold in a host's 1000 px slot and spread on a full page. Colours: data-ui's light defaults (zinc greys, its accent). */
+
+data-scope {
+  display: block;
+  position: relative; /* WHY: the containing block of every layer a part draws (the fold's panel, the gear's popover,
+                         a tip, a drill): they are absolute to the scope, so nothing escapes a host's slot */
+  container: data-scope / inline-size;
+  min-width: 0;
+  min-height: 0;
+  color: #18181b;
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+/* a page the tab strip is not showing (a stock element's own display: block must not win over [hidden]) */
+data-scope [tab][hidden] { display: none !important; }
+
+/* ── <data-tabs> ─────────────────────────────────────────────────────────────────────────────────────────────── */
+data-tabs { display: flex; align-items: stretch; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; align-self: stretch; }
+data-tabs::-webkit-scrollbar { display: none; }
+.dt-tab { flex: none; font: inherit; font-size: 13px; color: #52525b; background: none; border: 0; border-bottom: 2px solid transparent;
+  padding: 0 12px; cursor: pointer; white-space: nowrap; margin-bottom: -1px; }
+.dt-tab:hover { color: #18181b; background: #f4f4f5; }
+.dt-tab[aria-selected="true"] { color: #18181b; font-weight: 600; border-bottom-color: #18181b; }
+.dt-tab:focus-visible { outline: 2px solid #2563eb; outline-offset: -3px; border-radius: 4px; }
+
+/* ── <data-count> ────────────────────────────────────────────────────────────────────────────────────────────── */
+data-count { flex: none; font-size: 12.5px; color: #52525b; white-space: nowrap; padding: 3px 10px; border-radius: 999px;
+  background: #f4f4f5; border: 1px solid #e4e4e7; }
+data-count b { color: #18181b; font-weight: 650; }
+data-count.dc-filtered { background: color-mix(in srgb, #2563eb 9%, #fff); border-color: color-mix(in srgb, #2563eb 32%, #fff); color: #1e3a8a; }
+data-count.dc-filtered b { color: #1e3a8a; }
+
+/* ── <data-fold> ─────────────────────────────────────────────────────────────────────────────────────────────── */
+data-fold { display: block; min-width: 0; min-height: 0; }
+data-fold > .fold-body { height: 100%; overflow: auto; box-sizing: border-box; }
+data-fold > .fold-chip { display: none; }
+.fold-head { display: none; }
+.fold-chip { align-items: center; gap: 6px; font: inherit; font-size: 12.5px; color: #3f3f46; background: #fff; border: 1px solid #d4d4d8;
+  border-radius: 7px; padding: 5px 10px; cursor: pointer; white-space: nowrap; }
+.fold-chip svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; }
+.fold-chip:hover, .fold-chip[aria-expanded="true"] { background: #f4f4f5; }
+.fold-chip.fold-on { border-color: color-mix(in srgb, #2563eb 45%, #fff); color: #1e3a8a; background: color-mix(in srgb, #2563eb 7%, #fff); }
+.fold-chip .fold-n { font-weight: 650; }
+.fold-head { align-items: center; gap: 8px; padding: 10px 12px 6px; border-bottom: 1px solid #ececef; position: sticky; top: 0; background: #fff; z-index: 1; }
+.fold-head b { font-size: 13px; }
+.fold-head-n { font-size: 11.5px; color: #71717a; flex: 1; }
+.fold-x { border: 0; background: none; font-size: 14px; color: #71717a; cursor: pointer; padding: 2px 5px; border-radius: 4px; }
+.fold-x:hover { background: #f4f4f5; color: #18181b; }
+
+/* folded: the scope's box is narrow (or fold="always"): a chip, and its panel opens INSIDE the scope, over the pages */
+@container data-scope (width < 1100px) {
+  data-fold:not([fold="never"]) > .fold-chip { display: inline-flex; }
+  data-fold:not([fold="never"]) > .fold-body { display: none; }
+  data-fold:not([fold="never"])[open] > .fold-body { display: block; position: absolute; z-index: 40; top: var(--data-fold-top, 50px); left: 8px; bottom: 8px;
+    width: min(320px, calc(100% - 16px)); height: auto; background: #fff; border: 1px solid #e4e4e7; border-radius: 10px; box-shadow: 0 14px 36px rgba(24, 24, 27, .18); }
+  data-fold:not([fold="never"]) .fold-head { display: flex; }
+}
+data-fold[fold="always"] > .fold-chip { display: inline-flex; }
+data-fold[fold="always"] > .fold-body { display: none; }
+data-fold[fold="always"][open] > .fold-body { display: block; position: absolute; z-index: 40; top: var(--data-fold-top, 50px); left: 8px; bottom: 8px;
+  width: min(300px, calc(100% - 16px)); height: auto; background: #fff; border: 1px solid #e4e4e7; border-radius: 10px; box-shadow: 0 14px 36px rgba(24, 24, 27, .18); }
+data-fold[fold="always"] .fold-head { display: flex; }
+
+/* ── <data-settings> ─────────────────────────────────────────────────────────────────────────────────────────── */
+data-settings { flex: none; position: relative; display: inline-block; }
+.ds-gear { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 8px; border: 1px solid #e4e4e7; background: #fff; color: #3f3f46; cursor: pointer; }
+.ds-gear:hover, .ds-gear[aria-expanded="true"] { background: #f4f4f5; color: #18181b; }
+.ds-gear svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.ds-pop { position: absolute; right: 0; top: calc(100% + 6px); width: 290px; padding: 12px 14px; background: #fff; border: 1px solid #e4e4e7;
+  border-radius: 10px; box-shadow: 0 12px 32px rgba(24, 24, 27, .16); z-index: 50; box-sizing: border-box; }
+.ds-pop[hidden] { display: none; }
+.ds-head { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
+.ds-head > div { flex: 1; }
+.ds-head b { display: block; font-size: 13px; }
+.ds-head span { display: block; font-size: 11.5px; color: #71717a; }
+.ds-x { border: 0; background: none; font-size: 14px; color: #71717a; cursor: pointer; padding: 2px 4px; border-radius: 4px; }
+.ds-field { display: flex; align-items: center; gap: 10px; margin: 8px 0 4px; font-size: 12.5px; }
+.ds-field span { width: 80px; color: #52525b; }
+.ds-field select { flex: 1; font: inherit; padding: 4px 6px; border: 1px solid #d4d4d8; border-radius: 6px; background: #fff; }
+.ds-check { display: flex; align-items: center; gap: 7px; margin: 6px 0 6px 90px; font-size: 12.5px; }
+.ds-ramp { height: 10px; border-radius: 3px; margin: 8px 0 4px 90px; border: 1px solid #e4e4e7; }
+.ds-note { margin: 6px 0 0; font-size: 11.5px; color: #71717a; line-height: 1.4; }
+
+/* ── stock parts inside a scope (what core would change, prototyped here) ───────────────────────────────────── */
+/* a dashboard's drill peek is position: fixed over the viewport today (dashboard.css); inside a scope it is the scope's */
+data-scope data-views.dd-drill, data-scope data-views.dd-drill[data-live] { position: absolute; height: 100%; --data-height: 100%; }
+/* the stock dashboard grid folds to one column under a 900 px VIEWPORT; inside a scope it follows the scope's box */
+@container data-scope (width < 720px) {
+  data-scope .dd-grid { grid-template-columns: minmax(0, 1fr); }
+  data-scope .dd-panel { grid-column: auto; }
+}
+/* a dashboard inside a scope with nothing in its bar (no chips, no actions) draws no bar */
+data-scope .dd-bar:has(> .dd-chips:empty):has(> .dd-actions:empty) { display: none; }
+/* the swatch facet in a rail: one line per value (colour, name, count), the dataset colour key */
+data-scope .df-tiles-swatch .df-tile { flex-direction: row; justify-content: flex-start; text-align: left; padding: 4px 8px; gap: 8px; }
+data-scope .df-tiles-swatch .df-tile-img { width: 14px; height: 14px; border-radius: 3px; }
+data-scope .df-tiles-swatch .df-label { font-size: 12.5px; text-align: left; flex: 1 1 auto; width: auto; }
+data-scope .df-tiles-swatch .df-count { font-size: 11.5px; color: #71717a; }
+
+/* ── <data-facets layout="row"> (proposed attribute): the same rail as one line of chips, for a card ─────────── */
+data-facets[layout="row"] .df-box > summary { display: none; }
+data-facets[layout="row"] .df-box > .df-group { display: inline-flex; align-items: center; gap: 6px; margin: 0 14px 0 0; padding: 0; border: 0; vertical-align: middle; }
+data-facets[layout="row"] .df-group > h4 { margin: 0; padding: 0; }
+data-facets[layout="row"] .df-group > h4 .df-fold { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: #71717a; pointer-events: none; padding: 0; }
+data-facets[layout="row"] .df-group > h4 .df-fold::before, data-facets[layout="row"] .df-group > h4 .df-info, data-facets[layout="row"] .df-group > h4 .dv-link { display: none; }
+data-facets[layout="row"] .df-tiles { display: flex; flex-wrap: wrap; gap: 4px; }
+data-facets[layout="row"] .df-tiles .df-tile { width: auto; padding: 2px 8px; border-radius: 999px; gap: 5px; }
+data-facets[layout="row"] .df-tiles-swatch .df-tile-img { width: 9px; height: 9px; border-radius: 50%; }
+data-facets[layout="row"] .df-tiles-swatch .df-label { font-size: 12px; }

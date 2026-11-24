@@ -1,0 +1,142 @@
+{
+  "title": "Filter rail + tabbed dashboards: five ways to do it in data-ui",
+  "kicker": "/babble 5 · case study: all four UR5e trajectory datasets, 212 trajectories",
+  "brief": "Your Nov 24 ask: \"this general pattern that should be supported in data-ui is like multi tab dashboards, where you filter the data that is included in the dashboards with a left hand bar … this will happen again and again! so please show like 5 different ways\". The case: trajectories as the atomic unit, Dataset as the first filter, dev/holdout applying across every dataset ticked, tabs that feel like switching dashboards, and a component compact enough to drop into any app. All five are live prototypes on the same 212 trajectories, built on the vendored data-ui, each checked full page and inside a fake host app's 1000 × 680 slot.",
+  "defaultId": "p1",
+  "defaultWhy": "P1 · Workbench element scores 98/100: one tag, <data-workbench src=\"coverage.base\">, gives the TensorBoard layout inside its own box (rail, a tab strip at the element's top, a pill row of the active filter on every tab), fits the 1000 × 680 slot with all six tabs and a 196 px rail, and another app reuses it with only its own .base. Its weak spot: it is one fixed layout; an app that wants the parts elsewhere (a card, a side pane) can't rearrange them, which is exactly P5's strength. The build I'd do: P5's <data-scope> as the core, P1's workbench as its default layout, and P4's colour-by-dataset in every figure.",
+  "decisionHinge": "The criteria never reward laying the same parts out differently per app. If that matters (a card in robotparts, a pane in Clank, Obsidian's sidebar), P5's scope is the right API and P1 becomes its default layout rather than the API. Second hinge: if comparing datasets matters as much as the filter itself (FR6 at 25, taken from \"drops into any app\"), P1 and P4 tie at 95: P4's one-row-per-dataset maps and numbers are the best comparison of the five.",
+  "invariants": [
+    "The same 212 trajectories (four UR5e datasets at full speed) from one analyze() payload; every figure re-aggregates exactly from membership.json (extract.py asserts it, and P2–P5 re-check at load).",
+    "Same figures (round 2's V2 occupancy engine) so the container pattern is what differs; same viewport (1440 × 900), same host slot (1000 × 680), same check (check.cjs, 7 gates).",
+    "Dataset is the first filter in every proposal, and split applies across every dataset ticked."
+  ],
+  "boundary": "Live prototypes in traj_compare/docs/proposals/dashboard-pattern-2026-11-24/ on the vendored data-ui (main 2f08a88); each proposal's new data-ui API is a prototype in its own folder, nothing is in data-ui yet. Open in Rerun really launches Rerun through traj_compare.serve. The pictures here are captures of those prototypes.",
+  "axes": [
+    {"name": "Where the tabs live", "values": ["along the element's own top (P1)", "in the rail, as a list (P2)", "data-ui's own view tabs (P3, P4)", "wherever the host puts a <data-tabs> (P5)"]},
+    {"name": "The rail", "values": ["data-ui's facets (P1, P2, P3, P5)", "a run list with checkboxes, TensorBoard / W&B style (P4)"]},
+    {"name": "What data-ui would add", "values": ["one element, <data-workbench> (P1)", "a rail mode that lists pages above facets (P2)", "one view type, type: panels (P3)", "a run list, colorBy and sections (P4)", "a filter scope + small parts (P5)"]},
+    {"name": "In a 1000 × 680 slot", "values": ["the rail narrows (P1, P4)", "the rail folds to icons (P2)", "data-ui's \"N more…\" + rail toggle (P3)", "the rail becomes a Filters chip (P5)"]}
+  ],
+  "variants": [
+    {
+      "id": "p1",
+      "name": "Workbench element",
+      "thesis": "One new data-ui element, <data-workbench src=\"coverage.base\">, owns the whole pattern inside its own box: the rail, a tab strip of dashboards along the element's top (not the page's), and the dashboards; the .base declares the rows, the rail and pages:.",
+      "accent": "#2563eb",
+      "bestWhen": "Most apps want the same layout (TensorBoard without the app bar) and should get it from one tag plus a .base, the way robotparts or Vibe Tracks would.",
+      "losesWhen": "An app wants the parts arranged differently (a card, the filters in its own sidebar); a selection made on one page doesn't carry to the next; the prototype wraps the stock dashboard's drill to add Rerun and keep ‹ › on the filtered rows.",
+      "decisions": [
+        {"label": "API", "value": "<data-workbench src [no-url] [rail]> with pages: (each a §17 dashboard layout), the existing facets:, settings: behind one gear, drill: actions."},
+        {"label": "Filter on every tab", "value": "A one-line pill row (\"Showing Dataset … Split holdout ✕\") under the tab strip, plus \"28 of 212 trajectories\" in the corner."},
+        {"label": "Datasets", "value": "A \"Datasets in this subset\" bar per dataset on the Overview and a \"Datasets side by side\" tab (splitBy: dataset)."},
+        {"label": "Narrow", "value": "1000 px: rail 196 px, all six tabs fit; 720 px: rail folds to a button, tabs into \"3 more ▾\"."}
+      ],
+      "keepParts": ["one tag + .base pages:", "the pill row of the active filter on every tab", "splitBy: dataset rows"],
+      "proof": ["check.cjs 7 of 7 (shots/p1.check.json)", "1000 × 680 slot: nothing outside, also with the gear open", "NOTES shows robotparts and Vibe Tracks reusing it with their own .base"],
+      "scores": {
+        "fr1": {"score": 5, "evidence": "Every page recounts and says \"subset 28 of 212 · re-aggregated\"; the pill row shows the active picks on every tab (step 2).", "confidence": "high"},
+        "fr2": {"score": 5, "evidence": "One tag; in the 1000 × 680 slot the rail narrows to 196 px and all six tabs fit with no scroll; nothing draws outside, gear open or not (embed still).", "confidence": "high"},
+        "fr3": {"score": 5, "evidence": "Six tabs along the element's top, all visible; switching keeps the 28 (check P3).", "confidence": "high"},
+        "fr4": {"score": 5, "evidence": "A small named addition (an element + pages:/settings:/drill: keys) any app drops in with its own .base; the drill hook it needs is named.", "confidence": "medium"},
+        "fr5": {"score": 5, "evidence": "Joint picker only on One joint; colour map, Reverse and scale behind the corner gear.", "confidence": "high"},
+        "fr6": {"score": 4, "evidence": "Dataset colours in the rail, a per-dataset bar on the Overview and a side-by-side tab; the other figures don't colour by dataset.", "confidence": "high"}
+      }
+    },
+    {
+      "id": "p2",
+      "name": "The rail holds the tabs",
+      "thesis": "One left column does both jobs, like VS Code's or Linear's sidebar: the dashboards as a list on top, the filters under them; the main pane is only the active dashboard, and below 1100 px the column folds to an icon strip.",
+      "accent": "#0d9488",
+      "bestWhen": "Space is tight (a pane in Clank, a narrow embed): it is the most compact of the five, a 48 px strip plus the dashboard.",
+      "losesWhen": "You want the tab feel you asked for: dashboards are a vertical list, and folded they are icons with tooltips; changing a filter in the strip takes one extra click.",
+      "decisions": [
+        {"label": "Layout", "value": "data-ui's existing <data-rail> lists the dashboards; the stock <data-facets> sits under it; the gear at the column's foot."},
+        {"label": "Fold", "value": "Under 1100 px the column becomes a 48 px icon strip; a Filters icon with a count badge opens the filters as a panel inside the component."},
+        {"label": "Header", "value": "One line per dashboard: name, \"28 of 212 trajectories\" and the active picks."},
+        {"label": "Datasets", "value": "\"Which dataset covers what\": one top-view map per dataset in its colour plus a combined map."}
+      ],
+      "keepParts": ["the fold to an icon strip with a filter badge", "the one-line dashboard header with the picks", "per-dataset maps + combined"],
+      "proof": ["check.cjs 7 of 7 (shots/p2.check.json)", "slot measured: strip 48 px, dashboard 950 × 678 px, filter panel 300 px", "component.js is generic (260 lines); app.js 108 lines"],
+      "scores": {
+        "fr1": {"score": 5, "evidence": "Every dashboard's header line shows \"28 of 212\" and the picks; figures recount (step 2).", "confidence": "high"},
+        "fr2": {"score": 5, "evidence": "The most compact: in the slot a 48 px strip and a 950 px dashboard, filters open inside (embed still).", "confidence": "high"},
+        "fr3": {"score": 3, "evidence": "Dashboards are a vertical list, not tabs; folded, their names are icons with tooltips.", "confidence": "high"},
+        "fr4": {"score": 4, "evidence": "Extends data-ui's own rail (pages above facets, collapse by container width); the fold is a ResizeObserver flipping the rail's mode.", "confidence": "medium"},
+        "fr5": {"score": 5, "evidence": "Joint picker on One joint only; the gear at the column's foot holds the colours.", "confidence": "high"},
+        "fr6": {"score": 4, "evidence": "Dataset swatches in the rail and per-dataset maps on the Overview; other figures don't split by dataset.", "confidence": "high"}
+      }
+    },
+    {
+      "id": "p3",
+      "name": "Every tab is a saved view",
+      "thesis": "data-ui almost has this already: one <data-views> over the trajectories, a <data-facets> rail, and every dashboard is a saved view of a new type: panels — so the tabs are data-ui's own view tabs, + adds your own, and the filter is the one every view already shares.",
+      "accent": "#7c3aed",
+      "bestWhen": "You want the smallest change to data-ui and user-made dashboards: + in the bar adds a dashboard tab, and \"Save as tab…\" keeps the current subset as its own tab.",
+      "losesWhen": "Embedded with the rail open the bar shows 4 tabs + \"2 more…\"; panels can't be dragged or resized yet; the status line repeats the count.",
+      "decisions": [
+        {"label": "One new view type", "value": "type: panels lays out view entries over the rows; everything else is stock data-ui."},
+        {"label": "Tabs", "value": "data-ui's view tabs: Overview, One joint, Tool position, Tool orientation, Trajectories, By dataset; + adds a dashboard."},
+        {"label": "Save as tab", "value": "A saved tab keeps its own filter: cleared rail, the saved tab still shows 16 while Overview is back to 212."},
+        {"label": "Shims", "value": "Gear in the bar, dashboard icons on tabs, header click sorts — each named as a small data-ui change."}
+      ],
+      "keepParts": ["type: panels (dashboards as saved views)", "Save as tab with its own filter", "the By dataset tab"],
+      "proof": ["check.cjs 7 of 7 (shots/p3.check.json)", "a load-time check rebuilds 33 grids and numbers and matches analyze", "data-ui check: 0 errors (14 warnings = the proposed keys)"],
+      "scores": {
+        "fr1": {"score": 5, "evidence": "The filter pills and a \"subset 28 of 212 · re-aggregated\" line with per-dataset chips on every tab (step 2).", "confidence": "high"},
+        "fr2": {"score": 4, "evidence": "Fits the slot; with the rail open 4 tabs + \"2 more…\", folding the rail fits all 6; the maps get small.", "confidence": "high"},
+        "fr3": {"score": 5, "evidence": "data-ui's own view tabs, one click, + to add one, Save as tab.", "confidence": "high"},
+        "fr4": {"score": 5, "evidence": "One new view type on top of data-ui's existing presets, facets and the shared filter; any app with a .base gets it.", "confidence": "high"},
+        "fr5": {"score": 4, "evidence": "Joint picker on One joint; gear in the bar; the status line repeats the count and the query bar stays folded behind Search.", "confidence": "medium"},
+        "fr6": {"score": 4, "evidence": "A By dataset tab and coloured dataset chips; in the embed the chip row shows colours with counts but no names.", "confidence": "medium"}
+      }
+    },
+    {
+      "id": "p4",
+      "name": "Run selector (TensorBoard / W&B)",
+      "thesis": "The rail IS the rows: datasets as groups with a colour and a three-state checkbox, their trajectories under them, a regex box, Split and Kind as toggles that apply to every dataset ticked; every figure is coloured and split by dataset.",
+      "accent": "#ea580c",
+      "bestWhen": "Comparing datasets is the point: the headline numbers come as one row per dataset plus \"All shown\", and every map has a row per dataset in its colour (with a Together switch).",
+      "losesWhen": "Many datasets (past about 6 the rows grow and data-ui has 8 series colours); embedded, the Overview's third section starts below the fold; it adds the most new data-ui API.",
+      "decisions": [
+        {"label": "Rail", "value": "Datasets first with tri-state checkboxes, unfolding to their trajectories; regex filter; Split/Kind toggles pinned at the bottom, \"Applies to every dataset ticked\"."},
+        {"label": "Figures", "value": "colorBy: dataset everywhere — a row per dataset in numbers and maps, one bar per dataset in charts, coloured badges in the table."},
+        {"label": "Dashboards", "value": "data-ui's tab row; each figure dashboard is collapsible sections, TensorBoard-style."},
+        {"label": "Honesty", "value": "With all 212 shown, every grid, the voxels and the 10 numbers equal the payload (checked at load)."}
+      ],
+      "keepParts": ["colour-by-dataset in every figure", "the per-dataset numbers table with \"All shown\"", "tri-state dataset groups in the rail"],
+      "proof": ["check.cjs 7 of 7 (shots/p4.check.json)", "slot: rail 222 px, all 5 tabs fit, no sideways scroll", "data-ui check: 0 errors (14 warnings = the proposed keys)"],
+      "scores": {
+        "fr1": {"score": 5, "evidence": "Every tab's line says \"28 of 212 · re-aggregated\" with the datasets and holdout named (step 2).", "confidence": "high"},
+        "fr2": {"score": 4, "evidence": "Fits the slot with a 222 px rail and all tabs, but the Overview's third section starts 35 px below the fold and the numbers table folds 4 of 10.", "confidence": "high"},
+        "fr3": {"score": 5, "evidence": "data-ui's tab row, all five fit; switching keeps the selection.", "confidence": "high"},
+        "fr4": {"score": 4, "evidence": "Three additions (a run-list element, colorBy for every view, a sections view) plus a regex grammar ask: the largest new surface of the five.", "confidence": "medium"},
+        "fr5": {"score": 5, "evidence": "Joint picker on One joint; per-section Per dataset / Together switches stay local; the gear holds the colours.", "confidence": "high"},
+        "fr6": {"score": 5, "evidence": "The best comparison: one row per dataset in the numbers and in every map, and drilling to single trajectories inside a dataset from the rail.", "confidence": "high"}
+      }
+    },
+    {
+      "id": "p5",
+      "name": "A filter scope; the host composes",
+      "thesis": "No monolith: data-ui adds one context element, <data-scope>, and every data-ui element inside it — facets, a <data-tabs> strip, dashboards, a table — shares its rows and its one filter; the host lays the parts out however its app needs.",
+      "accent": "#db2777",
+      "bestWhen": "Different apps need different layouts of the same parts: the full TensorBoard layout, a compact embed, or a card inside robotparts' datasheet (card.html shows two independent scopes on one page).",
+      "losesWhen": "Embedded, the active filter folds into a \"Filters · N\" chip, so the picks themselves aren't visible on the tab; each app writes its own few lines of layout; five small new elements to land.",
+      "decisions": [
+        {"label": "API", "value": "<data-scope data base filters> + <data-tabs>, <data-count>, <data-fold>, <data-settings>; a <data-facets> without for= binds to the nearest scope."},
+        {"label": "Layouts", "value": "index.html (rail left, tabs atop), embed.html (rail → Filters chip by container query), card.html (two scopes in a fake datasheet)."},
+        {"label": "Datasets", "value": "A \"Datasets in this subset\" table: kept, q × qd cells and voxels per dataset, each in its colour across rail, table and charts."},
+        {"label": "Host code", "value": "app.js 67 lines + layout.css 29 lines wire the parts."}
+      ],
+      "keepParts": ["<data-scope> as the core everything binds to", "the Filters chip fold by container query", "the per-dataset \"Datasets in this subset\" table"],
+      "proof": ["check.cjs 7 of 7 (shots/p5.check.json)", "the same parts in three layouts (index, embed, card)", "slot: nothing outside, gear open or not"],
+      "scores": {
+        "fr1": {"score": 4, "evidence": "Every dashboard recounts with a subset line; full page shows the rail, but embedded the picks fold into \"Filters · N\" (step 2, embed still).", "confidence": "medium"},
+        "fr2": {"score": 5, "evidence": "Container queries: in the slot the rail becomes a Filters chip with its panel inside, tabs stay; card.html recomposes the same parts.", "confidence": "high"},
+        "fr3": {"score": 5, "evidence": "A tab row atop the main pane, all five visible full page and embedded.", "confidence": "high"},
+        "fr4": {"score": 5, "evidence": "Existing data-ui elements opt in by nesting; a second app reuses the parts in its own layout (card.html), with the core changes named.", "confidence": "high"},
+        "fr5": {"score": 5, "evidence": "Joint picker on One joint; one <data-settings> gear inside the scope.", "confidence": "high"},
+        "fr6": {"score": 4, "evidence": "Dataset colours in the rail, table and the per-dataset table and tick charts; the maps don't split by dataset.", "confidence": "high"}
+      }
+    }
+  ]
+}

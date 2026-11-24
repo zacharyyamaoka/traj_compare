@@ -1,0 +1,54 @@
+[
+  {
+    "label": "One scope, every part shares it",
+    "caption": "Landing: the rail (dataset first, one colour per dataset), the tab row atop the main pane, the count and the gear are separate data-ui parts inside one <data-scope> over the 212 trajectories. Overview is a stock <data-dashboard>; with nothing filtered every number equals analyze's.",
+    "actions": [],
+    "highlight": "data-scope [tab=\"Overview\"] [data-p5-stats]"
+  },
+  {
+    "label": "Two datasets + holdout: everything recounts",
+    "caption": "Tick Cell · Conveyor PnP and UR5e alone · Workspace, then holdout: the count says 28 of 212 (16 + 12 holdouts, the split applied to both), the headline numbers turn '~ derived', the dataset key greys out the other two, and every map redraws from those 28.",
+    "actions": [
+      { "click": "data-scope data-facets button.df-tile[data-value=\"Cell · Conveyor PnP\"]" },
+      { "wait": 500 },
+      { "click": "data-scope data-facets button.df-tile[data-value=\"UR5e alone · Workspace\"]" },
+      { "wait": 500 },
+      { "click": "data-scope data-facets input[data-p=\"split\"][data-value=\"holdout\"]" }
+    ],
+    "settle": 1200,
+    "highlight": "data-scope [tab=\"Overview\"] [data-p5-dataset-key]"
+  },
+  {
+    "label": "Switch dashboards: the filter holds",
+    "caption": "Tool position is another stock dashboard in the same scope: the scope hands it the same filter (setRail) the first time it is shown, so it opens on the same 28, says so, and keeps the dataset colours in its per-trajectory chart.",
+    "actions": [
+      { "click": "data-tabs [data-tab=\"Tool position\"]" }
+    ],
+    "settle": 1200,
+    "highlight": "data-scope > .p5-frame data-count"
+  },
+  {
+    "label": "The joint picker lives on its dashboard",
+    "caption": "One joint: the picker is the view's own control (a within-dashboard filter, kept as a view key), so it shows here only. Elbow, still on the 28; the colours behind the gear set once for every dashboard in the scope.",
+    "actions": [
+      { "click": "data-tabs [data-tab=\"One joint\"]" },
+      { "wait": 600 },
+      { "click": "data-scope [data-p5-joint-picker] [data-pick=\"elbow\"]" }
+    ],
+    "settle": 1000,
+    "highlight": "data-scope [data-p5-joint-picker]"
+  },
+  {
+    "label": "Drill into one trajectory, open it in Rerun",
+    "caption": "Trajectories is a stock <data-views> table in the scope (dataset, split, kind; sorted by the cells only it visits). A row opens data-ui's record pane: what it adds to all 212 and Open in Rerun, which posts its rrd.",
+    "actions": [
+      { "click": "data-tabs [data-tab=\"Trajectories\"]" },
+      { "wait": 900 },
+      { "click": "data-scope [tab=\"Trajectories\"] tbody tr[data-id] td[data-col=\"task\"]" },
+      { "wait": 900 },
+      { "click": "data-scope [tab=\"Trajectories\"] .dv-peek [data-v2-rerun]" }
+    ],
+    "settle": 1000,
+    "highlight": "data-scope [tab=\"Trajectories\"] .dv-peek [data-v2-rerun]"
+  }
+]

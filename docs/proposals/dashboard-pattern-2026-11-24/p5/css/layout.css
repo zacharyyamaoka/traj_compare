@@ -1,0 +1,29 @@
+/* layout.css — HOST code: how this app composes the parts (the TensorBoard layout: what data shows on the left, which
+   dashboard on top of the main pane). Another app writes its own few lines (card.html does). The grid sits on a
+   .p5-frame inside the scope, because a container query styles a container's descendants, never the container. */
+
+.p5-frame { display: grid; height: 100%; min-height: 0; background: #fff;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas: "rail bar" "rail pages"; }
+.p5-frame > data-fold { grid-area: rail; border-right: 1px solid #e4e4e7; background: #fff; min-height: 0;
+  width: var(--data-panel-width, 268px); /* the rail drags (data-ui's makeResizable, §11) and keeps its width */ }
+.p5-title { padding: 12px 14px 8px; border-bottom: 1px solid #ececef; }
+.p5-title h1 { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
+.p5-title p { margin: 2px 0 0; font-size: 11.5px; color: #71717a; }
+.p5-frame data-facets { display: block; }
+.p5-bar { grid-area: bar; display: flex; align-items: stretch; gap: 10px; height: 46px; padding: 0 10px 0 6px; border-bottom: 1px solid #e4e4e7; min-width: 0; }
+.p5-bar > data-tabs { flex: 1 1 auto; }
+.p5-bar > data-count, .p5-bar > data-settings { align-self: center; }
+.p5-pages { grid-area: pages; overflow: auto; min-height: 0; background: #f6f6f7; }
+.p5-pages > data-dashboard { display: block; padding: 10px 12px 14px; }
+.p5-pages > data-views[tab] { display: block; height: 100%; --data-height: 100%; background: #fff; }
+
+/* narrow box (a host's slot): the rail folds to its chip, which takes the bar's first place; the pages get the width */
+@container data-scope (width < 1100px) {
+  .p5-frame { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "chip bar" "pages pages"; }
+  .p5-frame > data-fold { grid-area: chip; border: 0; align-self: center; padding-left: 8px; background: none; width: auto; }
+  .p5-frame > .dv-splitter { display: none !important; }
+  .p5-bar { padding-left: 4px; }
+  .p5-pages > data-dashboard { padding: 8px; }
+}

@@ -1,0 +1,27 @@
+{
+  "ready": ".p3-root[data-p3-ready=\"ok\"] #cov[data-view]",
+  "count": "#cov .dv-status .dv-count",
+  "dataset_group": "data-facets[for=\"cov\"] .df-group[data-p=\"dataset\"]",
+  "first_group": "data-facets[for=\"cov\"] .df-box > .df-group:first-of-type",
+  "dataset_option": "data-facets[for=\"cov\"] input[data-p=\"dataset\"][data-value=\"{label}\"]",
+  "split_option": "data-facets[for=\"cov\"] input[data-p=\"split\"][data-value=\"{split}\"]",
+  "figure": "#cov .p3-panel[data-key=\"joints\"] .p3-panel-body",
+  "tabs": {
+    "overview": "#cov .dv-vtab[data-name=\"Overview\"]",
+    "joint": "#cov .dv-vtab[data-name=\"One joint\"]",
+    "tool": "#cov .dv-vtab[data-name=\"Tool position\"]",
+    "orientation": "#cov .dv-vtab[data-name=\"Tool orientation\"]",
+    "trajectories": "#cov .dv-vtab[data-name=\"Trajectories\"]",
+    "datasets": "#cov .dv-vtab[data-name=\"By dataset\"]"
+  },
+  "joint_picker": "#cov [data-p3-vars=\"joint\"]",
+  "settings": ".p3-root [data-p3-gear]",
+  "cmap": ".p3-settings select[data-p3-setting=\"cmap\"]",
+  "cmap_value": "magma",
+  "joint_figure": "#cov .p3-panel[data-key=\"planes\"] .p3-figs",
+  "drill_trigger": "#cov .dv-view-table tbody tr[data-id] td:first-child",
+  "drill_action": "click",
+  "drill": "#cov .dv-peek",
+  "open_rerun": "#cov .dv-peek [data-p3-rerun]",
+  "embed_root": "#host-slot > .p3-root"
+}

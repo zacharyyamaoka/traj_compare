@@ -1,0 +1,26 @@
+{
+  "ready": "html[data-p4-ready=\"ok\"] [data-p4-view] [data-p4-fig]",
+  "count": "[data-p4-count]",
+  "dataset_group": "p4-runs [data-p4-group=\"dataset\"]",
+  "first_group": "p4-runs [data-p4-group]",
+  "dataset_option": "p4-runs [data-p4-dataset=\"{label}\"]",
+  "split_option": "p4-runs [data-p4-toggle=\"split\"][data-value=\"{split}\"]",
+  "figure": "[data-p4-view=\"Overview\"] [data-p4-fig=\"maps\"]",
+  "tabs": {
+    "overview": ".dv-vtab[data-name=\"Overview\"]",
+    "joint": ".dv-vtab[data-name=\"One joint\"]",
+    "tool": ".dv-vtab[data-name=\"Tool position\"]",
+    "orientation": ".dv-vtab[data-name=\"Tool orientation\"]",
+    "trajectories": ".dv-vtab[data-name=\"Trajectories\"]"
+  },
+  "joint_picker": "[data-p4-joint-picker]",
+  "settings": "[data-p4-gear]",
+  "cmap": "[data-p4-cmap]",
+  "cmap_value": "magma",
+  "joint_figure": "[data-p4-view=\"One joint\"] [data-p4-fig=\"maps\"]",
+  "drill_trigger": ".dv-view-table tbody tr[data-id] td:first-child",
+  "drill_action": "click",
+  "drill": ".dv-peek",
+  "open_rerun": ".dv-peek [data-p4-rerun]",
+  "embed_root": "[data-p4-root]"
+}

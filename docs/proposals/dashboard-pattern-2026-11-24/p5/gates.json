@@ -1,0 +1,26 @@
+{
+  "ready": "html[data-p5-ready=\"ok\"] data-scope[data-view] [tab=\"Overview\"] .v2-occupancy canvas",
+  "count": "data-scope > .p5-frame data-count",
+  "dataset_group": "data-scope data-facets .df-group[data-p=\"dataset\"]",
+  "first_group": "data-scope data-facets .df-group:first-of-type",
+  "dataset_option": "data-scope data-facets button.df-tile[data-value=\"{label}\"]",
+  "split_option": "data-scope data-facets input[data-p=\"split\"][data-value=\"{split}\"]",
+  "figure": "data-scope [tab=\"Overview\"] .v2-occupancy canvas",
+  "tabs": {
+    "overview": "data-tabs [data-tab=\"Overview\"]",
+    "joint": "data-tabs [data-tab=\"One joint\"]",
+    "tool": "data-tabs [data-tab=\"Tool position\"]",
+    "orientation": "data-tabs [data-tab=\"Tool orientation\"]",
+    "trajectories": "data-tabs [data-tab=\"Trajectories\"]"
+  },
+  "joint_picker": "data-scope [data-p5-joint-picker]",
+  "settings": "data-scope data-settings .ds-gear",
+  "cmap": "data-scope data-settings select[data-setting=\"cmap\"]",
+  "cmap_value": "magma",
+  "joint_figure": "data-scope [tab=\"One joint\"] .v2-occupancy .v2-panel canvas",
+  "drill_trigger": "data-scope [tab=\"Trajectories\"] tbody tr[data-id] td[data-col=\"task\"]",
+  "drill_action": "click",
+  "drill": "data-scope [tab=\"Trajectories\"] .dv-peek",
+  "open_rerun": "data-scope [tab=\"Trajectories\"] .dv-peek [data-v2-rerun]",
+  "embed_root": "#host-slot > data-scope"
+}

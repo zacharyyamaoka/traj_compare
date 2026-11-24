@@ -1,0 +1,27 @@
+{
+  "ready": "[data-p2-ready=\"ok\"] [data-p2-stats] data-kpi",
+  "count": "[data-p2-root] [data-p2-count]",
+  "dataset_group": "[data-p2-root] data-facets section.df-group[data-p=\"dataset\"]",
+  "first_group": "[data-p2-root] data-facets section.df-group",
+  "dataset_option": "[data-p2-root] data-facets label:has(> input[data-p=\"dataset\"][data-value=\"{label}\"])",
+  "split_option": "[data-p2-root] data-facets label:has(> input[data-p=\"split\"][data-value=\"{split}\"])",
+  "figure": "[data-p2-root] .p2-minis",
+  "tabs": {
+    "overview": "[data-p2-root] data-rail .dv-rail-dest[data-id=\"overview\"]",
+    "joint": "[data-p2-root] data-rail .dv-rail-dest[data-id=\"one-joint\"]",
+    "trajectories": "[data-p2-root] data-rail .dv-rail-dest[data-id=\"trajectories\"]",
+    "tool": "[data-p2-root] data-rail .dv-rail-dest[data-id=\"tool-position\"]",
+    "orientation": "[data-p2-root] data-rail .dv-rail-dest[data-id=\"tool-orientation\"]",
+    "joints": "[data-p2-root] data-rail .dv-rail-dest[data-id=\"all-joints\"]"
+  },
+  "joint_picker": "[data-p2-root] [data-p2-joint-picker]",
+  "settings": "[data-p2-root] [data-p2-gear]",
+  "cmap": "[data-p2-root] [data-p2-cmap]",
+  "cmap_value": "magma",
+  "joint_figure": "[data-p2-root] .p2-occupancy .p2-panels",
+  "drill_trigger": "[data-p2-root] data-views tbody tr.dv-row[data-id]",
+  "drill_action": "click",
+  "drill": "[data-p2-root] .dv-peek",
+  "open_rerun": "[data-p2-root] .dv-peek [data-p2-rerun]",
+  "embed_root": "#host-slot[data-p2-root]"
+}

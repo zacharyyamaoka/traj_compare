@@ -1,0 +1,62 @@
+[
+  {
+    "label": "Every tab is a saved view",
+    "caption": "One data-ui <data-views> over the 212 trajectories with its <data-facets> rail: Dataset first, Split under it. The tabs are data-ui's own view tabs; each dashboard is a preset of the proposed type: panels, its panels drawn from the rows the rail leaves. One gear in the bar sets the colours for every tab.",
+    "actions": [],
+    "highlight": "#cov .dv-viewtablist"
+  },
+  {
+    "label": "Tick two datasets and holdout: every panel recounts",
+    "caption": "Cell · Conveyor PnP and UR5e alone · Workspace, then holdout: 16 + 12 = 28 trajectories. Split applies to both datasets ticked. The pill row says what is filtered, the strip says which rows (dots in each dataset's colour) and that every figure is re-aggregated from them.",
+    "actions": [
+      { "click": "data-facets[for=\"cov\"] input[data-p=\"dataset\"][data-value=\"Cell · Conveyor PnP\"]" },
+      { "wait": 400 },
+      { "click": "data-facets[for=\"cov\"] input[data-p=\"dataset\"][data-value=\"UR5e alone · Workspace\"]" },
+      { "wait": 400 },
+      { "click": "data-facets[for=\"cov\"] input[data-p=\"split\"][data-value=\"holdout\"]" },
+      { "wait": 600 }
+    ],
+    "highlight": "#cov [data-p3-strip]"
+  },
+  {
+    "label": "Switch tabs: the filter holds; the joint picker is this tab's own",
+    "caption": "One joint, still the same 28: the joint picker is the dashboard's own control (vars: in its view entry, ${joint} in its panels), drawn on this tab only, and Save view keeps the pick. Status line, pills and strip all still say 28.",
+    "actions": [
+      { "click": "#cov .dv-vtab[data-name=\"One joint\"]" },
+      { "wait": 600 },
+      { "click": "#cov [data-p3-vars=\"joint\"] [data-value=\"elbow\"]" },
+      { "wait": 600 }
+    ],
+    "highlight": "#cov [data-p3-vars=\"joint\"]"
+  },
+  {
+    "label": "+ makes your own dashboard tab",
+    "caption": "data-ui's own + offers Dashboard (view-types: panels, table, chart). A new dashboard starts with every panel of the file's dashboards on offer; two picks later it is a tab like the others (a user view in this browser, • on its tab), over the same 28 trajectories.",
+    "actions": [
+      { "click": "#cov .dv-vtab-add" },
+      { "wait": 500 },
+      { "click": "#cov .dv-layout[data-type=\"panels\"]" },
+      { "wait": 900 },
+      { "click": "#cov [data-p3-empty] [data-p3-catalog=\"Overview/joints\"]" },
+      { "wait": 900 },
+      { "click": "#cov [data-p3-add-panel]" },
+      { "wait": 400 },
+      { "click": "#cov .p3-catalog [data-p3-catalog=\"Tool position/tool\"]" },
+      { "wait": 900 }
+    ],
+    "highlight": "#cov .dv-vtab[data-kind=\"user\"]"
+  },
+  {
+    "label": "Drill into one trajectory, open it in Rerun",
+    "caption": "Trajectories is a stock data-ui table preset beside the dashboards (dataset and split badges, a header click sorts). A row opens data-ui's record pane: what this trajectory adds, and Open in Rerun posting its rrd.",
+    "actions": [
+      { "click": "#cov .dv-vtab[data-name=\"Trajectories\"]" },
+      { "wait": 700 },
+      { "click": "#cov .dv-view-table tbody tr[data-id] td:first-child" },
+      { "wait": 900 },
+      { "click": "#cov .dv-peek [data-p3-rerun]" },
+      { "wait": 600 }
+    ],
+    "highlight": "#cov .dv-peek [data-p3-rerun]"
+  }
+]

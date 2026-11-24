@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coverage · the rail holds the tabs (P2)</title>
+<link rel="stylesheet" href="../vendor/data-ui/data-ui.css">
+<link rel="stylesheet" href="css/figures.css">
+<link rel="stylesheet" href="css/p2.css">
+<style>
+  /* the full page: the component fills the window; it owns no page chrome (the same element drops into embed.html) */
+  html, body { margin: 0; height: 100%; background: #fff; }
+  body { overflow: hidden; }
+  #p2-app { height: 100vh; }
+</style>
+</head>
+<body>
+<div id="p2-app"></div>
+<script src="js/coverage_color.js"></script>
+<script src="../data/coverage.js"></script>
+<script src="../data/trajectories.js"></script>
+<script src="../data/membership.js"></script>
+<script src="../data/datasets.js"></script>
+<script type="module">
+  import { mountCoverage } from './js/app.js';
+  mountCoverage(document.getElementById('p2-app'));
+</script>
+</body>
+</html>

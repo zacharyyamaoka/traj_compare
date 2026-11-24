@@ -1,0 +1,119 @@
+/* figures.css — the coverage figures' styles, copied from round 2's V2 (coverage-ui-2026-11-24/v2/style.css): the
+   registered views, the overview, the legends and the drill. The container's own styles are p2.css.
+   Colours: data-ui's tokens (zinc greys, its series slots); white = empty, grey = unreachable, red = a limit. */
+
+/* the colour settings' fields (inside the gear's popover) */
+.p2-field { display: flex; align-items: center; gap: 10px; margin: 8px 0 4px; font-size: 12.5px; }
+.p2-field span { width: 76px; color: #52525b; }
+.p2-field select { flex: 1; font: inherit; padding: 4px 6px; border: 1px solid #d4d4d8; border-radius: 6px; background: #fff; }
+.p2-ramp { height: 10px; border-radius: 3px; margin: 2px 0 8px 86px; border: 1px solid #e4e4e7; }
+.p2-check { display: flex; align-items: center; gap: 7px; margin: 6px 0 6px 86px; font-size: 12.5px; }
+.p2-settings-note { margin: 8px 0 0; font-size: 11.5px; color: #71717a; line-height: 1.4; }
+
+/* ── a coverage view (registered with data-ui) ──────────────────────────────────────────────────────────────── */
+.p2-view { overflow: auto; }
+.p2-viewbody { padding: 10px 18px 16px; }
+.p2-viewhead { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; min-height: 30px; }
+.p2-subset { display: inline-flex; align-items: baseline; gap: 6px; font-size: 12.5px; color: #3f3f46; }
+.p2-subset-label { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: #71717a; }
+.p2-oracle { font-size: 11.5px; color: #1a7a50; margin-left: 6px; }
+.p2-oracle::before { content: "✓ "; }
+.p2-oracle.p2-bad { color: #b4442f; }
+.p2-oracle.p2-bad::before { content: "✗ "; }
+.p2-rebuilt { font-size: 11.5px; color: #1e3a8a; margin-left: 6px; padding: 1px 7px; border-radius: 4px; background: color-mix(in srgb, #2563eb 9%, #fff); }
+.p2-composition { display: inline-flex; gap: 5px; }
+
+.p2-picker { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid #e4e4e7; border-radius: 8px; background: #fafafa; }
+.p2-picker-label { font-size: 11px; font-weight: 600; color: #71717a; text-transform: uppercase; letter-spacing: .05em; padding: 0 8px 0 6px; }
+.p2-pick { font: inherit; font-size: 12.5px; border: 0; background: none; padding: 4px 10px; border-radius: 6px; color: #52525b; cursor: pointer; }
+.p2-pick:hover { background: #f0f0f2; color: #18181b; }
+.p2-pick.p2-on { background: #fff; color: #18181b; font-weight: 600; box-shadow: 0 0 0 1px #d4d4d8, 0 1px 2px rgba(0,0,0,.06); }
+
+.p2-panels-row { display: flex; align-items: flex-start; gap: 12px; }
+.p2-panels { display: grid; gap: 14px 18px; flex: 1 1 auto; min-width: 0; }
+.p2-panels.p2-compact { gap: 6px 8px; }
+.p2-panel { margin: 0; min-width: 0; }
+.p2-panel canvas { display: block; }
+.p2-panel-title { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; margin: 0 0 3px; white-space: nowrap; overflow: hidden; }
+.p2-compact .p2-panel-title { font-size: 11px; margin: 0 0 1px; }
+.p2-code { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; color: #8a8a93; }
+.p2-lead { margin-left: auto; font-size: 11.5px; color: #52525b; }
+.p2-colorbar { flex: none; padding-top: 22px; }
+.p2-colorbar canvas { display: block; }
+.p2-colorbar-title { font-size: 10.5px; color: #71717a; width: 66px; line-height: 1.25; }
+
+.p2-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 10px 0 0; font-size: 11.5px; color: #52525b; }
+.p2-key { display: inline-flex; align-items: center; gap: 6px; }
+.p2-key-ramp { width: 46px; height: 9px; border-radius: 2px; border: 1px solid #e4e4e7; }
+.p2-key-box { width: 11px; height: 11px; border-radius: 2px; border: 1px solid #d4d4d8; box-sizing: border-box; }
+.p2-key-empty { background: #fff; }
+.p2-key-outside { background: rgb(221, 220, 214); border-color: rgb(221, 220, 214); }
+.p2-key-frame { background: #fff; border: 1.5px solid #b4442f; }
+.p2-key-dash { width: 16px; border-top: 1.5px dashed rgba(24, 24, 27, .45); }
+.p2-key-cross { font-weight: 700; color: #18181b; width: 11px; text-align: center; }
+.p2-scale-note { margin: 6px 0 0; font-size: 11.5px; color: #8a8a93; }
+
+.p2-tip { position: absolute; z-index: 60; pointer-events: none; max-width: 320px; padding: 6px 9px; border-radius: 6px; background: #18181b; color: #fafafa; font-size: 11.5px; line-height: 1.45; box-shadow: 0 6px 18px rgba(0,0,0,.2); }
+.p2-tip[hidden] { display: none; }
+.p2-tip-hint { color: #a1a1aa; }
+
+/* ── the overview ───────────────────────────────────────────────────────────────────────────────────────────── */
+.p2-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.p2-kpis data-kpi .dv-kpi-card { padding: 8px 11px 7px; min-height: 0; }
+.p2-kpis data-kpi .dv-kpi-num { font-size: 21px; }
+.p2-whole { margin: 8px 0 0; font-size: 11.5px; color: #71717a; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.p2-whole-label { color: #8a8a93; }
+.p2-whole b { color: #3f3f46; font-weight: 600; }
+.p2-section { font-size: 12px; font-weight: 600; color: #3f3f46; margin: 14px 0 6px; text-transform: uppercase; letter-spacing: .05em; }
+.p2-minis { display: flex; gap: 14px; align-items: flex-start; }
+.p2-mini { min-width: 0; box-sizing: border-box; border: 1px solid #ececef; border-radius: 8px; padding: 6px 8px 8px; }
+.p2-mini-open { font: inherit; font-size: 12.5px; font-weight: 600; border: 0; background: none; color: #1d4ed8; cursor: pointer; padding: 2px 0 6px; }
+.p2-mini-open:hover { text-decoration: underline; }
+
+/* ── the drill, in data-ui's record peek ────────────────────────────────────────────────────────────────────── */
+.p2-drill { padding: 4px 0 8px; }
+.p2-drill-actions { display: flex; align-items: center; gap: 10px; margin: 6px 0 4px; }
+.p2-rerun { display: inline-flex; align-items: center; gap: 7px; font: inherit; font-size: 13px; font-weight: 600; padding: 7px 14px; border-radius: 7px;
+  border: 0; background: #18181b; color: #fafafa; cursor: pointer; }
+.p2-rerun:hover { background: #27272a; }
+.p2-rerun svg { width: 12px; height: 12px; fill: currentColor; }
+.p2-rerun-status { font-size: 12px; color: #52525b; }
+.p2-rerun-fallback { display: flex; gap: 6px; align-items: flex-start; margin: 4px 0; }
+.p2-rerun-fallback[hidden] { display: none; }
+.p2-rerun-fallback code { flex: 1; font: 11px ui-monospace, monospace; background: #f4f4f5; padding: 6px 8px; border-radius: 6px; word-break: break-all; }
+.p2-copy { font: inherit; font-size: 12px; border: 1px solid #d4d4d8; background: #fff; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
+.p2-drill-h { font-size: 13px; margin: 14px 0 2px; }
+.p2-drill-sub { margin: 0 0 8px; font-size: 11.5px; color: #71717a; }
+.p2-drill-fig { margin: 0 0 10px; }
+.p2-drill-fig figcaption { font-size: 11.5px; color: #52525b; margin-bottom: 4px; }
+.p2-drill-fig canvas { display: block; }
+.p2-drill-joints { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.p2-drill-mini { margin: 0; }
+.p2-drill-mini figcaption { font-size: 10.5px; color: #52525b; display: flex; justify-content: space-between; gap: 4px; }
+.p2-drill-mini figcaption span { color: #8a8a93; }
+.p2-drill-key { margin-top: 4px; }
+.p2-panels.p2-hero { justify-content: start; }
+.p2-slot { align-self: start; padding: 22px 0 0 8px; }
+.p2-slot-row { display: flex; gap: 14px; align-items: flex-start; }
+.p2-legend-col { flex-direction: column; gap: 6px; margin: 0; }
+.p2-hint { margin: 4px 0 0; font-size: 11.5px; color: #a1a1aa; }
+.p2-panel-title > * { flex: none; }
+.p2-panel-title .p2-lead { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.p2-drill-row { display: flex; gap: 14px; align-items: flex-start; }
+.p2-drill-tool { flex: none; }
+.p2-drill-row > .p2-drill-fig:last-child { flex: 1 1 auto; min-width: 0; }
+.p2-drill-joints { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.p2-drill-span { font-size: 10.5px; color: #8a8a93; margin-top: 3px; }
+
+/* ── P2 additions: the subset note, the dataset composition, the across-datasets row ────────────────────────────── */
+.p2-composition { display: inline-flex; flex-wrap: wrap; gap: 5px; }
+.p2-datasets { margin-top: 16px; }
+.p2-ds-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; }
+.p2-ds-tile { margin: 0; }
+.p2-ds-tile figcaption { font-size: 12px; font-weight: 600; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.p2-ds-tile canvas { display: block; }
+.p2-ds-num { font-size: 11px; color: #71717a; margin-top: 3px; }
+.p2-ds-num b { color: #18181b; }
+/* the KPI cards re-fit to the dashboard's width (a container query on the main pane) */
+@container p2main (width < 980px) { .p2-kpis data-kpi .dv-kpi-card { padding: 6px 9px 5px; } .p2-kpis data-kpi .dv-kpi-num { font-size: 18px; } }
+@container p2main (width < 760px) { .p2-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }

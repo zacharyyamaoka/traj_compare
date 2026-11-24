@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coverage · run selector (P4)</title>
+<link rel="stylesheet" href="../vendor/data-ui/data-ui.css">
+<link rel="stylesheet" href="css/p4.css">
+<style>
+  /* the PAGE around the component: a thin title line, then the component fills the rest of the window */
+  html, body { margin: 0; height: 100%; background: #fff; overflow: hidden; }
+  body { display: flex; flex-direction: column; font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #18181b; }
+  .page-head { flex: none; display: flex; align-items: baseline; gap: 12px; padding: 8px 16px 7px; border-bottom: 1px solid #e4e4e7; }
+  .page-head h1 { margin: 0; font-size: 15px; font-weight: 650; }
+  .page-head span { font-size: 12px; color: #71717a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #p4-slot { flex: 1 1 auto; min-height: 0; }
+</style>
+</head>
+<body>
+<header class="page-head"><h1>UR5e trajectory datasets</h1><span>4 datasets · dev + holdout at full speed · 212 trajectories · P4 run selector (TensorBoard / W&amp;B style)</span></header>
+<div id="p4-slot"></div>
+<script src="js/coverage_color.js"></script>
+<script src="../data/coverage.js"></script>
+<script src="../data/trajectories.js"></script>
+<script src="../data/membership.js"></script>
+<script src="../data/datasets.js"></script>
+<script type="module">
+  import { mount } from './js/app.js';
+  mount(document.getElementById('p4-slot'));
+</script>
+</body>
+</html>

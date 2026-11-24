@@ -1,0 +1,106 @@
+/* p2.css — the container: one left column (the dashboards, then the filters, then the gear) and the open dashboard.
+   Everything is scoped under .p2 so the component can sit in any host page; it draws nothing outside its root (the
+   root is position: relative and clips; the filters panel, the gear's popover and the hover tip are absolute inside).
+   Two layouts, chosen by the rail's mode (component.js flips it when the component crosses 1100 px):
+     wide    the column is the rail's wide list + the facets inline (VS Code's side bar, Linear's sidebar)
+     narrow  the column is the rail's 48 px icon strip; the filters open as a panel over the dashboard, inside. */
+
+.p2 { --p2-side-bg: #f7f7f8; --p2-line: #e4e4e7; --p2-soft: #71717a; --p2-ink: #18181b; --p2-accent: #2563eb;
+  position: relative; display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden;
+  box-sizing: border-box; background: #fff; color: var(--p2-ink);
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+.p2 *, .p2 *::before, .p2 *::after { box-sizing: border-box; }
+.p2 button { font: inherit; }
+
+/* ── the column ─────────────────────────────────────────────────────────────────────────────────────────────── */
+.p2-side { flex: none; width: var(--data-panel-width, 264px); display: flex; flex-direction: column; min-height: 0;
+  background: var(--p2-side-bg); border-right: 1px solid var(--p2-line); }
+.p2-side-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
+
+/* the dashboards: stock <data-rail>, sized to its content (it is the top of the column, not the whole column) */
+.p2 data-rail { --data-rail-bg: transparent; height: auto; width: 100%; box-shadow: none; padding: 8px 8px 6px; overflow: visible; }
+.p2 data-rail .dv-rail-nav { margin-top: 4px; }
+.p2 data-rail .dv-rail-scroll { overflow: visible; }
+.p2 data-rail .dv-rail-brand-mark { width: 20px; height: 20px; background: none; color: var(--p2-soft); }
+.p2 data-rail .dv-rail-brand-mark svg { width: 16px; height: 16px; }
+.p2 data-rail .dv-rail-brand-name { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--p2-soft); }
+.p2 data-rail .dv-rail-dest { height: 32px; color: #3f3f46; }
+.p2 data-rail .dv-rail-dest[aria-current=page] { background: #fff; color: var(--p2-ink); box-shadow: 0 0 0 1px var(--p2-line), 0 1px 2px rgba(0, 0, 0, .05); }
+.p2 data-rail .dv-rail-dest[aria-current=page] .dv-rail-icon { color: var(--p2-accent); }
+.p2 data-rail[mode=wide] .dv-rail-foot { display: none; }
+.p2 data-rail ul { gap: 2px; }
+
+/* the filters, inline under the dashboards (wide) */
+.p2-filter-btn { display: none; }
+.p2-filters { border-top: 1px solid var(--p2-line); padding: 6px 0 10px; }
+.p2-filters-head { display: flex; align-items: center; gap: 8px; padding: 4px 16px 2px; min-height: 28px; }
+.p2-filters-head b { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--p2-soft); }
+.p2-filters-count { font-size: 12px; color: #3f3f46; font-variant-numeric: tabular-nums; }
+.p2-link { margin-left: auto; border: 0; background: none; color: var(--p2-accent); font-size: 12px; cursor: pointer; padding: 2px 4px; border-radius: 4px; }
+.p2-link:hover { background: #eef2ff; }
+.p2-x { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--p2-soft); cursor: pointer; }
+.p2-x:hover { background: #ececef; color: var(--p2-ink); }
+.p2-filters-head .p2-x { display: none; }
+.p2 data-facets { display: block; background: transparent; }
+
+/* the foot: one gear for the whole component (VS Code's Manage gear sits at the foot of its activity bar) */
+.p2-side-foot { flex: none; border-top: 1px solid var(--p2-line); padding: 6px 8px; }
+.p2-gear { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 8px; border: 0; border-radius: 6px;
+  background: none; color: #3f3f46; cursor: pointer; }
+.p2-gear:hover, .p2-gear[aria-expanded="true"] { background: #ececef; color: var(--p2-ink); }
+
+/* ── the narrow layout: an icon strip; the filters a panel inside the component ─────────────────────────────── */
+.p2[data-p2-layout="narrow"] .p2-side { width: 48px; }
+.p2[data-p2-layout="narrow"] .dv-splitter { display: none !important; }
+.p2[data-p2-layout="narrow"] data-rail { padding: 6px 6px 2px; }
+.p2[data-p2-layout="narrow"] data-rail .dv-rail-head { display: none; }
+.p2[data-p2-layout="narrow"] data-rail .dv-rail-foot { margin-top: 2px; }
+.p2[data-p2-layout="narrow"] .p2-side-scroll { overflow: visible; }
+.p2[data-p2-layout="narrow"] .p2-filter-btn { position: relative; display: grid; place-items: center; width: 36px; height: 36px;
+  margin: 4px auto 0; padding: 0; border: 0; border-radius: 6px; background: none; color: #3f3f46; cursor: pointer; }
+.p2[data-p2-layout="narrow"] .p2-filter-btn:hover, .p2[data-p2-layout="narrow"] .p2-filter-btn[aria-expanded="true"] { background: #ececef; color: var(--p2-ink); }
+.p2[data-p2-filtered="yes"][data-p2-layout="narrow"] .p2-filter-btn { color: var(--p2-accent); }
+.p2-filter-word { display: none; }
+.p2-badge { position: absolute; top: 1px; right: 0; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
+  background: var(--p2-accent); color: #fff; font-size: 10.5px; font-weight: 600; line-height: 16px; text-align: center; font-variant-numeric: tabular-nums; }
+.p2-badge[hidden] { display: none; }
+.p2[data-p2-layout="narrow"] .p2-filters { display: none; }
+.p2[data-p2-layout="narrow"] .p2-filters[data-open] { display: block; position: absolute; z-index: 40; left: 48px; top: 0; bottom: 0;
+  width: min(300px, calc(100% - 56px)); overflow-y: auto; background: #fff; border-right: 1px solid var(--p2-line); border-top: 0;
+  box-shadow: 8px 0 24px rgba(24, 24, 27, .12); }
+.p2[data-p2-layout="narrow"] .p2-filters-head .p2-x { display: grid; }
+.p2[data-p2-layout="narrow"] .p2-side-foot { padding: 6px; }
+.p2[data-p2-layout="narrow"] .p2-gear { width: 36px; height: 36px; padding: 0; justify-content: center; margin: 0 auto; }
+.p2[data-p2-layout="narrow"] .p2-gear-word { display: none; }
+
+/* ── the open dashboard ─────────────────────────────────────────────────────────────────────────────────────── */
+.p2-main { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; container: p2main / inline-size; }
+.p2-dash-head { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; padding: 8px 16px; min-height: 44px;
+  border-bottom: 1px solid #ececef; background: #fff; }
+.p2-dash-icon { display: grid; place-items: center; color: var(--p2-accent); }
+.p2-dash-name { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -.01em; white-space: nowrap; }
+.p2-count { font-size: 12.5px; color: #3f3f46; padding: 2px 9px; border-radius: 999px; background: #f4f4f5; border: 1px solid var(--p2-line); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.p2-count.p2-count-sub { background: color-mix(in srgb, #2563eb 9%, #fff); border-color: color-mix(in srgb, #2563eb 32%, #fff); color: #1e3a8a; }
+.p2-chips { display: flex; flex-wrap: wrap; gap: 5px; min-width: 0; }
+.p2-chip { font-size: 12px; color: #3f3f46; padding: 2px 8px; border-radius: 6px; background: #fafafa; border: 1px dashed #d4d4d8; max-width: 420px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.p2-chip-k { color: var(--p2-soft); }
+.p2-main > data-views { flex: 1 1 0; min-height: 0; --data-height: 100%; height: auto; }
+
+/* ── the gear's popover (inside the component) ──────────────────────────────────────────────────────────────── */
+.p2-settings { position: absolute; z-index: 50; width: 300px; max-width: calc(100% - 16px); padding: 12px 14px; background: #fff;
+  border: 1px solid var(--p2-line); border-radius: 10px; box-shadow: 0 12px 32px rgba(24, 24, 27, .16); }
+.p2-settings[hidden] { display: none; }
+.p2-settings-head { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+.p2-settings-head > div { flex: 1; }
+.p2-settings-head b { display: block; font-size: 13px; }
+.p2-settings-head span { display: block; font-size: 11.5px; color: var(--p2-soft); }
+
+/* ── stock <data-facets> inside the column ──────────────────────────────────────────────────────────────────── */
+/* WHY its own "Filter N match" summary is hidden: the column's Filters line above says the same (N of 212) and keeps
+   Clear and, in the narrow panel, Close; two counts one line apart read as two filters */
+.p2 data-facets details.df-box > summary { display: none; }
+.p2 data-facets .df-label::before { display: inline-block; width: 9px; height: 9px; margin-right: 6px; border-radius: 2px; vertical-align: 0; }
+.p2 data-facets .df-box { padding: 0 6px 0 8px; }
+/* the table sits flush in the pane: give its first column the pane's gutter */
+.p2-main data-views :is(td, th):first-child { padding-left: 16px; }

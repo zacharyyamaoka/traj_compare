@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coverage · P5 filter scope</title>
+<link rel="stylesheet" href="../vendor/data-ui/data-ui.css">
+<link rel="stylesheet" href="css/parts.css">
+<link rel="stylesheet" href="css/coverage.css">
+<link rel="stylesheet" href="css/layout.css">
+<style>
+  /* the page: the component IS the page here (1440 × 900) */
+  html, body { margin: 0; height: 100%; background: #fff; overflow: hidden; }
+  body > data-scope { height: 100vh; }
+</style>
+</head>
+<body>
+<!-- P5 "A filter scope; the host composes": one <data-scope> holds the 212 rows and the one filter; every data-ui part
+     inside it shares them. The parts: a rail (<data-facets> inside a <data-fold>), a <data-tabs> strip, a <data-count>,
+     a <data-settings> gear, four stock <data-dashboard>s and one stock <data-views> table, each a page with tab="…".
+     The grid that places them is host CSS (css/layout.css); embed.html is this same markup in a 1000 × 680 slot. -->
+<data-scope id="coverage">
+  <div class="p5-frame">
+    <data-fold label="Filters" data-resizable="right" data-resizable-min="200" data-resizable-max="440" data-resizable-key="p5-rail">
+      <header class="p5-title">
+        <h1>UR5e trajectory datasets</h1>
+        <p>4 datasets · dev + holdout at full speed · 212 trajectories</p>
+      </header>
+      <data-facets data-resizable="off"></data-facets>
+    </data-fold>
+    <div class="p5-bar">
+      <data-tabs aria-label="Coverage dashboards"></data-tabs>
+      <data-count noun="trajectory"></data-count>
+      <data-settings></data-settings>
+    </div>
+    <div class="p5-pages">
+      <data-dashboard tab="Overview"></data-dashboard>
+      <data-dashboard tab="One joint"></data-dashboard>
+      <data-dashboard tab="Tool position"></data-dashboard>
+      <data-dashboard tab="Tool orientation"></data-dashboard>
+      <data-views tab="Trajectories" view="Trajectories" toolbar="none" open="side"></data-views>
+    </div>
+  </div>
+</data-scope>
+<script src="js/coverage/coverage_color.js"></script>
+<script src="../data/coverage.js"></script>
+<script src="../data/trajectories.js"></script>
+<script src="../data/membership.js"></script>
+<script src="../data/datasets.js"></script>
+<script type="module">
+  import { start } from './js/app.js';
+  start();
+</script>
+</body>
+</html>

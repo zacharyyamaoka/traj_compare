@@ -1,0 +1,36 @@
+<!doctype html>
+<!-- A fake host app for check P4 (2026-11-24), copied from host/embed-template.html: P1's component is the same one tag
+     as index.html, dropped into #host-slot (1000 x 680) with no-url (the host owns its URL). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Host app · embed check</title>
+<link rel="stylesheet" href="../vendor/data-ui/data-ui.css">
+<script type="module" src="coverage/register.js"></script>
+<script type="module" src="workbench/data-workbench.js"></script>
+<style>
+  body { margin: 0; font: 14px system-ui, sans-serif; background: #eef0f3; color: #1f2328; }
+  #host-header { height: 48px; display: flex; align-items: center; gap: 16px; padding: 0 16px; background: #1f2937; color: #fff; }
+  #host-header b { font-size: 15px; }
+  #host-main { display: flex; }
+  #host-sidebar { width: 200px; min-height: calc(100vh - 48px); background: #fff; border-right: 1px solid #d0d7de; padding: 12px; box-sizing: border-box; }
+  #host-sidebar div { padding: 6px 8px; border-radius: 6px; color: #57606a; }
+  #host-sidebar div.on { background: #eef2ff; color: #1f2328; }
+  #host-content { padding: 20px; }
+  #host-content h2 { margin: 0 0 12px; font-size: 16px; }
+  #host-slot { width: 1000px; height: 680px; background: #fff; border: 1px solid #d0d7de; border-radius: 8px; overflow: hidden; position: relative; }
+</style>
+</head>
+<body>
+<div id="host-header"><b>Host app</b><span>Robots</span><span>Datasets</span><span>Reports</span></div>
+<div id="host-main">
+  <nav id="host-sidebar"><div>UR5e</div><div class="on">Trajectory coverage</div><div>Pick loop</div><div>Notes</div></nav>
+  <main id="host-content">
+    <h2>UR5e trajectory coverage (embedded)</h2>
+    <div id="host-slot"><data-workbench id="coverage" src="coverage.base" no-url></data-workbench></div>
+  </main>
+</div>
+</body>
+</html>

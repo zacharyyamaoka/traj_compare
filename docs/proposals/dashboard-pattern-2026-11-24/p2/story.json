@@ -1,0 +1,46 @@
+[
+  {
+    "label": "One column, two jobs",
+    "caption": "The left column lists the dashboards (vertical tabs, the open one marked) and, under them, the filters: Dataset first, then Split, Kind, Tags and ranges. The pane on the right is only the open dashboard, under one line that names it and says how many trajectories it draws. No tab strip anywhere.",
+    "actions": [],
+    "highlight": "[data-p2-root] .p2-side"
+  },
+  {
+    "label": "Two datasets + holdout: every number recounts",
+    "caption": "Tick Cell · Conveyor PnP and UR5e alone · Workspace, then holdout: the split applies to both datasets (16 + 12 = 28). The line over the dashboard turns blue and lists the picks; the cards say ~ derived, the maps say 'subset of 28', and the dataset row compares the two in their own colours.",
+    "actions": [
+      { "click": "[data-p2-root] data-facets label:has(> input[data-p=\"dataset\"][data-value=\"Cell · Conveyor PnP\"])", "wait": 700 },
+      { "click": "[data-p2-root] data-facets label:has(> input[data-p=\"dataset\"][data-value=\"UR5e alone · Workspace\"])", "wait": 700 },
+      { "click": "[data-p2-root] data-facets label:has(> input[data-p=\"split\"][data-value=\"holdout\"])", "wait": 900 },
+      { "scroll": "[data-p2-root] [data-p2-datasets]", "wait": 400 }
+    ],
+    "highlight": "[data-p2-root] .p2-dash-head"
+  },
+  {
+    "label": "Switch dashboards in the rail; the filter holds",
+    "caption": "One click on Tool position in the rail: the dashboard swaps, the rail marks it, and the same 28 trajectories (the same picks, still ticked in the column) are what it draws.",
+    "actions": [
+      { "click": "[data-p2-root] data-rail .dv-rail-dest[data-id=\"tool-position\"]", "wait": 1000 }
+    ],
+    "highlight": "[data-p2-root] data-rail .dv-rail-dest[data-id=\"tool-position\"]"
+  },
+  {
+    "label": "A dashboard's own control stays on it",
+    "caption": "One joint carries the joint picker, and only it does: pick elbow and its three maps redraw over the same 28 trajectories. The colour map, Reverse and scale are behind the one gear at the column's foot.",
+    "actions": [
+      { "click": "[data-p2-root] data-rail .dv-rail-dest[data-id=\"one-joint\"]", "wait": 900 },
+      { "click": "[data-p2-root] [data-p2-joint-picker] [data-pick=\"elbow\"]", "wait": 900 }
+    ],
+    "highlight": "[data-p2-root] [data-p2-joint-picker]"
+  },
+  {
+    "label": "Drill into one trajectory, open it in Rerun",
+    "caption": "Trajectories is a stock data-ui table (dataset, split and kind columns; a header click sorts). A row opens data-ui's record pane with Open in Rerun (it posts that trajectory's .rrd) and what this trajectory adds against all 212.",
+    "actions": [
+      { "click": "[data-p2-root] data-rail .dv-rail-dest[data-id=\"trajectories\"]", "wait": 900 },
+      { "click": "[data-p2-root] data-views tbody tr.dv-row[data-id]", "wait": 1000 },
+      { "click": "[data-p2-root] .dv-peek [data-p2-rerun]", "wait": 800 }
+    ],
+    "highlight": "[data-p2-root] .dv-peek"
+  }
+]

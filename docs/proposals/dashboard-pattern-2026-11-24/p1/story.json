@@ -1,0 +1,43 @@
+[
+  {
+    "label": "One tag, the whole pattern",
+    "caption": "<data-workbench src=\"coverage.base\"> is the page. Its corner says how many of the 212 trajectories the rail leaves; the rail (stock data-facets, Dataset first, each dataset in its colour) is the left; the tab strip of six dashboards runs along the element's own top, not the page's. Every figure says which subset it draws.",
+    "actions": [],
+    "highlight": "data-workbench .dw-head"
+  },
+  {
+    "label": "Tick two datasets and holdout: every dashboard recounts",
+    "caption": "Conveyor PnP + UR5e alone, holdout only: 28 of 212. Split applies to both datasets at once (one clause). The corner, the pill line under the tabs and every card say so; 'Datasets in this subset' shows the make-up in the datasets' colours.",
+    "actions": [
+      { "click": "data-workbench .dw-rail section.df-group[data-p=\"dataset\"] input[data-value=\"Cell · Conveyor PnP\"]", "wait": 700 },
+      { "click": "data-workbench .dw-rail section.df-group[data-p=\"dataset\"] input[data-value=\"UR5e alone · Workspace\"]", "wait": 700 },
+      { "click": "data-workbench .dw-rail section.df-group[data-p=\"split\"] input[data-value=\"holdout\"]", "wait": 900 }
+    ],
+    "highlight": "data-workbench .dw-pills"
+  },
+  {
+    "label": "Switch dashboards: the filter holds",
+    "caption": "Datasets side by side: one row per ticked dataset, the same colour scale for every map, so the two datasets' holdouts compare at a glance. The count, the pills and the rail are unchanged by the tab.",
+    "actions": [ { "click": "data-workbench [data-dw-tab=\"datasets-side-by-side\"]", "wait": 1200 } ],
+    "highlight": "data-workbench [data-dw-page=\"datasets-side-by-side\"] .cov-split"
+  },
+  {
+    "label": "One joint: the picker lives on this dashboard only",
+    "caption": "The joint picker is this page's own control (a view key), not the rail's: elbow's three planes over the same 28 trajectories. The gear (top right, inside the element) holds the colour map, Reverse and scale for every page.",
+    "actions": [
+      { "click": "data-workbench [data-dw-tab=\"one-joint\"]", "wait": 1200 },
+      { "click": "data-workbench [data-cov-joint-picker] [data-pick=\"elbow\"]", "wait": 900 }
+    ],
+    "highlight": "data-workbench [data-cov-joint-picker]"
+  },
+  {
+    "label": "Drill into one trajectory, open it in Rerun",
+    "caption": "Trajectories: the stock data-ui table of the 28, with dataset and split columns. A row opens the stock record pane, which here opens inside the element; the .base's drill: action posts its rrd to Open in Rerun.",
+    "actions": [
+      { "click": "data-workbench [data-dw-tab=\"trajectories\"]", "wait": 1200 },
+      { "click": "data-workbench [data-dw-page=\"trajectories\"] tbody tr:first-child td:first-child", "wait": 1000 },
+      { "click": "data-workbench data-views.dd-drill [data-dw-action=\"0\"]", "wait": 700 }
+    ],
+    "highlight": "data-workbench data-views.dd-drill .dv-peek"
+  }
+]

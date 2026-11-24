@@ -1,0 +1,207 @@
+/* P3 "Every tab is a saved view": the host page (index.html only, body.p3-page), then the component (.p3-root), then
+   the figures copied from round 2's V2 (v2/style.css). Colours: data-ui's tokens (--dv-*, zinc greys, its series
+   slots); white = empty, grey = unreachable, red = a limit (coverage_color.js). Light only: "white = empty" needs a
+   white ground. The component draws nothing outside its root: every popover is absolute inside .p3-root. */
+
+/* ── the host page (index.html) ─────────────────────────────────────────────────────────────────────────────── */
+body.p3-page { margin: 0; height: 100vh; display: flex; flex-direction: column; background: #f6f6f7; color: #18181b; overflow: hidden;
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+.p3-pagehead { flex: none; padding: 8px 18px 8px; background: #fff; border-bottom: 1px solid #e4e4e7; }
+.p3-crumb { font-size: 11px; color: #71717a; }
+.p3-pagehead h1 { margin: 1px 0 0; font-size: 17px; font-weight: 650; letter-spacing: -.01em; display: inline-block; }
+.p3-pagehead p { display: inline-block; margin: 0 0 0 12px; font-size: 12px; color: #52525b; }
+.p3-mount { flex: 1 1 auto; min-height: 0; padding: 10px 14px 12px; box-sizing: border-box; }
+
+/* ── the component: a rail and one <data-views>, filling whatever box it is given ───────────────────────────── */
+.p3-root { position: relative; height: 100%; width: 100%; min-width: 0; display: flex; gap: 10px; box-sizing: border-box; color: #18181b;
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; container-type: inline-size; container-name: p3; }
+.p3-root > data-facets { flex: 0 0 var(--p3-rail, 236px); width: var(--p3-rail, 236px); overflow: auto; background: #fff; border: 1px solid #e4e4e7; border-radius: 8px; padding: 2px 0; box-sizing: border-box; }
+.p3-root > data-facets[hidden] { display: none; }
+.p3-root > data-views { flex: 1 1 auto; min-width: 0; --data-height: 100%; height: 100%; background: #fff; border: 1px solid #e4e4e7; border-radius: 8px; overflow: hidden; }
+/* in a host's slot (no page around it): no gap, the slot's own border is the frame */
+#host-slot > .p3-root { gap: 0; --p3-rail: 208px; }
+#host-slot > .p3-root > data-facets { border-width: 0 1px 0 0; border-radius: 0; }
+#host-slot > .p3-root > data-views { border: 0; border-radius: 0; }
+/* the rail's dataset colour key (shims.js facetDots writes the colours): a dot before each value */
+.p3-root data-facets .df-label::before { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin: 0 6px 0 0; vertical-align: 0; }
+
+/* the gear: in the bar's row, in room the bar keeps for it (bar.js reads this padding when it fits the row) */
+.p3-root > data-views > .dv-bar { padding-right: 46px; }
+.p3-gear { position: absolute; right: 7px; top: 50%; transform: translateY(-50%); width: 32px; height: 32px; display: grid; place-items: center;
+  border: 0; border-radius: 6px; background: none; color: var(--dv-muted, #52525b); cursor: pointer; padding: 0; }
+.p3-gear:hover, .p3-gear[aria-expanded="true"] { background: var(--dv-hover, #f4f4f5); color: var(--dv-fg, #18181b); }
+.p3-gear svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+
+.p3-pop { position: absolute; z-index: 60; background: #fff; border: 1px solid #e4e4e7; border-radius: 10px; box-shadow: 0 12px 32px rgba(24, 24, 27, .14); box-sizing: border-box; }
+.p3-pop[hidden] { display: none; }
+.p3-settings { width: 300px; padding: 12px 14px; }
+.p3-settings-head { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
+.p3-settings-head > div { flex: 1; }
+.p3-settings-head b { display: block; font-size: 13px; }
+.p3-settings-head span { display: block; font-size: 11.5px; color: #71717a; }
+.p3-x { border: 0; background: none; font-size: 14px; color: #71717a; cursor: pointer; padding: 2px 4px; border-radius: 4px; }
+.p3-x:hover { background: #f4f4f5; color: #18181b; }
+.p3-field { display: flex; align-items: center; gap: 10px; margin: 8px 0 4px; font-size: 12.5px; }
+.p3-field > span { width: 76px; flex: none; color: #52525b; }
+.p3-field select, .p3-field input { flex: 1; min-width: 0; font: inherit; padding: 4px 6px; border: 1px solid #d4d4d8; border-radius: 6px; background: #fff; }
+.p3-check { display: flex; align-items: flex-start; gap: 7px; margin: 8px 0 6px; font-size: 12.5px; }
+.p3-settings .p3-check { margin-left: 86px; }
+.p3-ramp { height: 10px; border-radius: 3px; margin: 2px 0 4px 86px; border: 1px solid #e4e4e7; }
+.p3-settings-note { margin: 8px 0 0; font-size: 11.5px; color: #71717a; line-height: 1.4; }
+.p3-savepop { width: 320px; padding: 12px 14px; font-size: 12.5px; }
+.p3-row { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
+.p3-btn { font: inherit; font-size: 12.5px; border: 1px solid #d4d4d8; background: #fff; border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+.p3-btn.p3-primary { background: #18181b; color: #fafafa; border-color: #18181b; }
+.p3-hint { margin: 4px 0 0; font-size: 11.5px; color: #8a8a93; }
+.p3-root .dv-pills .p3-savetab { font-weight: 600; color: var(--dv-accent, #2563eb); }
+
+/* ── a dashboard: the strip under the bar, then a 12-column grid of panels ──────────────────────────────────── */
+.p3-dashview { overflow: auto; }
+.p3-dash { position: relative; padding: 0 14px 16px; container-type: inline-size; container-name: p3dash; }
+.p3-dash-nested { padding: 0; }
+.p3-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; min-height: 40px; padding: 4px 0; margin-bottom: 4px; border-bottom: 1px solid #f0f0f2; }
+.p3-subset { display: inline-flex; align-items: baseline; gap: 6px; font-size: 12.5px; color: #3f3f46; }
+.p3-subset-label { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: #71717a; }
+.p3-oracle { font-size: 11.5px; color: #1a7a50; margin-left: 4px; }
+.p3-oracle::before { content: "✓ "; }
+.p3-oracle.p3-bad { color: #b4442f; }
+.p3-oracle.p3-bad::before { content: "✗ "; }
+.p3-rebuilt { font-size: 11.5px; color: #1e3a8a; margin-left: 4px; padding: 1px 7px; border-radius: 4px; background: color-mix(in srgb, #2563eb 9%, #fff); }
+.p3-composition { display: inline-flex; flex-wrap: wrap; gap: 3px; }
+.p3-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px 1px 6px; border-radius: 999px; background: #f4f4f5; font-size: 11.5px; color: #3f3f46; white-space: nowrap; }
+.p3-chip b { font-weight: 600; color: #18181b; }
+.p3-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+/* a narrow host: the chips keep their colour and count, the names move into the hover (the rail's dots say them) */
+@container p3dash (max-width: 980px) { .p3-chip-label { display: none; } }
+.p3-vars { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid #e4e4e7; border-radius: 8px; background: #fafafa; }
+.p3-vars-label { font-size: 11px; font-weight: 600; color: #71717a; text-transform: uppercase; letter-spacing: .05em; padding: 0 8px 0 6px; }
+.p3-var { font: inherit; font-size: 12.5px; border: 0; background: none; padding: 3px 9px; border-radius: 6px; color: #52525b; cursor: pointer; }
+.p3-var:hover { background: #f0f0f2; color: #18181b; }
+.p3-var.p3-on { background: #fff; color: #18181b; font-weight: 600; box-shadow: 0 0 0 1px #d4d4d8, 0 1px 2px rgba(0,0,0,.06); }
+.p3-grow { flex: 1 1 auto; }
+.p3-ownfilter { display: inline-flex; align-items: baseline; gap: 6px; font-size: 12px; color: #3f3f46; padding: 1px 8px; border-radius: 6px; border: 1px dashed #c4c4cc; }
+.p3-addpanel { font: inherit; font-size: 12px; border: 0; background: none; color: #52525b; cursor: pointer; padding: 4px 8px; border-radius: 6px; }
+.p3-addpanel:hover, .p3-addpanel[aria-expanded="true"] { background: #f4f4f5; color: #18181b; }
+
+.p3-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.p3-panel { grid-column: span var(--w, 12); min-width: 0; border: 1px solid #ececef; border-radius: 8px; padding: 6px 10px 8px; box-sizing: border-box; background: #fff; }
+.p3-panel.p3-untitled { border: 0; padding: 0; }
+.p3-panel.p3-untitled > .p3-panel-head { display: none; }
+.p3-panel.p3-repeat { border-left: 3px solid var(--p3-stripe, #e4e4e7); }
+.p3-dash-nested .p3-panel { border: 0; padding: 0; }
+.p3-panel-head { display: flex; align-items: center; gap: 8px; min-height: 22px; margin-bottom: 4px; }
+.p3-panel-title { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.p3-panel-note { font-size: 11.5px; color: #8a8a93; }
+.p3-repeat-n { font-weight: 400; color: #52525b; }
+.p3-panel-open { font: inherit; font-size: 12px; font-weight: 600; border: 0; background: none; color: #1d4ed8; cursor: pointer; padding: 1px 4px; white-space: nowrap; }
+.p3-panel-open:hover { text-decoration: underline; }
+.p3-panel-x { border: 0; background: none; color: #a1a1aa; cursor: pointer; font-size: 12px; padding: 1px 4px; border-radius: 4px; }
+.p3-panel-x:hover { background: #f4f4f5; color: #b4442f; }
+.p3-panel-body > .dv-view { overflow: visible; }
+.p3-panel-error { color: #b4442f; font-size: 12px; margin: 4px 0; }
+/* a narrow host: panels stack, each the full width (the figures re-fit to it) */
+@container p3dash (max-width: 700px) { .p3-panel { grid-column: 1 / -1; } }
+
+.p3-catalog { width: 330px; max-height: 360px; overflow: auto; padding: 10px 12px; }
+.p3-catalog-head b { display: block; font-size: 13px; }
+.p3-catalog-head span { display: block; font-size: 11.5px; color: #71717a; margin-bottom: 6px; }
+.p3-catalog-group { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: #71717a; margin: 8px 0 2px; }
+.p3-catalog-item { display: block; width: 100%; text-align: left; font: inherit; font-size: 12.5px; border: 0; background: none; padding: 5px 8px; border-radius: 6px; cursor: pointer; color: #18181b; }
+.p3-catalog-item:hover { background: #f4f4f5; }
+.p3-empty { grid-column: 1 / -1; max-width: 520px; padding: 18px 4px; }
+.p3-empty p { color: #52525b; margin: 4px 0 8px; }
+.p3-empty .p3-catalog-list { border: 1px solid #ececef; border-radius: 8px; padding: 4px 8px 8px; }
+
+/* ── numbers ────────────────────────────────────────────────────────────────────────────────────────────────── */
+.p3-kpis { display: grid; grid-template-columns: repeat(var(--cols, 5), minmax(0, 1fr)); gap: 8px; }
+@container p3dash (max-width: 640px) { .p3-kpis { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); } }
+.p3-kpis data-kpi .dv-kpi-card { padding: 7px 10px 6px; min-height: 0; }
+.p3-kpis data-kpi .dv-kpi-num { font-size: 20px; }
+.p3-numlist { margin: 0; display: grid; gap: 0; }
+.p3-numrow { display: flex; align-items: baseline; gap: 10px; padding: 6px 0; border-bottom: 1px solid #f0f0f2; }
+.p3-numrow:last-child { border-bottom: 0; }
+.p3-numrow dt { flex: 1 1 auto; min-width: 0; font-size: 12.5px; color: #52525b; }
+.p3-numrow dd { margin: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.p3-numrow dd b { font-size: 17px; font-weight: 650; color: #18181b; }
+.p3-numlist-compact .p3-numrow { padding: 3px 0; }
+.p3-numlist-compact .p3-numrow dd b { font-size: 14px; }
+.p3-unit { font-size: 12px; color: #71717a; margin-left: 2px; }
+.p3-derived { font-size: 11px; color: #8a8a93; margin-left: 4px; }
+.p3-whole { margin: 8px 0 0; font-size: 11.5px; color: #71717a; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.p3-whole-label { color: #8a8a93; }
+.p3-whole b { color: #3f3f46; font-weight: 600; }
+.p3-caveat { margin: 8px 0 0; font-size: 11.5px; color: #8a8a93; line-height: 1.4; }
+.p3-keybody { padding: 0; }
+.p3-keybody .p3-legend { margin: 0; }
+
+/* the hover tip: inside the component's root, placed by occupancy.js */
+.p3-tip { position: absolute; z-index: 70; pointer-events: none; max-width: 320px; padding: 6px 9px; border-radius: 6px; background: #18181b; color: #fafafa; font-size: 11.5px; line-height: 1.45; box-shadow: 0 6px 18px rgba(0,0,0,.2); }
+.p3-tip[hidden] { display: none; }
+.p3-tip-hint { color: #a1a1aa; }
+
+/* ── a coverage view (registered with data-ui) ──────────────────────────────────────────────────────────────── */
+.p3-viewbody { padding: 0; }
+.p3-viewbody-compact .p3-fig-title { font-size: 11px; }
+.p3-viewhead { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; min-height: 30px; }
+
+
+.p3-figs-row { display: flex; align-items: flex-start; gap: 12px; }
+.p3-figs { display: grid; gap: 14px 18px; flex: 1 1 auto; min-width: 0; }
+.p3-figs.p3-compact { gap: 6px 8px; }
+.p3-fig { margin: 0; min-width: 0; }
+.p3-fig canvas { display: block; }
+.p3-fig-title { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; margin: 0 0 3px; white-space: nowrap; overflow: hidden; }
+.p3-compact .p3-fig-title { font-size: 11px; margin: 0 0 1px; }
+.p3-code { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; color: #8a8a93; }
+.p3-lead { margin-left: auto; font-size: 11.5px; color: #52525b; }
+.p3-colorbar { flex: none; padding-top: 22px; }
+.p3-colorbar canvas { display: block; }
+.p3-colorbar-title { font-size: 10.5px; color: #71717a; width: 66px; line-height: 1.25; }
+
+.p3-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 10px 0 0; font-size: 11.5px; color: #52525b; }
+.p3-key { display: inline-flex; align-items: center; gap: 6px; }
+.p3-key-ramp { width: 46px; height: 9px; border-radius: 2px; border: 1px solid #e4e4e7; }
+.p3-key-box { width: 11px; height: 11px; border-radius: 2px; border: 1px solid #d4d4d8; box-sizing: border-box; }
+.p3-key-empty { background: #fff; }
+.p3-key-outside { background: rgb(221, 220, 214); border-color: rgb(221, 220, 214); }
+.p3-key-frame { background: #fff; border: 1.5px solid #b4442f; }
+.p3-key-dash { width: 16px; border-top: 1.5px dashed rgba(24, 24, 27, .45); }
+.p3-key-cross { font-weight: 700; color: #18181b; width: 11px; text-align: center; }
+.p3-scale-note { margin: 6px 0 0; font-size: 11.5px; color: #8a8a93; }
+
+
+
+/* ── the drill, in data-ui's record peek ────────────────────────────────────────────────────────────────────── */
+.p3-drill { padding: 4px 0 8px; }
+.p3-drill-actions { display: flex; align-items: center; gap: 10px; margin: 6px 0 4px; }
+.p3-rerun { display: inline-flex; align-items: center; gap: 7px; font: inherit; font-size: 13px; font-weight: 600; padding: 7px 14px; border-radius: 7px;
+  border: 0; background: #18181b; color: #fafafa; cursor: pointer; }
+.p3-rerun:hover { background: #27272a; }
+.p3-rerun svg { width: 12px; height: 12px; fill: currentColor; }
+.p3-rerun-status { font-size: 12px; color: #52525b; }
+.p3-rerun-fallback { display: flex; gap: 6px; align-items: flex-start; margin: 4px 0; }
+.p3-rerun-fallback[hidden] { display: none; }
+.p3-rerun-fallback code { flex: 1; font: 11px ui-monospace, monospace; background: #f4f4f5; padding: 6px 8px; border-radius: 6px; word-break: break-all; }
+.p3-copy { font: inherit; font-size: 12px; border: 1px solid #d4d4d8; background: #fff; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
+.p3-drill-h { font-size: 13px; margin: 14px 0 2px; }
+.p3-drill-sub { margin: 0 0 8px; font-size: 11.5px; color: #71717a; }
+.p3-drill-fig { margin: 0 0 10px; }
+.p3-drill-fig figcaption { font-size: 11.5px; color: #52525b; margin-bottom: 4px; }
+.p3-drill-fig canvas { display: block; }
+.p3-drill-joints { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.p3-drill-mini { margin: 0; }
+.p3-drill-mini figcaption { font-size: 10.5px; color: #52525b; display: flex; justify-content: space-between; gap: 4px; }
+.p3-drill-mini figcaption span { color: #8a8a93; }
+.p3-drill-key { margin-top: 4px; }
+.p3-figs.p3-hero { justify-content: start; }
+.p3-slot { align-self: start; padding: 22px 0 0 8px; }
+.p3-slot-row { display: flex; gap: 14px; align-items: flex-start; }
+.p3-legend-col { flex-direction: column; gap: 6px; margin: 0; }
+.p3-hint { margin: 4px 0 0; font-size: 11.5px; color: #a1a1aa; }
+.p3-fig-title > * { flex: none; }
+.p3-fig-title .p3-lead { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.p3-drill-row { display: flex; gap: 14px; align-items: flex-start; }
+.p3-drill-tool { flex: none; }
+.p3-drill-row > .p3-drill-fig:last-child { flex: 1 1 auto; min-width: 0; }
+.p3-drill-joints { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.p3-drill-span { font-size: 10.5px; color: #8a8a93; margin-top: 3px; }
