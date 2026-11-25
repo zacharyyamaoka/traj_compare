@@ -94,7 +94,8 @@ def test_assets_directory_is_written_once_and_referenced_relatively(tmp_path):
         order = [page.index(f"assets/{name}") for name in SHARED]
         assert order == sorted(order)
         assert page.index("traj-compare-data") < page.index("assets/uplot.iife.min.js")
-    assert first.stat().st_size * 5 < inline.stat().st_size
+    shared_bytes = sum((ASSETS / name).stat().st_size for name in SHARED)
+    assert first.stat().st_size < inline.stat().st_size - shared_bytes + 2_000  # the viewer's bytes left the page
 
 
 def test_assets_url_is_referenced_and_nothing_is_written(tmp_path):
@@ -174,7 +175,7 @@ def test_dark_block_is_the_generated_one_and_follows_the_system_theme(name):
     text = (ASSETS / name).read_text("utf-8")
     light, marker, block = text.partition(_theme.MARKER)
     assert marker, f"{name} has no generated dark block"
-    assert marker + block == _theme.dark_block(light), f"{name}: run python -m traj_compare._theme"
+    assert text == _theme.generated(name), f"{name}: run python -m traj_compare._theme"
     assert "@media (prefers-color-scheme: dark)" in block
     assert ':root:not([data-theme="light"])' in block and ':root[data-theme="dark"]' in block
 
@@ -306,3 +307,29 @@ def test_the_pages_share_the_report_palette(name, pattern):
 def test_palette_pairs_are_checked_both_ways():  # the ruler itself: an identical pair must fail it
     assert _distance("#2a78d6", "#2a78d6") == 0.0
     assert min(_distance(a, b, "deuteranopia") for a, b in itertools.combinations(OLD_PALETTE, 2)) < 10
+
+
+# ── 3b. the canvases' ink is the stylesheets' mapping (a JS port of _theme.dark_colour) ────────────────────────────
+
+
+def test_js_ink_is_the_python_mapping_and_one_block_in_both_pages(tmp_path):
+    import shutil
+    import subprocess
+
+    from traj_compare import _theme
+
+    if not shutil.which("node"):
+        pytest.skip("needs node")
+    blocks = []
+    for name in ("plots.js", "dataset.js"):
+        text = (ASSETS / name).read_text("utf-8")
+        start = text.index("  // ── ink: the dark theme's colour")
+        blocks.append(text[start : text.index("  // ── ink end", start)])
+    assert blocks[0] == blocks[1], "plots.js and dataset.js carry one ink block"
+    css = "".join((ASSETS / name).read_text("utf-8").partition(_theme.MARKER)[0] for name in ("style.css", "dataset.css"))
+    colours = sorted(set(re.findall(r"#[0-9a-fA-F]{6}\b", css)) | set(OLD_PALETTE) | {"#fcfcfb", "#d0cfc9", "#52514e", "#fff"})
+    script = tmp_path / "ink.js"
+    script.write_text("var document = { documentElement: { getAttribute: function () { return 'dark'; } } };\n" + blocks[0] +
+                      f"\nconsole.log(JSON.stringify({json.dumps(colours)}.map(darkInk)));\n")
+    result = subprocess.run(["node", str(script)], capture_output=True, text=True, check=True, timeout=60)
+    assert json.loads(result.stdout) == [_theme.dark_colour(colour) for colour in colours]

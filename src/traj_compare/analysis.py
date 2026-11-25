@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import base64
 import dataclasses
+import math
 from typing import Any
 
 import numpy as np
@@ -424,6 +425,46 @@ def _pose_trajectory(situation: Situation, poses: np.ndarray, frame: str) -> Pos
     return PoseTrajectory.from_matrices(situation.t, poses, child_frame_id=frame)
 
 
+def _mask_on(comparison: Comparison, t: np.ndarray) -> np.ndarray:
+    """``comparison.stats_mask`` (one bool per reference sample) at each instant of an error series: its nearest
+    reference sample's value."""
+
+    reference_t = np.asarray(comparison.target.t, dtype=float)
+    mask = np.asarray(comparison.stats_mask, dtype=bool)
+    after = np.clip(np.searchsorted(reference_t, t), 1, len(reference_t) - 1)
+    nearer_before = np.abs(t - reference_t[after - 1]) <= np.abs(reference_t[after] - t)
+    return mask[np.where(nearer_before, after - 1, after)]
+
+
+def _result_metrics(comparison: Comparison, result: Any) -> dict[str, Any]:
+    """robot_msgs.compare's metrics of one comparison result, as dicts: over every sample, or with
+    ``comparison.stats_mask`` over the masked samples only (the others NaN, which ``error_stats`` skips).
+
+    WHY (TTA ask, 2026-11-24): its ruler takes the tool tracking RMS over the samples where the target moves; over every
+    sample the report's RMS also averaged the rests, up to 0.067 mm off. The math stays robot_msgs.compare's own
+    (``joint_metrics`` / ``pose_metrics`` on the same error, masked)."""
+
+    if comparison.stats_mask is None:
+        return {name: value.as_dict() for name, value in result.metrics.items()}
+    from robot_msgs.compare.metrics import joint_metrics, pose_metrics
+    from robot_msgs.trajectory.trajectory import sample_fields
+
+    error = result.error
+    keep = _mask_on(comparison, np.asarray(error.t, dtype=float))
+
+    def blank(values: Any) -> Any:
+        array = np.array(values, dtype=float, copy=True)
+        array[~keep] = np.nan
+        return array
+
+    changes = {f.name: blank(getattr(error, f.name)) for f in sample_fields(type(error))
+               if getattr(error, f.name) is not None and f.name != "orientations"}  # fmt: skip
+    changes["channels"] = {name: blank(values) for name, values in error.channels.items()}
+    masked = dataclasses.replace(error, **changes)
+    metrics = joint_metrics(masked) if isinstance(masked, JointTrajectory) else pose_metrics(masked)
+    return {name: value.as_dict() for name, value in metrics.items()}
+
+
 def _compare_or_none(reference: Any, measured: Any, time_offset_s: float = 0.0) -> Any:
     """``compare(reference, measured, time_offset_s)``, or None when the run never meets the target's span.
 
@@ -494,16 +535,27 @@ def _aggregate_payload(result: Any) -> dict[str, Any]:
     )
 
 
+def _decimals(value: float, digits: int = 3) -> int:
+    """``digits``, or as many more decimals as keep two significant figures. WHY (TTA ask, 2026-11-24): fixed decimals
+    printed a 0.0004° error as "0.000°"; every value of 0.01 and up prints exactly as before."""
+    magnitude = abs(float(value))
+    if magnitude == 0.0 or not math.isfinite(magnitude):
+        return digits
+    return min(12, max(digits, 1 - math.floor(math.log10(magnitude))))
+
+
 def _format_degrees(value_rad: float) -> str:
     if not np.isfinite(value_rad):
         return "—"
-    return f"{np.degrees(value_rad):,.3f}°"
+    degrees = float(np.degrees(value_rad))
+    return f"{degrees:,.{_decimals(degrees)}f}°"
 
 
 def _format_millimetres(value_m: float) -> str:
     if not np.isfinite(value_m):
         return "—"
-    return f"{value_m * 1000.0:,.3f} mm"
+    millimetres = value_m * 1000.0
+    return f"{millimetres:,.{_decimals(millimetres)}f} mm"
 
 
 def reference_title(comparison: Comparison) -> str:
@@ -1004,7 +1056,7 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
                     "dropped": joint_result.dropped,
                     "time_offset_s": joint_result.time_offset_s,
                 }
-                stats = {name: value.as_dict() for name, value in joint_result.metrics.items()}
+                stats = _result_metrics(comparison, joint_result)
             joint_rms = np.asarray(
                 [
                     stats.get(f"positions/{name}", {}).get("rms", float("nan"))
@@ -1047,7 +1099,7 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
                 pose_t = pose_error.t
                 position_delta = pose_error.positions
                 rotation_delta = pose_error.channels["rotation_vector"]  # world axes
-                stats.update({name: value.as_dict() for name, value in pose_result.metrics.items()})
+                stats.update(_result_metrics(comparison, pose_result))
                 automatic_metrics[situation.name].update(
                     {
                         "position_rms": stats["position"]["rms"],
@@ -1129,4 +1181,7 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
         "channels": _channel_descriptors(comparison, ordered),
     }
     payload["tabs"] = tabs_for(payload)
+    if comparison.stats_mask is not None:  # what every error statistic above is taken over (the curves keep every sample)
+        mask = np.asarray(comparison.stats_mask, dtype=bool)
+        payload["stats_mask"] = {"label": comparison.stats_mask_label, "n": int(mask.sum()), "of": int(mask.size)}
     return payload

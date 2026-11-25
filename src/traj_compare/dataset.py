@@ -1967,6 +1967,9 @@ def write_dataset_report(
     progress: Callable[[str, int, int], None] | None = None,
     sweep: Sweep | None = None,
     coverage: bool = False,
+    command_root: str | None = None,
+    rerun_server: bool = True,
+    public_url: str | None = None,
 ) -> Path:
     """Write ``output_dir/index.html`` (many runs at a glance), ``rows.json``/``rows.parquet`` and ``runs/<slug>/``.
 
@@ -2016,6 +2019,14 @@ def write_dataset_report(
       docs/COVERAGE.md): how much of the joint limits, workspace and tool directions the site's targets visit, each
       target's reference once, the tool from ``poses`` when given. The Dataset level's tab bar then ends with a
       "Coverage" link to it. ``False`` (the default): no coverage page, no link.
+    - ``command_root``: what the page's commands (serve, drill, open a pair's .rrd) call this folder, e.g.
+      ``"site/comparison"`` from the repo root. ``None`` (the default): its absolute path, today's commands. WHY (TTA ask,
+      2026-11-24): a page on a public host must not name the build machine's ``/home/...`` folder.
+    - ``rerun_server``: ``True`` (the default): each runs-table row's "Open in Rerun" POSTs to ``python -m
+      traj_compare.serve``. ``False``, for a static host that has no server (GitHub Pages): each row links "Open in the
+      Rerun web viewer" (app.rerun.io at the pinned SDK version, ``rerun_export.RERUN_SDK_VERSION``) and the .rrd itself,
+      as the coverage workbench does. ``public_url`` (the absolute URL ``output_dir`` is served from) is the web viewer's
+      base for the .rrd; without it the page's own URL is.
     """
 
     runs = list(runs)
@@ -2156,11 +2167,17 @@ def write_dataset_report(
         if stale.name not in kept_files:
             stale.unlink()
     folder = output_dir.resolve()
+    # WHY a stand-in folder for the commands only (command_root): every file is still written under output_dir
+    shown = Path(command_root) if command_root is not None else folder
     # The runs table's command, built in the page per row (NAVIGATION.md C5): rerun_command repeated the folder twice per
     # row, 10.9 MB of the UR5e index. The viewer half is rerun_export's own command around a stand-in for the row's .rrd,
     # which the page splices in; WHY that is the row's exact command: the stand-in and every .rrd path below the folder
     # (runs/<slug>/rerun/<pair>.rrd, all [a-z0-9./-]) need no shell quoting, so quoting the whole path quotes only the folder.
-    viewer_before, _, viewer_after = rerun_export.viewer_command(folder / _RRD_STAND_IN).partition(_RRD_STAND_IN)
+    if command_root is None:
+        viewer = rerun_export.viewer_command(folder / _RRD_STAND_IN)
+    else:  # viewer_command resolves its path; a public root must stay as given
+        viewer = shlex.join([*rerun_export.VIEWER_ARGV_PREFIX, f"{shown.as_posix().rstrip('/')}/{_RRD_STAND_IN}"])
+    viewer_before, _, viewer_after = viewer.partition(_RRD_STAND_IN)
     # WHY a write id on each target file's URL: a page served over http may keep an earlier write's targets/<slug>.js
     # in its cache; a new id per write makes the browser fetch this write's files.
     write_id = datetime.now().strftime("%Y%m%d%H%M%S%f")
@@ -2171,9 +2188,9 @@ def write_dataset_report(
         "group_by": list(group_by),
         "drill_down": drill_down,
         "write_id": write_id,
-        "serve_command": f"python -m traj_compare.serve {shlex.quote(str(output_dir.resolve()))}",
+        "serve_command": f"python -m traj_compare.serve {shlex.quote(str(shown if command_root is not None else output_dir.resolve()))}",
         "command_template": {
-            "drill": f"python -m traj_compare.dataset drill {shlex.quote(str(folder))} ",
+            "drill": f"python -m traj_compare.dataset drill {shlex.quote(str(shown))} ",
             "viewer": [viewer_before, viewer_after],
         },
         "pair_files": [[first, second, _pair_name(first, second)] for first, second in pair_order],
@@ -2204,6 +2221,14 @@ def write_dataset_report(
             **_clean(levels),
         },
     }
+    # WHY only when asked: a default write's payload (and so its page) is byte-for-byte today's
+    if rows is not None:  # the footer names only the row files this write made (none for rows=())
+        payload["row_files"] = [f"rows.{name}" for name in _ROW_FILES if name in row_files]
+    if not rerun_server:
+        payload["rerun_server"] = False
+        payload["rerun_sdk"] = rerun_export.RERUN_SDK_VERSION
+    if public_url:
+        payload["public_url"] = public_url.rstrip("/") + "/"
     if sweep is not None:
         payload["sweep"] = _sweep_payload(sweep, targets, slugs, config_tag, payload["levels"]["configs"], payload["series"])
     if coverage:

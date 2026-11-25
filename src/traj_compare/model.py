@@ -580,8 +580,22 @@ class Comparison:
     # a sim → real torque card called the sim run's applied torque "Target", a different signal; the viewers name a run
     # reference by its own title instead of "target".
     reference_kind: str = "target"
+    # One bool per ``target`` sample: every error statistic (RMS, max, p95, ... in the tables, the answer and the hovers)
+    # is taken over the True samples only; the plots still draw every sample. ``stats_mask_label`` names them in the
+    # report ("moving samples"). WHY (TTA ask, 2026-11-24): its ruler's tool tracking RMS is over the samples where the
+    # target moves; over every sample the report's RMS also averaged the rests. None (the default): every sample.
+    stats_mask: Any = None
+    stats_mask_label: str = ""
 
     def __post_init__(self) -> None:
+        if self.stats_mask is not None:
+            if self.target is None:
+                raise ValueError(f"comparison {self.title!r}: stats_mask needs a target (it is one bool per target sample)")
+            mask = np.asarray(self.stats_mask)
+            if mask.ndim != 1 or mask.shape[0] != len(self.target.t):
+                raise ValueError(f"comparison {self.title!r}: stats_mask has shape {mask.shape}, the target "
+                                 f"{len(self.target.t)} samples; it is one bool per target sample")
+            self.stats_mask = mask.astype(bool)
         if self.reference_kind not in ("target", "run"):
             raise ValueError(f"comparison {self.title!r}: reference_kind is 'target' or 'run', got {self.reference_kind!r}")
         if not self.name:

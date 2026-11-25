@@ -452,6 +452,23 @@ same payload as the HTML and the .rrd, so no metric is recomputed; install the e
   left out), log time = publish time = `t` in integer ns. `/traj_compare/metrics` holds one message with every
   situation's error statistics.
 
+## Publishing on a static host
+
+What a public site (GitHub Pages) needs, all off by default so a local report is unchanged (TTA asks, 2026-11-24):
+
+- `write_comparison_report(..., assets="site/assets")` writes the shared viewer files (uPlot, three.js, the viewer's JS
+  and CSS) into that folder once and references them relatively, instead of inlining ~0.95 MB in every report; a URL
+  (`assets="https://…/assets"`) is referenced as given. 42 task reports: 56.8 MB inline, 17.6 MB shared.
+- `write_dataset_report(..., command_root="site/comparison", rerun_server=False, public_url="https://…/comparison/")`:
+  the page's commands name `command_root` instead of the absolute build folder; each run row links "Open in the Rerun web
+  viewer" (app.rerun.io at the pinned SDK) and the `.rrd` instead of POSTing to `traj_compare.serve`; `rows=()` leaves
+  the row files out of the footer.
+- `Comparison(stats_mask=<bool per target sample>, stats_mask_label="moving samples")` takes every error statistic over
+  those samples only (the plots keep every sample), so a ruler's "RMS over the moving samples" is the report's RMS.
+- `report.html#run=<name or title>` opens one run beside its reference (with `#tab=<id>&run=…` too); not remembered.
+- Both pages follow `prefers-color-scheme`; `<html data-theme="light">` (or `"dark"`) pins one. The dark rules are
+  generated from the light ones (`python -m traj_compare._theme`; `--check` in CI), so the light page is unchanged.
+
 ## Formatting contract
 
 Adapters define the semantic bounds: group names and order, table values and

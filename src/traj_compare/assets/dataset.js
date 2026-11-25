@@ -15,12 +15,55 @@
 (function () {
   'use strict';
 
+  // ── ink: the dark theme's colour of a light one (traj_compare._theme.dark_colour, role "other", ported; a test holds
+  // the port equal to it and this block identical in plots.js and dataset.js). WHY: the stylesheets go dark by
+  // themselves (their generated dark block); a canvas (uPlot axes, the three.js scene, the SVG charts) is painted
+  // with colours from code, so its few neutral ones go through here. Data colours come back unchanged.
+  function themeIsDark() {
+    var pinned = document.documentElement.getAttribute('data-theme');
+    if (pinned === 'dark') return true;
+    if (pinned === 'light') return false;
+    return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  }
+  function darkInk(colour) {
+    var digits = String(colour).replace('#', '');
+    if (digits.length === 3 || digits.length === 4) digits = digits.split('').map(function (ch) { return ch + ch; }).join('');
+    var rgb = [0, 2, 4].map(function (i) { return parseInt(digits.slice(i, i + 2), 16); });
+    var lin = rgb.map(function (c) { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); });
+    var f = function (t) { return t > 0.008856 ? Math.pow(t, 1 / 3) : 7.787 * t + 16 / 116; };
+    var x = (0.4124 * lin[0] + 0.3576 * lin[1] + 0.1805 * lin[2]) / 0.95047;
+    var y = 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
+    var z = (0.0193 * lin[0] + 0.1192 * lin[1] + 0.9505 * lin[2]) / 1.08883;
+    var L = 116 * f(y) - 16, a = 500 * (f(x) - f(y)), b = 200 * (f(y) - f(z));
+    if (Math.hypot(a, b) >= 15 && L <= 70) return colour;
+    var mapped = L >= 94 ? 10 + (L - 94) : 18 + (94 - L) * 77 / 91;
+    var inv = function (t) { return t * t * t > 0.008856 ? t * t * t : (t - 16 / 116) / 7.787; };
+    for (var step = 0; step <= 20; step++) {
+      var scale = 1 - step / 20, fy = (mapped + 16) / 116;
+      var X = 0.95047 * inv(fy + 0.7 * a * scale / 500), Y = inv(fy), Z = 1.08883 * inv(fy - 0.7 * b * scale / 200);
+      var out = [3.2406 * X - 1.5372 * Y - 0.4986 * Z, -0.9689 * X + 1.8758 * Y + 0.0415 * Z, 0.0557 * X - 0.2040 * Y + 1.0570 * Z];
+      if (out.some(function (v) { return v < -1e-4 || v > 1 + 1e-4; })) continue;
+      var hex = out.map(function (v) {
+        v = Math.min(1, Math.max(0, v));
+        v = v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055;
+        return ('0' + Math.round(v * 255).toString(16)).slice(-2);
+      }).join('');
+      return hex === rgb.map(function (v) { return ('0' + v.toString(16)).slice(-2); }).join('') ? colour : '#' + hex + digits.slice(6, 8);
+    }
+    return colour;
+  }
+  function ink(colour) { return themeIsDark() ? darkInk(colour) : colour; }
+  // ── ink end
+
+
   var D = JSON.parse(document.getElementById('traj-compare-dataset').textContent);
   var DEG = 180 / Math.PI;
   var REFERENCE = 'reference';
   var TABLE_ROWS = 300;
   // Joint colours in the peak strip; the family palette of report.py's situations.
-  var PALETTE = ['#2a78d6', '#eb6834', '#2f9e44', '#8e5bd1', '#c22f6e', '#17a2b8', '#a67c00', '#6b7a8f'];
+  // report.py's SITUATION_PALETTE (the first eight as before; eight more, colour-blind aware, from 2026-11-24)
+  var PALETTE = ['#2a78d6', '#eb6834', '#2f9e44', '#8e5bd1', '#c22f6e', '#17a2b8', '#a67c00', '#6b7a8f',
+    '#d17c7b', '#336a3a', '#7d4b8b', '#974811', '#f356b8', '#ac28ab', '#b81b36', '#9d86da'];
   var METRICS = [['rms', 'RMS'], ['max_abs', 'Max'], ['p95_abs', 'P95'], ['final', 'Final']];
 
   var S = { pair: null, showAll: false, order: 'worst', metric: 'rms', sort: null, filters: {}, limit: TABLE_ROWS };
@@ -44,7 +87,14 @@
   function label(name) { return name === REFERENCE ? 'reference' : (D.labels[name] || name); }
   function pairLabel(pair) { return label(pair[0]) + ' → ' + label(pair[1]); }
   function nice(value, digits) {
-    return Math.abs(value) < 10 ? value.toFixed(digits === undefined ? 2 : digits) : value.toFixed(1);
+    return Math.abs(value) < 10 ? fixed(value, digits === undefined ? 2 : digits) : value.toFixed(1);
+  }
+  // toFixed(digits), with as many more decimals as keep two significant figures. WHY (TTA ask, 2026-11-24): a 0.0011°
+  // joint error read "0.00°"; values of 0.1 and up print exactly as before.
+  function fixed(value, digits) {
+    var abs = Math.abs(value);
+    if (!isFinite(value) || abs === 0) return value.toFixed(digits);
+    return value.toFixed(Math.min(12, Math.max(digits, 1 - Math.floor(Math.log10(abs)))));
   }
   function deg(rad) { return rad === null || rad === undefined ? null : rad * DEG; }
   function mm(metres) { return metres === null || metres === undefined ? null : metres * 1000; }
@@ -361,8 +411,7 @@
       html += '<tr>';
       cols.forEach(function (col) {
         if (col.actions) {
-          html += '<td class="ds-actions"><a class="ds-link" href="' + esc(row.report) + '">Open run</a>' +
-            '<button class="ds-btn" data-rerun="' + rowsAll.indexOf(row) + '">Open in Rerun</button></td>';
+          html += '<td class="ds-actions"><a class="ds-link" href="' + esc(row.report) + '">Open run</a>' + rerunActions(row) + '</td>';
           return;
         }
         var value = col.get(row);
@@ -388,7 +437,7 @@
             style = ' style="--tint:' + tint(value, peaks[col.key]) + '"';
             if (shown.length > 1 && value === peaks[col.key]) classes.push('ds-worst');
           }
-          var text = col.digits === undefined ? nice(value) : value.toFixed(col.digits);
+          var text = col.digits === undefined ? nice(value) : fixed(value, col.digits);
           var where = col.joint ? '<span class="ds-joint">' + esc(col.joint(row)) + '</span>' : '';
           html += '<td class="' + classes.join(' ') + '"' + style + '>' + text + where + '</td>';
         }
@@ -438,6 +487,22 @@
   function rerunCommand(row) {
     var template = D.command_template;
     return template.drill + shellQuote(row.run) + ' && ' + template.viewer[0] + row.rrd + template.viewer[1];
+  }
+
+  // A row's Rerun actions. WHY two kinds: served by `python -m traj_compare.serve`, the page can ask it to open the native
+  // viewer (a POST); on a static host (write_dataset_report(rerun_server=False), e.g. GitHub Pages) there is nobody to
+  // ask, so the row links app.rerun.io's web viewer at the SDK version that wrote the .rrd (an .rrd must be opened by its
+  // own viewer version) and the .rrd itself, as the coverage workbench does (coverage/workbench.py).
+  function rerunActions(row) {
+    if (D.rerun_server !== false) {
+      return '<button class="ds-btn" data-rerun="' + rowsAll.indexOf(row) + '">Open in Rerun</button>';
+    }
+    var absolute = D.public_url ? new URL(row.rrd, D.public_url).href : new URL(row.rrd, location.href).href;
+    var web = 'https://app.rerun.io/version/' + D.rerun_sdk + '/index.html?url=' + encodeURIComponent(absolute);
+    return '<a class="ds-link" data-tc-rerun-web href="' + esc(web) + '" target="_blank" rel="noopener" title="Opens ' +
+      esc(row.rrd) + ' in Rerun ' + esc(D.rerun_sdk) + '’s web viewer (app.rerun.io)">Open in the Rerun web viewer</a>' +
+      '<a class="ds-link" data-tc-rrd href="' + esc(row.rrd) + '" download title="For a Rerun ' + esc(D.rerun_sdk) +
+      ' viewer: uvx --from rerun-sdk==' + esc(D.rerun_sdk) + ' rerun &lt;file&gt;">.rrd</a>';
   }
 
   // WHY POST to the serve endpoint and fall back to the command: a page cannot start a process;
@@ -577,7 +642,7 @@
     D.joint_names.forEach(function (joint, index) {
       keys.insertAdjacentHTML('beforeend', '<span><span class="ds-swatch" style="background:' + PALETTE[index % PALETTE.length] + '"></span>' + esc(joint) + '</span>');
     });
-    if (D.has_tcp) keys.insertAdjacentHTML('beforeend', '<span><span class="ds-swatch" style="background:#22211f"></span>TCP</span>');
+    if (D.has_tcp) keys.insertAdjacentHTML('beforeend', '<span><span class="ds-swatch" style="background:' + ink('#22211f') + '"></span>TCP</span>');
     var html = '';
     rows.forEach(function (row) {
       html += '<div class="ds-peakrow"><div class="ds-name" title="' + esc(row.run) + '">' + esc(row.run) + '</div><div class="ds-track">';
@@ -592,7 +657,7 @@
         if (!stats) return;
         html += dot(joint, row.peak_t && row.peak_t[joint], PALETTE[index % PALETTE.length], nice(deg(stats.max_abs)), '°');
       });
-      if (row.tcp) html += dot('TCP', row.tcp_peak_t, '#22211f', nice(mm(row.tcp.max_abs)), 'mm');
+      if (row.tcp) html += dot('TCP', row.tcp_peak_t, ink('#22211f'), nice(mm(row.tcp.max_abs)), 'mm');
       html += '</div></div>';
     });
     holder.innerHTML = html;
@@ -669,14 +734,19 @@
   if (D.drill_down === 'lazy' && location.protocol === 'file:') {
     var banner = $('ds-banner');
     banner.hidden = false;
-    banner.innerHTML = 'Run reports are built the first time you open them. Serve this folder to open them, and to launch Rerun from a row:<code>' +
+    banner.innerHTML = 'Run reports are built the first time you open them. Serve this folder to open them' +
+      (D.rerun_server === false ? ':' : ', and to launch Rerun from a row:') + '<code>' +
       esc(D.serve_command) + '</code>';
   }
   buildGlobalControls();
   buildFilters();
   buildHeatControls();
   renderAll();
-  $('ds-foot').textContent = 'traj_compare dataset view · the row files beside this page (rows.json / rows.parquet, as written) hold every pair, run and statistic in SI units';
+  // WHY from the payload when given (write_dataset_report(rows=...)): a page written with rows=() has no row files, and
+  // its footer must not send a reader looking for them; a default write keeps today's sentence.
+  $('ds-foot').textContent = !D.row_files ? 'traj_compare dataset view · the row files beside this page (rows.json / rows.parquet, as written) hold every pair, run and statistic in SI units'
+    : D.row_files.length ? 'traj_compare dataset view · ' + D.row_files.join(' / ') + ' beside this page hold' + (D.row_files.length === 1 ? 's' : '') + ' every pair, run and statistic in SI units'
+    : 'traj_compare dataset view';
 
   // ══ Dataset → Target levels (docs/NAVIGATION.md Part A) ══════════════════════
   //
@@ -686,7 +756,7 @@
   // compare's error target − line, per joint, on the target's display grid.
 
   var LV = D.levels || { targets: [], configs: [], lines: [] };
-  var INK = '#22211f';
+  var INK = ink('#22211f');
   var FAN_TEXT = 'median, IQR, p5–p95 and min–max across its lines at each instant';
   // The torque breakdown (Zach 2026-11-19, torque breakdown in the dataset view: "of the command torque some portion of
   // that is coming from Feedforward, and some portion of that is coming from feedback"). Only lines given one carry
@@ -903,7 +973,7 @@
   function fmtShare(x) {
     if (x === null || x === undefined) return '—';
     var pct = 100 * x;
-    return (pct < 10 ? pct.toFixed(1) : pct.toFixed(0)) + '%';
+    return (pct < 10 ? fixed(pct, 1) : pct.toFixed(0)) + '%';
   }
   function fmtNm(x) { return x === null || x === undefined ? '—' : nice(x) + ' N·m'; }
   function signedPct(x) { return (x > 0 ? '+' : x < 0 ? '−' : '±') + Math.abs(100 * x).toFixed(0) + '%'; }
@@ -928,7 +998,7 @@
       return (mixed < 16 ? '0' : '') + mixed.toString(16);
     }).join('');
   }
-  function colorOf(config) { return configOf[config] ? configOf[config].color : '#52514e'; }
+  function colorOf(config) { return configOf[config] ? configOf[config].color : ink('#52514e'); }
   function swatch(color, sim) {
     return '<span class="ds-sw' + (sim ? ' ds-sw-sim' : '') + '" style="--c:' + color + '"></span>';
   }
@@ -1074,7 +1144,7 @@
     });
     (options.overlay || []).forEach(function (item) { add(item.y, { stroke: INK, width: 2 }, { role: 'overlay', line: item.line }); });
     var font = '10.5px -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif';
-    var axis = { stroke: '#8a8983', font: font, grid: { stroke: '#efeee9', width: 1 }, ticks: { stroke: '#e6e5e0', width: 1, size: 4 } };
+    var axis = { stroke: ink('#8a8983'), font: font, grid: { stroke: ink('#efeee9'), width: 1 }, ticks: { stroke: ink('#e6e5e0'), width: 1, size: 4 } };
     function decimals(step) {
       var digits = 0;
       while (digits < 4 && Math.abs(Math.round(step * Math.pow(10, digits)) - step * Math.pow(10, digits)) > 1e-6) digits++;
@@ -1130,7 +1200,7 @@
           var zero = u.valToPos(0, 'y', true);
           if (zero < u.bbox.top || zero > u.bbox.top + u.bbox.height) return;
           var ctx = u.ctx;
-          ctx.save(); ctx.strokeStyle = '#cfcec8'; ctx.lineWidth = 1; ctx.beginPath();
+          ctx.save(); ctx.strokeStyle = ink('#cfcec8'); ctx.lineWidth = 1; ctx.beginPath();
           ctx.moveTo(u.bbox.left, zero); ctx.lineTo(u.bbox.left + u.bbox.width, zero); ctx.stroke(); ctx.restore();
         }],
       },
@@ -1407,7 +1477,7 @@
     var svg = '<svg class="ds-spark" width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '">';
     if (low < 0 && high > 0) {
       var zero = (height - (0 - low) / (high - low) * height).toFixed(1);
-      svg += '<line x1="0" x2="' + width + '" y1="' + zero + '" y2="' + zero + '" stroke="#e6e5e0"/>';
+      svg += '<line x1="0" x2="' + width + '" y1="' + zero + '" y2="' + zero + '" stroke="' + ink('#e6e5e0') + '"/>';
     }
     if (arrays.length >= 3) {
       var upper = path(fan.p75), lower = path(fan.p25.slice().reverse());
@@ -1724,11 +1794,11 @@
       data.push(at('q1')); series.push({ stroke: 'transparent', width: 0, points: { show: false }, spanGaps: true }); owners.push(null);
       bands.push({ series: [high, high + 1], fill: config.color + '22' });
       data.push(at('median'));
-      series.push({ label: config.name, stroke: config.color, width: 2, dash: simKey(config) ? [6, 4] : undefined, spanGaps: true, points: { show: true, size: 8, fill: config.color, stroke: '#fcfcfb', width: 1.5 } });
+      series.push({ label: config.name, stroke: config.color, width: 2, dash: simKey(config) ? [6, 4] : undefined, spanGaps: true, points: { show: true, size: 8, fill: config.color, stroke: ink('#fcfcfb'), width: 1.5 } });
       owners.push(config);
     });
     var font = '10.5px -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif';
-    var axis = { stroke: '#8a8983', font: font, labelFont: font, grid: { stroke: '#efeee9', width: 1 }, ticks: { stroke: '#e6e5e0', width: 1, size: 4 } };
+    var axis = { stroke: ink('#8a8983'), font: font, labelFont: font, grid: { stroke: ink('#efeee9'), width: 1 }, ticks: { stroke: ink('#e6e5e0'), width: 1, size: 4 } };
     var readout = $('ds-sweep-readout');
     function nearest(u) {
       var index = u.cursor.idx, top = u.cursor.top;
@@ -1982,7 +2052,7 @@
     var d = pts.map(function (p, i) { return (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1); }).join('');
     var last = pts[pts.length - 1];
     return '<svg class="ds-lspark" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" data-tc-league-spark data-metric="' + esc(options.metric) + '">' + title +
-      '<line x1="0" x2="' + w + '" y1="' + (h - 1) + '" y2="' + (h - 1) + '" stroke="#e6e5e0"/>' +
+      '<line x1="0" x2="' + w + '" y1="' + (h - 1) + '" y2="' + (h - 1) + '" stroke="' + ink('#e6e5e0') + '"/>' +
       '<path d="' + d + '" fill="none" stroke="' + options.color + '" stroke-width="1.6"' + (options.dash ? ' stroke-dasharray="5 3"' : '') + '/>' +
       '<circle cx="' + last[0].toFixed(1) + '" cy="' + last[1].toFixed(1) + '" r="2.4" fill="' + options.color + '"/></svg>';
   }
@@ -2270,7 +2340,7 @@
     var facet = model.facets.indexOf(V.sweepFacet) === -1 ? 'all' : V.sweepFacet;
     var xs = model.xs.filter(function (x) { return x !== null; });
     var font = '10.5px -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif';
-    var axis = { stroke: '#8a8983', font: font, labelFont: font, grid: { stroke: '#efeee9', width: 1 }, ticks: { stroke: '#e6e5e0', width: 1, size: 4 } };
+    var axis = { stroke: ink('#8a8983'), font: font, labelFont: font, grid: { stroke: ink('#efeee9'), width: 1 }, ticks: { stroke: ink('#e6e5e0'), width: 1, size: 4 } };
     model.kpis.slice(1).forEach(function (kpi, j) {
       var k = j + 1;
       var card = make('section', 'ds-card ds-sweep-metric', holder);
@@ -2516,7 +2586,7 @@
     Object.keys(groups).sort(groupOrder).forEach(function (key) {
       var lines = groups[key].sort(lineOrder);
       var on = lines.filter(function (line) { return !V.unchecked[line.id]; }).length;
-      var color = V.groupBy === 'config' ? colorOf(key) : '#52514e';
+      var color = V.groupBy === 'config' ? colorOf(key) : ink('#52514e');
       var label = V.groupBy === 'date' ? key : key;
       html += '<div class="ds-rl-group"><input type="checkbox" class="ds-cb" data-group="' + esc(key) + '" style="--c:' + color + '"' +
         (on === lines.length ? ' checked' : '') + (on > 0 && on < lines.length ? ' data-mixed="1"' : '') + ' title="Draw every line of this group">' +
@@ -2800,14 +2870,14 @@
           var v = limit * DEG;
           if (v > 0 && v <= high) {
             svg += '<line x1="' + (x0 + 2).toFixed(1) + '" x2="' + (x1 - 2).toFixed(1) + '" y1="' + y(v).toFixed(1) + '" y2="' + y(v).toFixed(1) +
-              '" stroke="#8a8983" stroke-dasharray="4 3"/>';
+              '" stroke="' + ink('#8a8983') + '" stroke-dasharray="4 3"/>';
           }
         });
       }
     });
     for (var v = 0; v <= high + 1e-9; v += step) {
-      svg += '<text x="' + (left - 8) + '" y="' + (y(v) + 3).toFixed(1) + '" text-anchor="end" font-size="10" fill="#8a8983">' + +v.toFixed(3) + '°</text>' +
-        '<line x1="' + (left - 4) + '" x2="' + left + '" y1="' + y(v).toFixed(1) + '" y2="' + y(v).toFixed(1) + '" stroke="#cfcec8"/>';
+      svg += '<text x="' + (left - 8) + '" y="' + (y(v) + 3).toFixed(1) + '" text-anchor="end" font-size="10" fill="' + ink('#8a8983') + '">' + +v.toFixed(3) + '°</text>' +
+        '<line x1="' + (left - 4) + '" x2="' + left + '" y1="' + y(v).toFixed(1) + '" y2="' + y(v).toFixed(1) + '" stroke="' + ink('#cfcec8') + '"/>';
     }
     simRefs.forEach(function (ref) {
       svg += '<line x1="' + left + '" x2="' + (width - right) + '" y1="' + y(ref.value).toFixed(1) + '" y2="' + y(ref.value).toFixed(1) + '" stroke="' + ref.config.color +
@@ -2817,18 +2887,18 @@
     var labelEvery = Math.max(1, Math.ceil(n / Math.max(1, (width - left - right) / 30)));
     points.forEach(function (line, i) {
       if (line.date && (i === 0 || points[i - 1].date !== line.date)) {
-        if (i > 0) svg += '<line x1="' + (x(i) - half).toFixed(1) + '" x2="' + (x(i) - half).toFixed(1) + '" y1="' + top + '" y2="' + (height - bottom + 2) + '" stroke="#cfcec8" stroke-dasharray="2 2"/>';
-        svg += '<text x="' + ((i > 0 ? x(i) - half : left - 6) + 4).toFixed(1) + '" y="' + (height - 4) + '" font-size="10" fill="#52514e">' + esc(line.date) + '</text>';
+        if (i > 0) svg += '<line x1="' + (x(i) - half).toFixed(1) + '" x2="' + (x(i) - half).toFixed(1) + '" y1="' + top + '" y2="' + (height - bottom + 2) + '" stroke="' + ink('#cfcec8') + '" stroke-dasharray="2 2"/>';
+        svg += '<text x="' + ((i > 0 ? x(i) - half : left - 6) + 4).toFixed(1) + '" y="' + (height - 4) + '" font-size="10" fill="' + ink('#52514e') + '">' + esc(line.date) + '</text>';
       }
-      if (i % labelEvery === 0) svg += '<text x="' + x(i).toFixed(1) + '" y="' + (height - bottom + 12) + '" text-anchor="middle" font-size="9.5" fill="#8a8983">#' + (i + 1) + '</text>';
+      if (i % labelEvery === 0) svg += '<text x="' + x(i).toFixed(1) + '" y="' + (height - bottom + 12) + '" text-anchor="middle" font-size="9.5" fill="' + ink('#8a8983') + '">#' + (i + 1) + '</text>';
     });
-    svg += '<path d="' + values.map(function (value, i) { return (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(value).toFixed(1); }).join('') + '" fill="none" stroke="#b9b8b1"/>';
+    svg += '<path d="' + values.map(function (value, i) { return (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(value).toFixed(1); }).join('') + '" fill="none" stroke="' + ink('#b9b8b1') + '"/>';
     points.forEach(function (line, i) {
       var out = above.indexOf(line) !== -1, color = colorOf(line.config);
       svg += '<a href="' + esc(line.report) + '"><title>' + esc(line.id + ' · ' + line.config + (line.date ? ' · ' + line.date : '') + ' · RMS ' + nice(values[i]) + '°' +
         (out ? ' · above its upper control limit' : '') + ' · click to open its run') + '</title>' +
         (out ? '<circle cx="' + x(i).toFixed(1) + '" cy="' + y(values[i]).toFixed(1) + '" r="8" fill="none" stroke="#c74434" stroke-width="1.3"/>' : '') +
-        '<circle class="ds-spc-dot" cx="' + x(i).toFixed(1) + '" cy="' + y(values[i]).toFixed(1) + '" r="4.5" fill="' + (out ? '#c74434' : color) + '" stroke="#fff"/></a>';
+        '<circle class="ds-spc-dot" cx="' + x(i).toFixed(1) + '" cy="' + y(values[i]).toFixed(1) + '" r="4.5" fill="' + (out ? '#c74434' : color) + '" stroke="' + ink('#ffffff') + '"/></a>';
     });
     host.innerHTML = svg + '</svg>';
   }

@@ -10,6 +10,7 @@ from __future__ import annotations
 import html
 import importlib.resources
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from collections.abc import Mapping, Sequence
@@ -24,13 +25,61 @@ COLOR_TARGET = "#52514e"
 # reports established), then green/purple/magenta for wider A/B/C panels.
 # WHY three more: a repeat group (5 real runs beside a sim) is 6+ situations, and a wrapped colour
 # would give two runs one swatch. Appended, so a report of five or fewer is unchanged.
+# WHY eight more (TTA ask, 2026-11-24): a task with 12 solutions wrapped to colour 1 again. Picked greedily from mid-lightness
+# CIELAB (L 40-62, so a line reads on the light page and the dark one) for the largest smallest distance to every colour
+# before it, in normal vision and under deuteranopia / protanopia / tritanopia (Machado 2009): each new one is >= 22 ΔE76
+# from all the others, >= 11 under each simulation (the first eight are 6 apart for a deutan). The first eight are
+# unchanged, so an existing report keeps its colours; past 16 it wraps. dataset.js and plots.js carry the same list.
 SITUATION_PALETTE = (
     "#2a78d6", "#eb6834", "#2f9e44", "#8e5bd1", "#c22f6e", "#17a2b8", "#a67c00", "#6b7a8f",
+    "#d17c7b", "#336a3a", "#7d4b8b", "#974811", "#f356b8", "#ac28ab", "#b81b36", "#9d86da",
 )  # fmt: skip
+# The viewer files every report needs, in the order the page loads them: (tag, file under assets/)
+VIEWER_ASSETS = (
+    ("style", "uplot.min.css"),
+    ("style", "style.css"),
+    ("script", "uplot.iife.min.js"),
+    ("script", "three.min.js"),
+    ("script", "viewhelper.js"),
+    ("script", "viewer3d.js"),
+    ("script", "plots.js"),
+)
 
 
 def _asset(name: str) -> str:
     return importlib.resources.files("traj_compare").joinpath("assets", name).read_text("utf-8")
+
+
+def _is_url(location: str) -> bool:
+    return "://" in location or location.startswith("//")
+
+
+def _viewer_tags(assets: Path | str | None, report_dir: Path) -> dict[str, str]:
+    """``{file name: its <style>/<script> tag}``: inlined (``assets=None``, today's self-contained page), or a reference
+    to the one shared copy at ``assets`` (a URL, or a directory the files are written into, referenced relatively).
+
+    WHY (TTA ask, 2026-11-24): 42 reports each inlining the same 0.92 MB of viewer (three.js r160 is 0.67 MB of it) put
+    38 MB of copies on a static host; TTA swapped each inline copy for a reference by exact text substitution."""
+
+    if assets is None:
+        return {name: f"<{tag}>{_asset(name)}</{tag}>" for tag, name in VIEWER_ASSETS}
+    if isinstance(assets, str) and _is_url(assets):
+        base = assets.rstrip("/") + "/"
+    else:
+        folder = Path(assets)
+        folder.mkdir(parents=True, exist_ok=True)
+        for _, name in VIEWER_ASSETS:
+            content = _asset(name)
+            target = folder / name
+            # WHY compare first: many reports share one folder; an unchanged file keeps its mtime (and a host's cache)
+            if not target.is_file() or target.read_text("utf-8") != content:
+                _files.write_text(target, content)
+        base = Path(os.path.relpath(folder.resolve(), report_dir.resolve())).as_posix().rstrip("/") + "/"
+    href = {name: html.escape(base + name, quote=True) for _, name in VIEWER_ASSETS}
+    return {
+        name: f'<link rel="stylesheet" href="{href[name]}">' if tag == "style" else f'<script src="{href[name]}"></script>'
+        for tag, name in VIEWER_ASSETS
+    }
 
 
 def _colorize(payload: dict[str, Any]) -> None:
@@ -102,6 +151,7 @@ def write_comparison_report(
     rerun_checks: Mapping[str, str] | None = None,
     exports: bool = False,
     breadcrumb: Sequence[tuple[str, str]] = (),
+    assets: Path | str | None = None,
 ) -> Path:
     """Analyze the comparison(s) and write one self-contained ``report.html``.
 
@@ -118,6 +168,10 @@ def write_comparison_report(
     ``breadcrumb`` (``[(label, href), ...]``, e.g. ``[("Dataset", "../../index.html"), (target title,
     "../../index.html#/target/<slug>")]``) draws those links at the top of the page (``[data-tc-breadcrumb]``);
     an empty href draws plain text; empty draws nothing.
+    ``assets`` (default ``None``: every viewer file inlined, one self-contained page): a directory or a URL holding the
+    shared viewer files (uPlot, three.js, the viewer's JS and CSS; ``VIEWER_ASSETS``), referenced from there instead of
+    inlined. A directory (a ``Path``, or a ``str`` that is not a URL) gets the files written into it and is referenced
+    relative to the report, so many reports (and their host) share one copy; a URL is referenced as given.
     """
 
     if isinstance(comparisons, Comparison):
@@ -203,6 +257,7 @@ def write_comparison_report(
     }
     # </script> would end the data block early; escape the slash (legal JSON).
     data_json = json.dumps(payload, separators=(",", ":")).replace("</", "<\\/")
+    tags = _viewer_tags(assets, report_path.parent)
 
     document = f"""<!DOCTYPE html>
 <html lang='en'>
@@ -210,8 +265,8 @@ def write_comparison_report(
 <meta charset='utf-8'/>
 <meta name='viewport' content='width=device-width, initial-scale=1'/>
 <title>{html.escape(report_title)}</title>
-<style>{_asset("uplot.min.css")}</style>
-<style>{_asset("style.css")}</style>
+{tags["uplot.min.css"]}
+{tags["style.css"]}
 </head>
 <body>
 <header class='tc'>
@@ -223,11 +278,11 @@ def write_comparison_report(
 <main class='tc' id='tc-main'></main>
 <footer class='tc'>{html.escape(provenance_text)}</footer>
 <script type="application/json" id="traj-compare-data">{data_json}</script>
-<script>{_asset("uplot.iife.min.js")}</script>
-<script>{_asset("three.min.js")}</script>
-<script>{_asset("viewhelper.js")}</script>
-<script>{_asset("viewer3d.js")}</script>
-<script>{_asset("plots.js")}</script>
+{tags["uplot.iife.min.js"]}
+{tags["three.min.js"]}
+{tags["viewhelper.js"]}
+{tags["viewer3d.js"]}
+{tags["plots.js"]}
 <script>TrajCompare.boot();</script>
 </body>
 </html>
