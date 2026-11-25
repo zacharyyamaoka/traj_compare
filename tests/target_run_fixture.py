@@ -80,6 +80,30 @@ def target_and_run(start_late_s: float = 0.0, samples: int = 201) -> tuple[Joint
     return target, run
 
 
+def well_tracked(peak_deg: float = 0.04, samples: int = 201) -> tuple[JointTrajectory, JointTrajectory]:
+    """A long rest-to-rest target (the tool sweeps a path ~0.6 m across) and a run a few hundredths of a degree off it,
+    its error along the joint direction that moves the tool point least (the closed form's smallest singular vector):
+    joint errors that cancel at the tool, as a well-tuned controller leaves them (the UR5e sim run ctc_tuned_v2 r0 on
+    workspace-dev-029, 2026-11-25: joints ≤ 0.04°, the tool 0.10 mm off). ``peak_deg`` bounds every joint's error."""
+    t = np.linspace(0.0, 2.0, samples)
+    s = 0.5 - 0.5 * np.cos(np.pi * t / 2.0)
+    target_q = np.stack([-0.8 + 2.0 * s, 0.3 + 0.8 * s, 0.9 - 1.2 * s], 1)  # reaching out, pan sweeping
+    step = 1e-6
+    directions, previous = [], None
+    for q in target_q:
+        jacobian = np.stack([(tcp(q + step * e) - tcp(q - step * e))[0] / (2 * step) for e in np.eye(3)], 1)
+        least = np.linalg.svd(jacobian)[2][-1]
+        if previous is not None and least @ previous < 0:
+            least = -least  # one continuous direction, not a sign that flips sample to sample
+        directions.append(least)
+        previous = least
+    bump = np.sin(np.pi * t / 2.0) ** 2  # zero at both ends
+    deviation = np.radians(peak_deg) * bump[:, None] * np.asarray(directions)  # a unit vector: no joint above peak_deg
+    target = JointTrajectory(t=t, joint_names=JOINTS, positions=target_q, limits=_limits()).with_derivatives()
+    run = JointTrajectory(t=t, joint_names=JOINTS, positions=target_q + deviation, limits=_limits()).with_derivatives()
+    return target, run
+
+
 def tool_of(trajectory: JointTrajectory) -> PoseTrajectory:
     """The tool point's PoseTrajectory in the URDF's root link frame (frame_id empty), on the trajectory's own clock."""
     poses = link_poses(trajectory.positions)
