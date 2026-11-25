@@ -3,7 +3,7 @@
  * this point its still just summary data though), Then we can actually open up the playback viewer. either our custom
  * one or the rerun one."
  *
- * target.html?site=<key>&target=<slug>[&keep=<line>,<line>][&back=<url>]
+ * target.html?site=<key>&target=<slug>[&keep=<line>,<line>][&back=<url>][&why=pair]
  *
  * - The look of traj_compare's Target level (NAVIGATION.md Part A): a run list with a checkbox per run grouped by
  *   config (regex, config / kind chips), the verdict, repeats as lines or bands, joint error per joint and the feedback
@@ -116,7 +116,8 @@
         var cb = el('input', '', row); cb.type = 'checkbox'; cb.checked = e.checked; cb.style.accentColor = e.color;
         cb.onchange = function () { e.checked = cb.checked; e.out = false; update(); };
         var nm = el('span', 'nm', row, e.label);
-        if (e.out) el('span', 'tv-mut', nm, ' (outside the rail filter)');
+        // WHY two words: a "Does sim match real?" row ticks its pair only (why=pair), the rest may well pass the rail
+        if (e.out) el('span', 'tv-mut', nm, Q.get('why') === 'pair' ? ' (not in this pair)' : ' (outside the rail filter)');
         el('span', 'v', row, nice(e.worst) + '°').title = 'RMS joint error at the worst joint (' + e.worstJoint + ')';
         var a = el('a', '', row, '↗'); a.href = e.folder + '/report.html'; a.target = '_blank'; a.rel = 'noopener';
         a.title = 'This run\'s report (built on first open by traj_compare.serve)';

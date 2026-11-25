@@ -56,7 +56,8 @@ const shot = async (page, name) => { if (args.shots) await page.screenshot({ pat
     ticked: [...document.querySelectorAll('[data-tc-run] input[type=checkbox]')].filter((c) => c.checked).map((c) => c.closest('[data-tc-run]').dataset.line),
     state: window.TV_STATE || null }));
   const openFirstTarget = async () => {
-    await page.click('#tc data-tabs [role=tab]:nth-of-type(2)'); await page.waitForTimeout(1200);
+    // by its name: since 2026-11-25 the Overview's own pages (League, …) come before Targets
+    await page.click("#tc data-tabs [role=tab]:text-is('Targets')"); await page.waitForTimeout(1200);
     await page.click("#tc data-dashboard[tab='Targets'] tbody tr"); await page.waitForTimeout(800);
     await Promise.all([page.waitForNavigation(), page.click("#tc button[data-drill-action]:has-text('Open target view')")]);
     await ready();

@@ -122,7 +122,9 @@ def test_the_rail_is_v2s_order_and_has_no_model_type_without_a_mapping(built):
     rows = read_json(index.parent / "runs.json")
     assert "model_type" not in rows["properties"] and all("model_type" not in row for row in rows["rows"])
     assert "model_type" not in json.dumps(base)
-    assert [page["name"] for page in base["pages"]] == ["Overview", "Targets", "Runs"]
+    # the defaults since 2026-11-25 (tests/test_runs_workbench_picks.py): O3's tiles and their pages, then T1
+    assert [page["name"] for page in base["pages"]] == ["Overview", "League", "Config × dataset", "Speed", "Trade-off",
+                                                        "Worst targets", "Targets", "Runs", "Does sim match real?"]
     assert base["noun"] == ["run", "runs"]
 
 
@@ -155,7 +157,8 @@ def test_the_targets_tab_lists_one_row_per_target_linked_from_the_runs(built):
     targets = read_json(out / "targets.json")["rows"]
     assert len(targets) == 3 + 2
     base = read_base(out)
-    assert base["links"] == [{"from": "runs.target_key", "to": "targets.target_key", "direction": "one-way"}]
+    assert base["links"][0] == {"from": "runs.target_key", "to": "targets.target_key", "direction": "one-way"}
+    assert base["links"][1:] == [{"from": "runs.run_report", "to": "pairs.run_report", "direction": "one-way"}]  # T1
     runs = read_json(out / "runs.json")["rows"]
     for target in targets:
         mine = [row for row in runs if row["target_key"] == target["target_key"]]
@@ -185,7 +188,7 @@ def test_the_overview_and_more_tabs_splice_in_as_base_blocks(built, tmp_path):
     index = write_runs_workbench(sites, tmp_path / "spliced", overview=overview, pages=[sweeps], views=[picked],
                                  kit="../all/vendor/data-ui")
     base = read_base(index.parent)
-    assert [page["name"] for page in base["pages"]] == ["Overview", "Targets", "Runs", "Sweeps"]
+    assert [page["name"] for page in base["pages"]] == ["Overview", "Targets", "Runs", "Does sim match real?", "Sweeps"]
     assert base["pages"][0] == overview
     assert "Picked" in {view["name"] for view in base["views"]}
 

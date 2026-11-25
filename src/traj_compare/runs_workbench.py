@@ -11,8 +11,10 @@ rerun one."):
 
 1. ``index.html``: the dataset workbench. data-ui's ``<data-workbench src="runs.base">`` over ``runs.json``, one row per
    measured line (a run, to Zach) of every site. The rail filters runs across every deployment (deployment is a facet,
-   never a split); tabs Overview · Targets · Runs; a Targets or Runs row's "Open target view" opens level 2 in the same
-   tab with the rail's runs of that target ticked (``keep=``) and this page's URL, filter and tab included (``back=``).
+   never a split); tabs Overview · Targets · Runs (since 2026-11-25 the Overview is six headline tiles, each opening
+   its own page, and "Does sim match real?" follows Runs: runs_overview.py); a Targets or Runs row's "Open target view"
+   opens level 2 in the same tab with the rail's runs of that target ticked (``keep=``) and this page's URL, filter and
+   tab included (``back=``).
 2. ``target.html?site=<key>&target=<slug>&keep=<lines>&back=<url>``: one target's runs as summary data (a run list with
    checkboxes, the verdict, repeats as lines or bands, joint error per joint), from ``sites/<key>.js`` and the site's own
    ``targets/<slug>.js``. Its two buttons play the ticked runs back:
@@ -26,8 +28,12 @@ Written into ``out_dir``:
     runs.json       one row per line: deployment, dataset, the rail's run tags, model type (with ``model_type=``), config,
                     sim / real, speed, target, the KPIs (run tags; worst-joint RMS °, tool RMS mm, feedback share), links
     targets.json    one row per target (the Targets tab), linked one-way from the runs, so it lists only targets with a run
-    runs.base       the rail, the pages (Overview · Targets · Runs, plus ``pages=``), the views, the drill actions
-    index.html      the workbench and its host glue (assets/runs_host.js)
+    pairs.json      "Does sim match real?": one row per real line and each prediction of it in its run folder (only when
+                    the runs hold such a pair; runs_overview.py)
+    runs.base       the rail, the pages (the Overview and its tiles' pages, Targets, Runs, "Does sim match real?", plus
+                    ``pages=``), the views, the drill actions
+    index.html      the workbench, its host views' config and its host glue (assets/runs_host.js)
+    runs_views.js   the host views (assets/runs_views.js + .css): the Overview's tiles and pages, the sim-vs-real answer
     target.html     the target view (assets/runs_target.js, .css; uPlot), every file inlined
     sites/<key>.js  per site, what the target view reads: its lines' numbers and its targets' time axes
     vendor/data-ui/ data-ui ``main`` vendored by its own ``data-ui vendor`` (unless ``kit=`` names one to reuse)
@@ -55,6 +61,9 @@ from typing import Any
 
 from . import _files
 from .dataset import Metric, read_site_payload
+from .report import SITUATION_PALETTE
+from .runs_overview import (FILL, OVERVIEWS, RULE, against_order, build_pairs, config_order, fill_accuracy,
+                            overview_parts, pairs_parts, pairs_schema)
 
 DATA_UI = Path(os.environ.get("TRAJ_COMPARE_DATA_UI", "/home/bam/data-ui"))
 DEG = 180.0 / math.pi
@@ -65,6 +74,7 @@ OTHER = "other"
 _FIXED = {
     "id", "site", "line", "run", "deployment", "dataset", "target", "target_slug", "target_key", "config", "series",
     "sim_real", "speed", "model_type", "worst", "worst_joint", "tool_rms", "fb", "run_report", "rerun_runs",
+    "accuracy", "accuracy_from",
 }  # fmt: skip
 LABELS = {
     "deployment": "Deployment", "dataset": "Dataset", "split": "Split", "model_type": "Model type", "config": "Config",
@@ -73,7 +83,7 @@ LABELS = {
     "worst": "Worst-joint RMS", "worst_joint": "Worst joint", "tool_rms": "Tool RMS (traj_compare)",
     "fb": "Feedback share", "run_report": "Run report", "target_slug": "Target slug", "target_key": "Target key",
     "run": "Run folder", "rerun_runs": "Rerun runs", "site": "Site", "line": "Line", "runs_all": "Runs (all)",
-    "configs_all": "Configs (all)",
+    "configs_all": "Configs (all)", "accuracy_from": "Overview value from",
 }  # fmt: skip
 UNITS = {"worst": "°", "tool_rms": "mm"}
 
@@ -343,8 +353,9 @@ def _league_chart(group: str, kpi: str, kpi_title: str) -> dict:
 
 
 def _base(rows: list[dict], target_rows: list[dict], sites: list[dict], *, rail: Sequence[str], labels: Mapping[str, str],
-          kpis: Sequence[Metric], league: str, model_types: list[str] | None, speed_label: str, overview: Mapping | None,
-          pages: Sequence[Mapping], views: Sequence[Mapping], rerun_server: bool, colors: Mapping[str, str]) -> dict:
+          kpis: Sequence[Metric], league: str, model_types: list[str] | None, speed_label: str,
+          overview: Mapping | str, pages: Sequence[Mapping], views: Sequence[Mapping], rerun_server: bool,
+          colors: Mapping[str, str], costs: Sequence[Metric], pairs: tuple[dict, list[dict]] | None) -> dict:
     has = lambda column: any(row.get(column) is not None for row in rows)  # noqa: E731
     kpi_of = {_kpi_id(m.tag): m for m in kpis}
     league_label = kpi_of[league].label if league in kpi_of else labels.get(league, league)
@@ -410,7 +421,7 @@ def _base(rows: list[dict], target_rows: list[dict], sites: list[dict], *, rail:
                                *[n for n in rail if n not in _FIXED], "speed", "model_type", *kpi_columns, "worst",
                                "worst_joint", "tool_rms", "fb", "run_report") if has(c)]
     run_columns = list(dict.fromkeys(run_columns))
-    base_views += [
+    table_views = [
         {"type": "table", "name": "Targets", "from": "targets", "order": target_columns,
          "sort": [{"property": "deployment", "direction": "ASC"}, {"property": "target", "direction": "ASC"}],
          "display": {"dataset": "badge"}},
@@ -426,6 +437,15 @@ def _base(rows: list[dict], target_rows: list[dict], sites: list[dict], *, rail:
         note += " Model type is the caller's mapping of configs (unmapped: \"other\")."
     if not any(row.get("date") is not None for row in rows):
         note += " No run carries a date yet, so there is no date range."
+    extra_pages: list[dict] = []
+    if isinstance(overview, str) and overview != "v2":
+        # the default since 2026-11-25: O3's tiles and their pages (or one of the round's other Overviews), host views
+        # in place of V2's Vega League, League by model type and Speed sweeps (runs_overview.py)
+        overview, extra_pages, base_views = overview_parts(
+            overview, speeds=len(speeds) > 1, costs=bool(costs), typed=bool(model_types), acc_label=league_label,
+            type_label=labels.get("model_type", "Model type"))
+    elif isinstance(overview, str):
+        overview = None  # "v2": V2's own Overview, below
     if overview is None:
         panels = [{"view": "League", "w": 7, "h": 5, "title": f"League · configs · {title}"}]
         if model_types:
@@ -449,6 +469,15 @@ def _base(rows: list[dict], target_rows: list[dict], sites: list[dict], *, rail:
         # WHY the query form: data-ui's stock post: sends no body (gap 3); traj_compare.serve takes both
         actions.append({"label": "Open in Rerun", "post": "__rerun/selection?runs={rerun_runs}",
                         "title": "This run and its target in Rerun (traj_compare.serve)"})
+    datasets = {"runs": {"data": "runs.json", "label": "Runs"}, "targets": {"data": "targets.json", "label": "Targets"}}
+    links = [{"from": "runs.target_key", "to": "targets.target_key", "direction": "one-way"}]
+    pairs_page, pairs_views = pairs if pairs else (None, [])
+    if pairs_page:
+        # WHY linked by the run folder: a pair is two lines of one folder, so it stays while either passes the rail
+        # (the Sim / real facet alone would otherwise empty the tab)
+        datasets["pairs"] = {"data": "pairs.json", "label": "Sim ↔ real pairs"}
+        links.append({"from": "runs.run_report", "to": "pairs.run_report", "direction": "one-way"})
+        properties["against"] = {"displayName": "Real against"}
     return {
         "data": "runs.json",
         "noun": ["run", "runs"],
@@ -456,19 +485,21 @@ def _base(rows: list[dict], target_rows: list[dict], sites: list[dict], *, rail:
         "properties": properties,
         "style": {"numbers": {"digits": 3}},
         "drill": {"actions": actions},
-        "datasets": {"runs": {"data": "runs.json", "label": "Runs"}, "targets": {"data": "targets.json", "label": "Targets"}},
-        "links": [{"from": "runs.target_key", "to": "targets.target_key", "direction": "one-way"}],
+        "datasets": datasets,
+        "links": links,
         "pages": [
             dict(overview),
+            *extra_pages,
             {"name": "Targets", "layout": {"columns": 12, "rowHeight": 88, "panels": [
                 {"view": "Targets", "w": 12, "h": 7,
                  "title": "Targets with at least one run left · click one, then Open target view"}]}},
             {"name": "Runs", "layout": {"columns": 12, "rowHeight": 88, "panels": [
                 {"view": "Runs", "w": 12, "h": 7,
                  "title": "Every run the rail keeps · click one: target view, run report, Rerun"}]}},
+            *([pairs_page] if pairs_page else []),
             *[dict(page) for page in pages],
         ],
-        "views": [*base_views, *[dict(view) for view in views]],
+        "views": [*base_views, *table_views, *pairs_views, *[dict(view) for view in views]],
     }
 
 
@@ -497,9 +528,11 @@ def write_runs_workbench(
     kpis: Sequence[Metric] | None = None,
     league: str | None = None,
     speed: str | None = None,
-    overview: Mapping[str, Any] | None = None,
+    overview: Mapping[str, Any] | str | None = None,
     pages: Sequence[Mapping[str, Any]] = (),
     views: Sequence[Mapping[str, Any]] = (),
+    sim_vs_real: bool = True,
+    accuracy_fallback: bool = True,
     kit: str | None = None,
     vendor: str = "main",
     data_ui: Path | str = DATA_UI,
@@ -522,8 +555,16 @@ def write_runs_workbench(
       metrics. Each is a column named by its tag without ``{series}_``. ``league``: the column the League ranks by
       (default the first KPI, else traj_compare's tool RMS, else the worst-joint RMS). ``speed``: the run tag of the
       speed (default the sites' sweep x); the League is taken at its fastest value.
-    - ``overview`` / ``pages`` / ``views``: the splice points. ``overview`` replaces the Overview page (a ``.base`` page:
-      ``{"name", "layout"}``); ``pages`` are more tabs after Runs; ``views`` the views they name.
+    - ``overview``: the Overview. Default (``None`` or ``"tiles"``): O3 "Headline tiles → drill" (runs_overview.py), six
+      tiles each opening its page (League, Model × dataset, Speed, Trade-off, Worst targets), the tiles and pages whose
+      data is absent left out. ``"league"``, ``"matrix"``, ``"speed"``, ``"tradeoff"``: that round's other Overviews (one
+      host view, full width, no extra pages); ``"v2"``: V2's own (Vega League, League by model type, Speed sweeps); a
+      ``.base`` page (``{"name", "layout"}``) replaces it, V2's views beside it. ``pages`` are more tabs at the end;
+      ``views`` the views they name.
+    - ``sim_vs_real``: the "Does sim match real?" tab after Runs (``pairs.json``: each real line against each prediction
+      in its run folder), when the runs hold any such pair. ``accuracy_fallback``: where a run carries no League KPI
+      value, traj_compare's own tool RMS stands in for the Overview and the pairs (when the League KPI is in mm), flagged
+      ``accuracy_from`` on the row; ``False``: the League KPI only.
     - ``kit``: the href (relative to ``out_dir``) of a data-ui kit already vendored, else ``vendor`` (a data-ui ref) is
       vendored into ``out_dir/vendor/data-ui`` from the ``data_ui`` checkout.
     - ``rerun_server``: ``False`` for a static host: no per-run Open in Rerun, and the target view's playback buttons say
@@ -555,10 +596,24 @@ def write_runs_workbench(
     kpi_ids = [_kpi_id(m.tag) for m in kpis]
     has = lambda column: any(row.get(column) is not None for row in rows)  # noqa: E731
     league = league or next((k for k in kpi_ids if has(k)), None) or ("tool_rms" if has("tool_rms") else "worst")
+    if overview is None:
+        overview = "tiles"
+    if isinstance(overview, str) and overview not in OVERVIEWS:
+        raise ValueError(f"overview={overview!r}: one of {', '.join(map(repr, OVERVIEWS))}, a .base page, or None")
     model_types = None
     if lookup is not None:
         values = list(model_type.values()) if isinstance(model_type, Mapping) else sorted({r["model_type"] for r in rows})
         model_types = [v for v in dict.fromkeys(values) if v != OTHER] + [OTHER]
+    kpi_of = {_kpi_id(m.tag): m for m in kpis}
+    league_label = kpi_of[league].label if league in kpi_of else names.get(league, league)
+    league_unit = kpi_of[league].unit if league in kpi_of else UNITS.get(league, "")
+    # WHY only into a League KPI in mm: traj_compare's tool RMS is in mm, and a stand-in must measure the same thing
+    fallback = "tool_rms" if accuracy_fallback and league not in ("tool_rms", "worst") and league_unit == "mm" else None
+    fill_accuracy(rows, league, fallback=fallback)
+    costs = [m for m in kpis if _kpi_id(m.tag) != league and m.better == "lower" and has(_kpi_id(m.tag))]
+    carry = [n for n in (*rail, *columns) if n not in ("deployment", "dataset", "target", "sim_real")]
+    pairs = build_pairs(rows, carry=carry) if sim_vs_real else []
+    pairs_page = pairs_parts(pairs, acc_label=league_label, unit=league_unit, speed_label=names["speed"]) if pairs else None
     colors = dataset_colors(sorted({row["dataset"] for row in rows}))
     run_columns = list(dict.fromkeys(k for row in rows for k in row))
     numeric = {column for column in run_columns if all(_number(row.get(column)) is not None or row.get(column) is None
@@ -566,12 +621,23 @@ def write_runs_workbench(
     target_columns = list(dict.fromkeys(k for row in target_rows for k in row))
     base = _base(rows, target_rows, resolved, rail=rail, labels=names, kpis=kpis, league=league, model_types=model_types,
                  speed_label=names["speed"], overview=overview, pages=pages, views=views, rerun_server=rerun_server,
-                 colors=colors)
+                 colors=colors, costs=costs, pairs=pairs_page)
 
+    run_schema = _schema(run_columns, names, kpis, numeric)
+    run_schema["accuracy"] = {"type": "number", "label": f"{league_label} (Overview: the tag, else traj_compare's)",
+                              "unitText": league_unit, "digits": 3}
     _files.write_text(out / "runs.json", json.dumps(
         {"id": "tc-runs", "title": f"{title}: every run", "titleProperty": "target",
-         "properties": _schema(run_columns, names, kpis, numeric), "rows": rows},
+         "properties": run_schema, "rows": rows},
         ensure_ascii=False, separators=(",", ":"), allow_nan=False))
+    if pairs:
+        pair_columns = list(dict.fromkeys(k for pair in pairs for k in pair))
+        _files.write_text(out / "pairs.json", json.dumps(
+            {"id": "tc-pairs", "title": f"{title}: real against its prediction, per run folder", "titleProperty": "target",
+             "properties": pairs_schema(pair_columns, acc_label=league_label, unit=league_unit, labels=names),
+             "rows": pairs}, ensure_ascii=False, separators=(",", ":"), allow_nan=False))
+    elif (out / "pairs.json").exists():
+        (out / "pairs.json").unlink()  # a rebuild without pairs: no stale tab data beside the .base
     _files.write_text(out / "targets.json", json.dumps(
         {"id": "tc-targets", "title": f"{title}: every target", "titleProperty": "target",
          "properties": _schema(target_columns, names, kpis, numeric | {"runs_all", "configs_all"}), "rows": target_rows},
@@ -604,9 +670,30 @@ def write_runs_workbench(
 
         kit = _vendor(out, vendor, Path(data_ui))
     subtitle = f"{len(rows):,} runs · {len(target_rows):,} targets · {len(resolved)} deployments"
+    # the host views' config: every name they show is the caller's (assets/runs_views.js reads nothing else)
+    deployments = [site["title"] for site in resolved]
+    speed_text = names["speed"]
+    views_config = {
+        "acc": {"id": "accuracy", "kpi": league, "label": league_label, "short": league_label, "unit": league_unit,
+                "log": True, "fill": FILL},
+        "costs": [{"id": _kpi_id(m.tag), "label": m.label, "short": m.label, "unit": m.unit, "log": bool(m.log)}
+                  for m in costs],
+        "deployments": deployments, "modelTypes": model_types, "modelTypeLabel": names.get("model_type", "Model type"),
+        "configOrder": config_order(rows, deployments), "palette": list(SITUATION_PALETTE),
+        "speed": ({"label": speed_text, "times": "×" in speed_text, "word": "speed"}
+                  if any(row.get("speed") is not None for row in rows) else None),
+        "rule": RULE,
+        "pairs": ({"label": league_label, "against": against_order(pairs),
+                   "deployments": [d for d in deployments if any(p["deployment"] == d for p in pairs)]} if pairs else None),
+    }
+    _files.write_text(out / "runs_views.js", f"const CSS = {json.dumps(_asset('runs_views.css'))};\n"
+                      + _asset("runs_views.js"))
+    kit = kit.rstrip("/")
+    # WHY "./" in front: an ES module import of "vendor/…" is a bare specifier, which the browser refuses
+    kit_import = kit if kit.startswith(("/", "./", "../", "http:", "https:")) else f"./{kit}"
     _files.write_text(out / "index.html", _INDEX.format(
-        title=html.escape(title), subtitle=html.escape(subtitle), kit=html.escape(kit.rstrip("/")),
-        host=_asset("runs_host.js"), serve=html.escape(serve)))
+        title=html.escape(title), subtitle=html.escape(subtitle), kit=html.escape(kit), kit_import=html.escape(kit_import),
+        host=_asset("runs_host.js"), serve=html.escape(serve), views=_script_json(views_config)))
     return out / "index.html"
 
 
@@ -707,8 +794,14 @@ _INDEX = """<!doctype html>
   <span class="sp"></span>
 </header>
 <data-workbench id="tc" src="runs.base" aria-label="{title}"></data-workbench>
+<script type="application/json" id="tc-views">{views}</script>
 <script type="module" src="{kit}/data-ui.js"></script>
 <script type="module">
+// the host views (the Overview's tiles and pages, the sim-vs-real answer), registered through data-ui's own
+// registerView before the workbench draws a panel of runs.base (traj_compare.runs_overview, assets/runs_views.js)
+import {{ registerView }} from '{kit_import}/data-ui.js';
+import {{ registerRunsViews }} from './runs_views.js';
+registerRunsViews(registerView, JSON.parse(document.getElementById('tc-views').textContent));
 {host}
 </script>
 </body>

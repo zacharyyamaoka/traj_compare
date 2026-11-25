@@ -3,7 +3,8 @@
    names each gap and its data-ui ask):
    - "Open target view" opens the target view IN THIS TAB, the runs the rail keeps for that target ticked (keep=) and
      this page's URL (its rail and its tab) as back=, so the target view's ‹ link returns to exactly this filter
-     (data-ui's drill runs href / post / copy, and an href opens a new tab: gap 2);
+     (data-ui's drill runs href / post / copy, and an href opens a new tab: gap 2); a "Does sim match real?" row
+     (pairs.json) ticks exactly its pair's two lines instead;
    - the cross-deployment warning when the kept runs span more than one deployment (no conditional note: gap 5);
    - the Fold button: the stock rail folds only under 1,100 px, so it sets the stock fold="always" (gap 6);
    - html[data-ready=1] once the open page's panels drew (data-ui marks the workbench, not its dashboards).
@@ -19,6 +20,16 @@ const store = {
 const allRows = () => (wb.scope && wb.scope.data ? wb.scope.data.rows : []);
 const keptRows = () => (wb.model ? wb.model.rows : []);
 let byId = new Map();
+let pairsById = new Map();
+/** The "Does sim match real?" tab's rows (pairs.json), by id: a pair's drill ticks exactly its two lines. */
+function pairs() {
+  if (!pairsById.size) {
+    const sets = wb.scope && wb.scope.datasets;
+    const rows = sets && sets.pairs && sets.pairs.rows ? sets.pairs.rows : [];
+    pairsById = new Map(rows.map((row) => [String(row.id), row]));
+  }
+  return pairsById;
+}
 
 function applyFold(folded) {
   const fold = wb.querySelector('data-fold.dw-rail');
@@ -45,17 +56,20 @@ function changed() {
 }
 wb.addEventListener('data-scope-load', () => {
   byId = new Map(allRows().map((row) => [String(row.id), row]));
+  pairsById = new Map();
   applyFold(store.get(FOLD_KEY, false));
 });
 wb.addEventListener('data-scope-change', changed);
 wb.addEventListener('data-scope-tab', changed);
 
-/** The target view's URL for one target: the runs the rail keeps ticked, this page (filter and tab) to come back to. */
-function targetUrl(site, slug) {
+/** The target view's URL for one target: the runs the rail keeps ticked (or `lines`), this page (filter and tab) to come
+    back to. */
+function targetUrl(site, slug, lines = null) {
   const key = `${site}|${slug}`;
-  const keep = keptRows().filter((row) => row.target_key === key).map((row) => row.line);
+  const keep = lines || keptRows().filter((row) => row.target_key === key).map((row) => row.line);
   // WHY the path, not location.href: back= travels on into playback's breadcrumb, which takes same-origin paths only
   const query = new URLSearchParams({ site, target: slug, keep: keep.join(','), back: location.pathname + location.search + location.hash });
+  if (lines) query.set('why', 'pair');  // the target view then says "not in this pair", not "outside the rail filter"
   return `target.html?${query.toString().replace(/%2C/g, ',')}`;
 }
 
@@ -64,6 +78,14 @@ document.addEventListener('click', (event) => {
   const button = event.target.closest && event.target.closest('#tc [data-drill-action]');
   if (!button || !button.textContent.trim().startsWith('Open target view')) return;
   const id = button.dataset.drillRow || '';
+  const pair = pairs().get(id);
+  if (pair) {
+    // WHY both lines whatever the rail's Sim / real says: a pair IS the prediction and the measurement of one run
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    location.href = targetUrl(pair.site, pair.target_slug, String(pair.keep).split(',').map(Number));
+    return;
+  }
   const row = byId.get(id);
   // a Targets row's id is its target key (<site>|<slug>); a Runs row's is <site>:<line>
   const [site, slug] = row ? [row.site, row.target_slug] : id.split('|');
