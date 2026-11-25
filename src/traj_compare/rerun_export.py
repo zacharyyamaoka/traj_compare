@@ -59,6 +59,10 @@ import numpy as np
 from . import _files
 from .analysis import analyze_comparison
 from .model import Comparison, RobotDisplay, Situation
+# WHY here (2026-11-25): Open in Rerun on a run that HAS a target is the pick round's V2 (robot_msgs' URDF arm for the
+# run, the target and its error on top); this module is where every Open in Rerun recording is made, so it is exported
+# from here beside write_rrd
+from .rerun_target_run import comparison_inputs, target_vs_run_blueprint, write_target_vs_run_rrd
 from .tabs import normalize_parts, resolve_tab, tabs_for
 
 try:
@@ -1426,6 +1430,17 @@ def _resolvable_videos(payload: dict[str, Any], video_root: Path) -> dict[str, P
     return found
 
 
+VIEWS = ("auto", "layouts", "target_vs_run")
+
+
+def rerun_view(comparison: Comparison, *, checks: Mapping[str, str] | None = None) -> str:
+    """Which recording ``write_rrd(view="auto")`` writes for ``comparison``: ``"target_vs_run"`` for one target and one
+    run with data on a URDF (``RobotDisplay.urdf``) and no video (``rerun_target_run.comparison_inputs``), else
+    ``"layouts"`` (the named layouts' recording: the question tabs or evo's). ``checks`` asks for the layouts."""
+
+    return "target_vs_run" if not checks and comparison_inputs(comparison) is not None else "layouts"
+
+
 def _reference_start(comparison: Comparison) -> float:
     """Time zero: the reference's first sample, else the earliest run's."""
 
@@ -1446,8 +1461,17 @@ def write_rrd(
     application_id: str = APPLICATION_ID,
     extra: Callable[[Any, dict[str, Any], float], None] | None = None,
     checks: Mapping[str, str] | None = None,
+    view: str = "auto",
 ) -> Path:
     """Write ``comparison`` as one .rrd and return its path.
+
+    ``view``: ``"auto"`` (the default) writes the target-vs-run recording (``write_target_vs_run_rrd``: the run as its
+    URDF arm, the target and its error on top, an Error tab first) when the comparison is one target and one run on a
+    URDF (``rerun_view``), else the named layouts' recording below. ``"layouts"`` always writes the latter,
+    ``"target_vs_run"`` the former or raises ``ValueError`` saying why it cannot. WHY auto (Zach, 2026-11-25: a lone
+    trajectory keeps robot_msgs' viewer, a run with a target gets the pick round's V2): only a ``RobotDisplay`` with a
+    ``urdf`` qualifies, a field older callers never set, so their recordings are unchanged. A target-vs-run .rrd has no
+    ``.rbl`` files beside it (they lay out the other recording); the hooks below apply to the layouts' recording only.
 
     ``layout`` names the embedded layout (``LAYOUTS``; default: the user's ``default_layout()``).
     Every layout is also written beside the .rrd as ``<stem>.<layout>.rbl`` so any of them opens
@@ -1466,8 +1490,24 @@ def write_rrd(
     from .report import _colorize
 
     layout = _check_layout(layout) if layout is not None else default_layout()
+    if view not in VIEWS:
+        raise ValueError(f"view is one of {VIEWS}, got {view!r}")
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    if view != "layouts":
+        hooks = [name for name, given in (("blueprint", blueprint), ("extra", extra), ("checks", checks)) if given]
+        inputs = None if hooks else comparison_inputs(comparison)
+        if view == "target_vs_run" and inputs is None:
+            raise ValueError(
+                "view='target_vs_run' draws one target and one run with data on a URDF (RobotDisplay.urdf), with no "
+                f"video{f' and no {hooks}' if hooks else ''}; this comparison is not that: use view='layouts'"
+            )
+        if inputs is not None:
+            written = write_target_vs_run_rrd(path, **inputs, application_id=application_id,
+                                              recording_name=_recording_name(comparison))
+            for name in LAYOUTS:  # a stale layout file beside it would open the wrong recording's tabs
+                blueprint_path(path, name).unlink(missing_ok=True)
+            return written
     video_root = Path(video_root) if video_root is not None else path.parent
     if payload is None:
         payload = analyze_comparison(comparison)

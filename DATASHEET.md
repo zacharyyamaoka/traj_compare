@@ -68,6 +68,14 @@ control. `write_rrd(comparison, path)` is the same writer on its own. Entities: 
 analyze payload), `/error/tool/{position_mm,rotation_mrad,rotation_deg,x_mm,y_mm,z_mm,lag_mm,cross_track_mm}/<situation>`,
 `/vec/<label>/<situation>`, `/video/<situation>` (MP4), `/notes`.
 
+**Target vs run (2026-11-25):** a comparison of one target and one run whose `RobotDisplay.urdf` is set (no video, no
+`checks`) is written by `write_target_vs_run_rrd` instead (`write_rrd(view="auto")`, `rerun_view(comparison)` says which):
+robot_msgs' V1 arm and tabs for the run (`/world/run/...`, `/<field>/<joint>/run`), the target pale under them
+(`/<field>/<joint>/reference`, `/tcp/<group>/reference`), `/error/joint/run` (run − target, °), `/error/tool/{ruler,
+fk_tcp_off,shade}` (mm), `/notes/error`, and the ×N magnifier `/world/run/magnifier/{path,now,skeleton,joints,tip,leader,label}`
+with `/world/run/target_tool/{path,now}`. Its payload is `{rrd, sdk, layout: "target_vs_run", layouts: [], command}` (opened
+bare, no `.rbl`). The runs workbench's one-ticked-run Rerun and the dataset drill-down follow from the site's `robot` spec.
+
 **Pin:** `RERUN_SDK_VERSION = "0.40.0"`; the `rerun` extra is `rerun-sdk==0.40.0`. An `.rrd` needs a viewer at least as new
 as its SDK, so every command is `uvx --from rerun-sdk==0.40.0 rerun <abs path>`.
 

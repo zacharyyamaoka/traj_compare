@@ -286,6 +286,26 @@ check run has only a note (no data) still gets the tab, saying why; one without 
 render is mixed at 50 %; `CameraOverlay(key_color="#fcfcfb")` keys a render's flat background out first so only the
 robot lies over the camera.
 
+**A run with its target: target vs run** (Zach, 2026-11-25, the Rerun pick round's V2; a lone trajectory keeps
+robot_msgs' stock viewer, V1). When the robot is known as a URDF, a run against its target opens as robot_msgs' URDF arm
+for the run (V1's own logger and dashboard, no ghosts) with the target and its error on top: the run's deviation ×N
+(a 1-2-5 scale) as a thin magenta skeleton, an arrow from the target's tool point labelled `run ×N · TCP off X mm` (the
+true offset), the target's tool path dashed blue, an **Error** tab first (tool error in mm, each joint's error in °, target
+vs run at the playhead) and the target as a pale line under the run on V1's six tabs. Who gets it:
+
+```python
+from traj_compare.rerun_export import write_target_vs_run_rrd
+write_target_vs_run_rrd("run.rrd", run, target=planned, robot="ur5e.urdf", tool=run_tcp, target_tool=planned_tcp,
+                        tool_error_mm=ruler, tool_error_rms_mm=1.09)   # directly; target_vs_run_blueprint(...) = its dashboard
+RobotDisplay(..., urdf="ur5e.urdf")   # a comparison of one target and one run: write_rrd / write_comparison_report(rerun=True),
+                                      # the dataset drill-down and the runs workbench's Open in Rerun (one ticked run)
+write_trajectory_rrd(path, name, trajectory, robot="ur5e.urdf", tool=tcp)   # a lone trajectory: V1, unchanged
+```
+
+`RobotDisplay.urdf`'s root link frame is the frame its `link_fk` and `Situation.poses` are in. A comparison with several runs,
+a video, `checks`, or no URDF keeps the layouts above (`write_rrd(..., view="layouts")` forces them; `rerun_view(comparison)`
+says which one it gets). A target-vs-run `.rrd` has no `.rbl` files beside it and the page opens it bare (no Layout menu).
+
 **Version pin.** `RERUN_SDK_VERSION = "0.40.0"` (`traj_compare.rerun_export`, and the `rerun` extra): an `.rrd` must be
 opened by a viewer at least as new as the SDK that wrote it, so the button and the printed command always use
 `uvx --from rerun-sdk==0.40.0 rerun <file>`.

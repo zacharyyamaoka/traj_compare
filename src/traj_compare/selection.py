@@ -167,6 +167,28 @@ def _rgb(color: str) -> list[int]:
     return [int(color[i:i + 2], 16) for i in (1, 3, 5)]
 
 
+def _target_vs_run(pick: Pick, manifest: dict, path: Path) -> tuple[Path, list[str]] | None:
+    """One pick as the target-vs-run recording when its site's robot has a URDF, else None (the overlay draws it)."""
+    from robot_msgs.std import Header
+
+    from .rerun_export import write_target_vs_run_rrd
+
+    run = _RunFolder(pick.folder)
+    urdf = getattr(run.robot(), "urdf", None)
+    if not urdf:
+        return None
+    reference, measured = run.trajectories[REFERENCE], run.trajectories[pick.series]
+    tools = {}
+    if run.poses is not None:
+        # RobotDisplay.urdf's contract: the poses are in the URDF's root link frame (an empty frame_id says so)
+        tools = {key: run.poses(trajectory).replace(header=Header(stamp=float(trajectory.header.stamp)))
+                 for key, trajectory in (("tool", measured), ("target_tool", reference))}
+    label = _label(pick, manifest)
+    write_target_vs_run_rrd(path, measured, target=reference, robot=urdf, label=label,
+                            recording_id=f"selection-{path.stem}", **tools)
+    return path, ["target", label]
+
+
 def build_selection_rrd(picks: Sequence[Pick], path: Path | str) -> tuple[Path, list[str]]:
     """One ``.rrd`` at ``path`` holding every distinct target (grey) and every pick (its color): joint angles and joint
     error, in degrees, through stock ``robot_msgs.viz.rerun`` (``/<field>/<joint>/<name>``, one plot per joint, one line
@@ -175,6 +197,11 @@ def build_selection_rrd(picks: Sequence[Pick], path: Path | str) -> tuple[Path, 
     WHY one recording for the whole selection, not one per run: Rerun overlays series in one plot only when they share a
     recording and a timeline (Zach, 2026-11-24: "any of the selected runs now appear as lines in the rerun viewer").
     Each line is on its own run's clock: its run's reference start is time 0.
+
+    ONE pick whose site knows its robot as a URDF (the ``robot`` spec's ``RobotDisplay.urdf``) is the target-vs-run
+    recording instead (``rerun_export.write_target_vs_run_rrd``: the run as its URDF arm, the target and its error on
+    top), its tool from the site's ``poses`` spec, in the URDF's root frame. WHY (Zach, 2026-11-25): a run with a
+    target opens as the pick round's V2; several runs stay one line each, which V2 (one target, one run) cannot hold.
     """
     from robot_msgs._core import load_npz
     from robot_msgs.compare import compare
@@ -186,6 +213,10 @@ def build_selection_rrd(picks: Sequence[Pick], path: Path | str) -> tuple[Path, 
     checked = _checked(picks)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    if len(checked) == 1:
+        drawn = _target_vs_run(*checked[0], path)
+        if drawn is not None:
+            return drawn
     references: dict[Path, tuple[object, str]] = {}
     for pick, manifest in checked:
         file = (pick.folder / manifest["files"][REFERENCE]).resolve()

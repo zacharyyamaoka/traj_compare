@@ -276,6 +276,11 @@ class RobotDisplay:
     # Fixed housings can pin neutral colors while moving links remain matched.
     link_colors: list[str | None] | None = None
     link_opacities: list[float] | None = None
+    # The same robot as a URDF file (a path), whose root link frame is the frame ``link_fk`` and ``Situation.poses`` are
+    # in. With it, Open in Rerun on a run that has a target draws the run as robot_msgs' URDF arm against its target
+    # (``rerun_export.write_target_vs_run_rrd``, the 2026-11-25 pick); None (the default): the Rerun recording is the
+    # question tabs, as before.
+    urdf: str | None = None
 
     def __post_init__(self) -> None:
         if len(self.link_names) != len(self.link_meshes):

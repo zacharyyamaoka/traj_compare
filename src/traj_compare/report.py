@@ -163,6 +163,7 @@ def write_comparison_report(
     rerun: bool = False,
     rerun_layout: str | None = None,
     rerun_checks: Mapping[str, str] | None = None,
+    rerun_view: str = "auto",
     exports: bool = False,
     breadcrumb: Sequence[tuple[str, str]] = (),
     assets: Path | str | None = None,
@@ -177,6 +178,10 @@ def write_comparison_report(
     preference, ``rerun_export.default_layout()``); the page offers every layout either way.
     ``rerun_checks`` (``{"camera": "Camera Check"}``) gives each named situation group its own Rerun tab,
     out of every other Rerun view and summary (``rerun_export.layout_blueprint``); the HTML page is unchanged.
+    ``rerun_view`` (``rerun_export.write_rrd``'s ``view``): ``"auto"`` makes a comparison of one target and one run on a
+    URDF (``RobotDisplay.urdf``) the target-vs-run recording (the run as its URDF arm, the target and its error on top),
+    opened bare (no layout picker: the named layouts lay out the other recording); every other comparison, and
+    ``"layouts"``, keeps the layouts above.
     ``exports=True`` writes ``exports/<name>.parquet`` and ``.mcap`` the same way (the ``export`` extra)
     and links them next to the page's other downloads.
     ``breadcrumb`` (``[(label, href), ...]``, e.g. ``[("Dataset", "../../index.html"), (target title,
@@ -203,7 +208,8 @@ def write_comparison_report(
 
     if rerun:
         # Lazy, so the core report never imports the SDK; the module raises its own clear error.
-        from .rerun_export import LAYOUTS, RERUN_SDK_VERSION, blueprint_path, default_layout, viewer_command, write_rrd
+        from .rerun_export import (LAYOUTS, RERUN_SDK_VERSION, blueprint_path, default_layout, viewer_command, write_rrd)
+        from .rerun_export import rerun_view as view_of
 
         chosen = rerun_layout or default_layout()
         layout_order = [chosen, *[name for name in LAYOUTS if name != chosen]]
@@ -217,6 +223,7 @@ def write_comparison_report(
         _colorize(payload)
         if rerun:
             relative = f"rerun/{comparison.name}.rrd"
+            view = view_of(comparison, checks=rerun_checks) if rerun_view == "auto" else rerun_view
             rrd_path = write_rrd(
                 comparison,
                 report_path.parent / relative,
@@ -224,7 +231,13 @@ def write_comparison_report(
                 payload=payload,
                 video_root=report_path.parent,
                 checks=rerun_checks,
+                view=view,
             )
+        if rerun and view == "target_vs_run":
+            # one recording with its own dashboard: no layout picker, and the page's open sends no ?layout=
+            payload["rerun"] = {"rrd": relative, "sdk": RERUN_SDK_VERSION, "layout": "target_vs_run", "layouts": [],
+                                "command": viewer_command(rrd_path)}
+        elif rerun:
             layouts = [
                 {
                     "name": name,
