@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Playback viewer · R1 Every figure is a scrubber</title>
+<link rel="stylesheet" href="/assets/uplot.min.css">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="../common/runview.css">
+</head>
+<body data-rv-variant="r1">
+<!-- R1 "Every figure is a scrubber": today's run report, the plain drag on any chart now moves the time everywhere.
+     ?fixture=tta|bam_fb [&keep=<names or bench lines>] [&back=<target view url>] [&t=<s>] [#tab=<id>] [&dry=1] -->
+<header class="tc rv-head" id="rv-head"></header>
+<nav class="tc-tabs" id="tc-tabs"></nav>
+<nav class="tc-subtabs" id="tc-subtabs"></nav>
+<main class="tc" id="tc-main"></main>
+<footer class="tc" id="rv-foot"></footer>
+<script src="/assets/uplot.iife.min.js"></script>
+<script src="/assets/three.min.js"></script>
+<script src="/assets/viewhelper.js"></script>
+<script src="viewer3d.js"></script>
+<script src="plots.js"></script>
+<script src="../common/runview.js"></script>
+</body>
+</html>

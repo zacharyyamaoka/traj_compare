@@ -1,0 +1,21 @@
+/* The playback viewer's shared header (run-view round 2026-11-24): back to the target view · where · count · Rerun. */
+header.rv-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 8px 20px; }
+.rv-back { font-weight: 600; text-decoration: none; color: #1f5fa8; border: 1px solid #c9d6e6; border-radius: 6px;
+  padding: 4px 10px; background: #f4f8fd; white-space: nowrap; }
+.rv-back:hover { background: #e6effa; }
+.rv-back.dead { opacity: .5; pointer-events: none; }
+.rv-where { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1 1 auto; }
+.rv-kicker { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #8a8983; white-space: nowrap; }
+.rv-title { font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.rv-count { color: #5f5e5a; font-size: 13px; white-space: nowrap; }
+.rv-rerun { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 6px; border: 1px solid #3c5168;
+  background: #1c1f23; color: #f1f1f1; cursor: pointer; white-space: nowrap; }
+.rv-rerun:disabled { opacity: .5; cursor: default; }
+.rv-status { font-size: 12px; color: #5f5e5a; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-status.ok { color: #2f7a3d; }
+.rv-status.bad { color: #b3261e; }
+body.rv-scrubbing, body.rv-scrubbing * { cursor: ew-resize !important; user-select: none !important; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .rv-back { background: #1c2430; border-color: #34465c; color: #9cc3f0; }
+  :root:not([data-theme="light"]) .rv-count, :root:not([data-theme="light"]) .rv-status { color: #a8a7a4; }
+}
