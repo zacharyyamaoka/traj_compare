@@ -1,0 +1,25 @@
+# Publishes to PyPI when a version tag (v*) is pushed, through PyPI trusted publishing:
+# no API token is stored anywhere. One-time setup on pypi.org: a "pending publisher" for
+# project traj-compare, owner zacharyyamaoka, repository traj_compare, workflow publish.yml,
+# environment pypi.
+name: publish
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+jobs:
+  # WHY: the release gate is the exact CI that went green
+  test:
+    uses: ./.github/workflows/test.yml
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv build --no-sources
+      - run: uv publish --trusted-publishing always

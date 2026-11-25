@@ -1,0 +1,20 @@
+name: test
+on: [push, pull_request, workflow_call]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      # WHY uv pip, not uv run: `uv run` resolves every extra, and the `viser` extra names viser-3d-viewer, which is
+      # not on PyPI yet; installing only the extras the tests use (rerun is not skip-guarded) keeps CI on PyPI packages (--no-sources) alone.
+      - run: uv venv --python ${{ matrix.python }}
+      - run: uv pip install --no-sources -e ".[test,plot,rerun,export]"
+      - run: .venv/bin/python -m pytest -q -rs
+        env:
+          MPLBACKEND: Agg
