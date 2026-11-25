@@ -15,9 +15,12 @@ is a symlink to that, so every existing path dependency and command keeps workin
 
 ## What the report shows
 
-A run report puts a **stage** on the left: the 3D view (robot + tool paths, the scrubber
-under it) over the camera overlay / videos. Drag its edge, fold it with ‹ (both remembered);
-below 900 px it stacks above the tabs. Beside it, the **question tabs** shared with Rerun
+A run report puts a **stage** on the left: the 3D view (robot + tool paths) over the camera
+overlay / videos. Drag its edge, fold it with ‹ (both remembered); below 900 px it stacks above
+the tabs. Under the tabs is the **time lane**, the page's one time control: transport, a ruler
+you press and drag, one track per run (eye, Δ, its error at the playhead, ◆ its worst moment,
+▲ where its error rises), ‹ Worst moment ›, and a zoom bar; one playhead line runs through
+every chart, because every chart sits on the ruler's x pixels. Beside it, the **question tabs** shared with Rerun
 (`traj_compare.tabs`, contract `docs/NAVIGATION.md` Part B):
 *Did it track the target?* · *Where is the error?* · *Which joint has the error?* ·
 *Is it late or off the path?* · *Feedforward or feedback?* · *Raw signals per joint*.
@@ -32,10 +35,10 @@ to the dataset and target.
 Everything is show/hide-able per section (chips), per situation (legend
 chips), with a rad/**deg (default)** angle toggle. Every time plot is a
 scrubber: drag on any plot and the time moves on every plot (other tabs
-too), the 3D pose and the slider; hovering only previews in the 3D. All time
-plots share one synchronized x zoom (Shift-drag or Ctrl/⌘+wheel on any plot,
-all follow; the **Reset zoom** button or a double-click restores the full
-range).
+too), the 3D pose and the lane's ruler; hovering only previews in the 3D. All
+time plots share one synchronized x zoom (the lane's zoom bar, or Shift-drag or
+Ctrl/⌘+wheel on any plot, all follow; the lane's **Full range** or a
+double-click restores the full range).
 
 Factorial studies use two navigation levels: a short primary tab per
 trajectory/scenario group and a secondary selector for that group's
@@ -51,9 +54,9 @@ it with a richer domain table. Report authors can also provide first-class
 tables, evidence, and recommendations.
 
 A per-page **transport** carries one shared time state: hovering any plot
-previews that instant in the 3D view; the **scrubber** under the 3D canvas
-(step/play/pause buttons + slider) commits a time that drives the vertical
-cursor line on every plot, the 3D truncation and robot pose, and the video
+previews that instant in the 3D view; the **time lane** under the tabs
+(step/play/pause buttons + its ruler) commits a time that drives the playhead
+line through every plot, the 3D truncation and robot pose, and the video
 players.
 
 | Section | Channels | Default |

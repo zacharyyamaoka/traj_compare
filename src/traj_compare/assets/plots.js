@@ -7,13 +7,15 @@
  *
  * A per-page transport carries the shared time state. Every plot is a
  * scrubber: a press-and-drag on any plot (mouse, pen or a finger) commits the
- * time at every move, as do the scrubbers (one under the 3D canvas, one under
- * the videos) and their step/play buttons. The committed time drives the
- * playhead on every plot (other tabs too), the video players (always seeked
- * together), the slider, and the 3D truncation + robot pose. Hovering a plot
+ * time at every move, as does the page's one time control: the time lane
+ * docked under the question tabs (timeline.js: transport, ruler, one track per
+ * run, zoom bar), or without it the scrubbers under the 3D canvas and the
+ * videos. The committed time drives the playhead on every plot (other tabs
+ * too) and the one line through them, the video players (always seeked
+ * together), the ruler, and the 3D truncation + robot pose. Hovering a plot
  * only previews that instant in the 3D viewer. x zoom is Shift-drag (uPlot's
- * box) or Ctrl/⌘+wheel (a trackpad pinch); Reset zoom or a double-click
- * restores the full range (see attachTimeGestures).
+ * box), Ctrl/⌘+wheel (a trackpad pinch) or the lane's zoom bar; Full range or
+ * a double-click restores the full range (see attachTimeGestures).
  *
  * A "Camera" section stacks a real video and a selectable sim render in one
  * box (opacity slider, mix/difference blend, flicker toggle); those videos
@@ -90,6 +92,11 @@ var TrajCompare = (function () {
   };
 
   var PLOT_HEIGHT = 150;
+  // Under the time lane (``page.timeline``) every chart stacks full width, its title in a left column as wide as the
+  // lane's names column, with a FIXED y-axis width and padding [top, right, bottom, left]: every plotting area then starts
+  // and ends at the same x as the lane's ruler, which is what lets one playhead line run through all of them.
+  var LANE_AXIS_PX = 56;
+  var LANE_PAD = [10, 16, 0, 0];
 
   var state = {
     unit: 'deg',
@@ -408,10 +415,11 @@ var TrajCompare = (function () {
   }
 
   /* Scrubber bar: one under the 3D canvas, one under the videos. Every bar of
-     a page stays in sync through the transport. */
+     a page stays in sync through the transport. None under the time lane: WHY (Zach's pick round 2026-11-24, R2) the
+     lane is the page's one time control, and a second slider would be a second one to keep in step. */
   function buildTransportBar(page, parent) {
     var transport = page.transport;
-    if (!transport) return null;
+    if (!transport || page.oneTimeline) return null;
     var bar = el('div', 'tc-transport', parent);
     var handle = { selfDriving: false };
 
@@ -530,6 +538,7 @@ var TrajCompare = (function () {
 
     // WHY 160 (2026-11-19, parts): a hand's finger row puts 3-4 joints side by side beside the stage
     function width() {
+      if (page.oneTimeline) return Math.max(80, chartEl.clientWidth);  // the plot column beside the title column
       return Math.max(160, card.clientWidth - 18);
     }
 
@@ -564,11 +573,14 @@ var TrajCompare = (function () {
         },
         axes: [
           { stroke: ink('#8a8983'), grid: { stroke: ink('#e6e5e0'), width: 0.5 }, ticks: { stroke: ink('#c9c8c2') }, size: 28 },
-          { stroke: ink('#8a8983'), grid: { stroke: ink('#e6e5e0'), width: 0.5 }, ticks: { stroke: ink('#c9c8c2') }, size: 44 },
+          { stroke: ink('#8a8983'), grid: { stroke: ink('#e6e5e0'), width: 0.5 }, ticks: { stroke: ink('#c9c8c2') },
+            size: page.oneTimeline ? LANE_AXIS_PX : 44 },
         ],
+        padding: page.oneTimeline ? LANE_PAD : undefined,
         hooks: {
           setScale: [function (u, key) {
             if (key === 'x' && chart.paintPlayhead) chart.paintPlayhead();  // the playhead rides every zoom
+            if (key === 'x' && page.timeline) page.timeline.queue();       // and so do the lane and its line
             if (key !== 'x' || !u._tcReady || page.syncing) return;
             var scale = u.scales.x;
             page.syncing = true;
@@ -658,6 +670,7 @@ var TrajCompare = (function () {
         chart.paintPlayhead();
         restoreCursors(page);  // uPlot keeps its cursor at a pixel through a resize
       }
+      if (page.timeline) page.timeline.queue();  // the lane re-measures the shared x pixels
     };
 
     chart.build();
@@ -696,6 +709,13 @@ var TrajCompare = (function () {
 
   function paintPlayheads(page) {
     page.charts.forEach(function (chart) { if (chart.paintPlayhead) chart.paintPlayhead(); });
+  }
+
+  // Full range on every plot: the lane's Full range, the Reset zoom chip (no lane), a double-click on the zoom bar
+  function resetZoom(page) {
+    page.xZoom = null;
+    page.charts.forEach(function (chart) { chart.resetZoom(); });
+    restoreCursors(page);
   }
 
   // uPlot hides its cursor when the mouse leaves a plot and keeps it at a pixel through a zoom: a frame later (uPlot
@@ -1310,8 +1330,8 @@ var TrajCompare = (function () {
     // the same run, so they are never scrubbed or played independently.
     if (page.transport) buildTransportBar(page, body);
     el('div', 'tc-videonote', body,
-      'One scrubber drives every video, the plot cursors and the 3D view together; ' +
-      'clicking a video plays/pauses them all.');
+      (page.oneTimeline ? 'The time lane drives' : 'One scrubber drives') + ' every video, the plot cursors and the 3D view ' +
+      'together; clicking a video plays/pauses them all.');
   }
 
   /* ---------------- camera overlay: real video + sim render ---------------- */
@@ -1503,7 +1523,7 @@ var TrajCompare = (function () {
     if (page.transport) buildTransportBar(page, body);
     el('div', 'tc-videonote', body,
       'The real stream is the base layer; the slider fades the sim render over it ' +
-      '(Difference shows where they disagree). The scrubber drives both, offset by t0.');
+      '(Difference shows where they disagree). The ' + (page.oneTimeline ? 'time lane' : 'scrubber') + ' drives both, offset by t0.');
   }
 
   function viewer3dBuilder(page, body) {
@@ -1604,7 +1624,8 @@ var TrajCompare = (function () {
   // Sections whose plots carry the optional Δ-to-target overlay.
   var DELTA_SECTIONS = ['joint-q', 'joint-qd', 'joint-qdd', 'joint-tau', 'joint-current', 'tcp-pose', 'path'];
 
-  function sectionHint(id, data) {
+  function sectionHint(id, data, page) {
+    var timeControl = page && page.oneTimeline ? 'the time lane' : 'the scrubber';
     var channel = (data.channels || []).filter(function (entry) { return entry.section === id; })[0];
     if (channel) return channelHint(channel, data);
     var hint = '';
@@ -1625,9 +1646,12 @@ var TrajCompare = (function () {
       hint = 'commanded = feedforward + feedback is what goes to the FOC current loop; applied is what the drive delivered; ' +
         'the component chips toggle a torque on every card';
     }
-    if (id === 'videos') hint = 'always played together, seeked by the scrubber';
-    if (id === 'camera') hint = 'real video under the sim render; both follow the scrubber';
-    if (id === 'viewer3d') hint = 'drag any plot or the slider below to move the time everywhere; hovering a plot previews that instant here';
+    if (id === 'videos') hint = 'always played together, seeked by ' + timeControl;
+    if (id === 'camera') hint = 'real video under the sim render; both follow ' + timeControl;
+    if (id === 'viewer3d') {
+      hint = 'drag any plot or ' + (page && page.oneTimeline ? 'the time lane' : 'the slider below') +
+        ' to move the time everywhere; hovering a plot previews that instant here';
+    }
     // tau and current are optional on the target; no target trace, no Δ to draw
     var needs = { 'joint-tau': 'tau', 'joint-current': 'current' }[id];
     var hasTarget = data.situations.some(function (sit) {
@@ -2107,7 +2131,8 @@ var TrajCompare = (function () {
     var head = el('div', 'tc-stage-head', stageEl);
     var names = { viewer3d: '3D view', camera: 'Camera', videos: 'Videos' };
     var title = el('span', 'tc-stage-title', head, sections.map(function (section) { return names[section.def.id]; }).join(' · '));
-    title.title = 'always visible: the scrubber drives the 3D pose, the videos and the cursor on every plot';
+    title.title = 'always visible: ' + (page.oneTimeline ? 'the time lane' : 'the scrubber') +
+      ' drives the 3D pose, the videos and the cursor on every plot';
     var fold = el('button', 'tc-stage-fold', head);
     fold.setAttribute('data-tc-stage-fold', '');
     var scroll = el('div', 'tc-stage-scroll', stageEl);
@@ -2156,7 +2181,7 @@ var TrajCompare = (function () {
     section.el.setAttribute('data-tc-section', section.def.id);
     var heading = el('h3', '', section.el);
     var title = el('span', 'tc-section-title', heading);
-    var hint = sectionHint(section.def.id, page.data);
+    var hint = sectionHint(section.def.id, page.data, page);
     if (hint) el('span', 'hint', heading, ' — ' + hint);
     function paint() { title.textContent = sectionTitle(section.def); }
     paint();
@@ -2488,6 +2513,9 @@ var TrajCompare = (function () {
   function buildTrackPanel(page, panel) {
     var data = page.data;
     buildAnswer(page, panel);
+    // WHY first under the lane (R2, measured 2026-11-24 on 17 runs): stacked full width under a long statistics table,
+    // both "when was it worst" charts fell below the first screen
+    if (page.oneTimeline) buildWorstOverTime(page, panel);
     if (data.stats_mask) {
       // Comparison.stats_mask: every error statistic is over these samples; the plots still draw every sample
       el('p', 'tc-desc tc-stats-mask', panel, 'Error statistics are over ' + data.stats_mask.n + ' of ' + data.stats_mask.of +
@@ -2495,7 +2523,7 @@ var TrajCompare = (function () {
         .setAttribute('data-tc-stats-mask', '');
     }
     if (data.statistics) buildTable(panel, data.statistics, true);
-    buildWorstOverTime(page, panel);
+    if (!page.oneTimeline) buildWorstOverTime(page, panel);
     buildVerdictDetails(panel, data);
     buildAggregateCards(page, panel, data);
     buildDomainSummary(panel, data);
@@ -2558,6 +2586,7 @@ var TrajCompare = (function () {
       // after this returns, which left the value dots of a freshly opened tab on the end of the run
       restoreCursors(page);
     }
+    if (page.timeline) page.timeline.queue();
     if (fromUser) {
       state.prefs.set('tab', tab.id);
       writeHash(tab.id);
@@ -2616,6 +2645,11 @@ var TrajCompare = (function () {
       page.transport = makeTransport(page);
       page.transport.onChange(function (kind) { if (kind !== 'hover') paintPlayheads(page); });
     }
+    // One timeline for the page (docs/NAVIGATION.md Part B; Zach's pick round 2026-11-24, R2): the time lane under the
+    // tabs is the page's one time control. A page without timeline.js (an older shared assets folder) keeps the stage's
+    // scrubber.
+    page.oneTimeline = !!(page.transport && window.TrajCompareTimeline);
+    if (page.oneTimeline) root.classList.add('tc-timeline');
     page.unitRepaints = [];
     page.selectionRepaints = [];  // what names runs repaints when a run is shown or hidden (setSituationVisible)
     page.parts = partsOf(data);
@@ -2644,7 +2678,11 @@ var TrajCompare = (function () {
     if (stageSections.length) buildStage(page, workspace, stageSections);
     var column = el('div', 'tc-qcol', workspace);
     var head = el('div', 'tc-qhead', column);
-    buildTabStrip(page, el('nav', 'tc-qtabs', head), column, tabs, byId);
+    // the sheet holds the tabs' panels and, under the lane, the one playhead line through their charts
+    var sheet = el('div', 'tc-sheet', column);
+    buildTabStrip(page, el('nav', 'tc-qtabs', head), sheet, tabs, byId);
+    // Under the lane these chips are hidden (style.css) and stay the state machinery: the lane's tracks call them, and
+    // so do the prefs of another scenario tab and ``#run=``. The Angles chips move into the lane's bar.
     var controls = el('div', 'tc-controls', head);
 
     // Situation chips are grouped semantically instead of becoming one long,
@@ -2727,6 +2765,7 @@ var TrajCompare = (function () {
           chip.className = 'chip ' + (show ? 'on' : 'off');
           if (remember) state.prefs.set('err:' + sit.name, show);
           page.charts.forEach(function (chart) { chart.setError(sit.name, show); });
+          if (page.timeline) page.timeline.paintSelection();
         }
         page.errChips.push({ sit: sit, apply: apply });
         chip.onclick = function () { apply(!page.errorOn[sit.name], true); };
@@ -2762,11 +2801,7 @@ var TrajCompare = (function () {
     el('span', 'grouplabel', zoomGroup, 'Zoom');
     var resetButton = el('button', 'chip', zoomGroup, 'Reset zoom');
     resetButton.title = 'restore the full time range on every plot (double-clicking a plot works too)';
-    resetButton.onclick = function () {
-      page.xZoom = null;
-      page.charts.forEach(function (chart) { chart.resetZoom(); });
-      restoreCursors(page);
-    };
+    resetButton.onclick = function () { resetZoom(page); };
     if (page.transport) {
       // WHY said on the page: a plain drag zoomed before 2026-11-25; it moves the time now
       var zoomHint = el('span', 'tc-zoom-hint', zoomGroup, 'Shift-drag or Ctrl+wheel a plot');
@@ -2784,6 +2819,16 @@ var TrajCompare = (function () {
         })
         .filter(function (bit) { return bit; });
     }
+    // the time lane, docked under the tabs column: transport, ruler, one track per run, zoom bar (timeline.js)
+    if (page.oneTimeline) {
+      page.timeline = TrajCompareTimeline.create(page, { column: column, sheet: sheet, units: unitGroup }, {
+        el: el, store: store, recall: recall, ink: ink, state: state, nearestIndex: nearestIndex, worstMoment: worstMoment,
+        maxAbsOverJoints: maxAbsOverJoints, angleText: angleText, referenceTitle: referenceTitle, partIndexOf: partIndexOf,
+        violationText: violationText, verdictBadge: verdictBadge, activeTab: activeTab, resizeChartsIn: resizeChartsIn,
+        restoreCursors: restoreCursors, resetZoom: resetZoom, axisPx: LANE_AXIS_PX, padRightPx: LANE_PAD[1],
+      });
+    }
+
     var derivedBits = derivedNote(function (key) { return !TORQUE_DERIVED[key]; });
     var torqueBits = derivedNote(function (key) { return !!TORQUE_DERIVED[key]; });
     page.derived = {
@@ -2825,6 +2870,7 @@ var TrajCompare = (function () {
         page.stageWidth = recall('stage-width', page.stageWidth);
         setStageFolded(page, !!recall('stage-folded', false), false);
       }
+      if (page.timeline) page.timeline.applyShared();
       var wanted = state.prefs.get('tab', null);
       if (wanted && wanted !== page.activeTab) activateTab(page, wanted, false);
     };

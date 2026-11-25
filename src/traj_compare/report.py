@@ -42,6 +42,7 @@ VIEWER_ASSETS = (
     ("script", "three.min.js"),
     ("script", "viewhelper.js"),
     ("script", "viewer3d.js"),
+    ("script", "timeline.js"),  # the time lane under the question tabs (docs/NAVIGATION.md Part B, 2026-11-25)
     ("script", "plots.js"),
 )
 
@@ -282,6 +283,7 @@ def write_comparison_report(
 {tags["three.min.js"]}
 {tags["viewhelper.js"]}
 {tags["viewer3d.js"]}
+{tags["timeline.js"]}
 {tags["plots.js"]}
 <script>TrajCompare.boot();</script>
 </body>

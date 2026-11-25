@@ -45,9 +45,10 @@ grouped situation chips (empty situations greyed with their note), section
 chips (Joint q/qd/qdd/τ/i,
 Joint error, TCP pose, TCP error, Path progress, Camera, Videos, 3D paths), deg↔rad
 toggle (deg default), synchronized x zoom (Shift-drag or Ctrl/⌘+wheel) with
-a Reset-zoom button, and a shared **transport**: a drag on any plot, or the
-scrubber under the 3D canvas (step/play buttons), commits the time and drives
-the playhead on every plot, time-truncated 3D drawing over a faint full-path
+the time lane's Full range, and a shared **transport**: a drag on any plot,
+or the time lane under the tabs (step/play buttons, its ruler, one track per
+run with its worst moment, a zoom bar), commits the time and drives the one
+playhead line through every plot, time-truncated 3D drawing over a faint full-path
 ghost, the robot model pose, and all videos in lockstep; plot hover previews
 that instant in 3D. 3D controls per situation: a
 visibility eye + a full-word multi-select (Path line / Points / Pose frames

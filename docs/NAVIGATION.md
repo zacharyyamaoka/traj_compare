@@ -86,20 +86,60 @@ back to `../../index.html#/target/<target slug>`.
 
 ### The stage (always visible)
 
-Both viewers pin a **stage** beside the tabs: the 3D view (robot + paths, the transport/scrubber under it) over the
-camera overlay / videos when present. Rerun: as today's `questions` layout. HTML: the `viewer3d`, `camera` and `videos`
-sections move into a left stage pane `[data-tc-stage]` that drags (`[data-tc-stage-resize]`, width remembered), folds
-(`[data-tc-stage-fold]`), and stacks above the tabs below 900 px. The shared time and x zoom still span every tab.
+Both viewers pin a **stage** beside the tabs: the 3D view (robot + paths) over the camera overlay / videos when present.
+Rerun: as today's `questions` layout. HTML: the `viewer3d`, `camera` and `videos` sections move into a left stage pane
+`[data-tc-stage]` that drags (`[data-tc-stage-resize]`, width remembered), folds (`[data-tc-stage-fold]`), and stacks
+above the tabs below 900 px. The shared time and x zoom still span every tab. The stage has no time control of its own
+since 2026-11-25: the page's one time control is the time lane under the tabs (below). A page without `timeline.js` (an
+older shared `assets=` folder) keeps the old transport/scrubber under the 3D and the videos.
 
 **Drag the time on any figure (2026-11-25).** Zach, Daily Note 2026-11-24: "as you drag the time on any of the figures
 it syncs across all of the other ones". HTML: every plot is a scrubber. A plain press-and-drag on any plot (mouse, pen,
 or a finger dragging sideways) commits the time at every move, snapped to the plot grid; every plot's playhead
-`[data-tc-playhead]` (a solid line with a grip: the committed time, other tabs included), the 3D pose and path, the
-videos and the stage slider follow while it moves. Hovering a plot without a press only previews that instant in the 3D
+`[data-tc-playhead]` (a solid line: the committed time, other tabs included), the 3D pose and path, the videos and the
+lane's ruler follow while it moves. Hovering a plot without a press only previews that instant in the 3D
 (uPlot's dashed cursor), and leaving the plot puts the 3D back on the committed time. x zoom moved off the plain drag:
 Shift-drag (uPlot's box) or Ctrl/⌘+wheel (a trackpad pinch) zooms every plot alike without moving the time; a plain
-wheel scrolls the page; **Reset zoom** or a double-click restores the full range. Opening a tab never moves the 3D.
-Rerun keeps its own time panel and gestures (`rerun_export` is unchanged). Tests: `tests/test_drag_sync_browser.py`.
+wheel scrolls the page; the lane's **Full range** or a double-click restores the full range. Opening a tab never moves
+the 3D. Rerun keeps its own time panel and gestures (`rerun_export` is unchanged). Tests: `tests/test_drag_sync_browser.py`.
+
+**One timeline for the page: the time lane (2026-11-25).** Changed here because Zach's pick round of 2026-11-24
+(`docs/proposals/run-view-2026-11-24/`, the playback viewer) applied its AI pick, R2 "One timeline for the page" (80 of
+100, co-leader with R3 at 78; reversible, Zach can still swap). Until then the stage carried the transport and slider.
+HTML, the default look of `write_comparison_report` (`assets/timeline.js`):
+
+- **The lane** `[data-tc-lane]` is docked at the bottom of the tabs column (sticky: in view while the page scrolls). Its
+  bar: to start, step back, play / pause `[data-tc-play]`, step forward, to end, the readout `[data-tc-lane-readout]`
+  (`t / tMax s`), `‹ ◆ Worst moment ›` (`[data-tc-jump="prev|worst|next"]`: the worst moment of the shown runs, or the
+  previous / next marked one), the zoomed span, **Full range** `[data-tc-zoom-reset]`, the Angles deg / rad chips and
+  the fold `[data-tc-lane-fold]`.
+- **The ruler** `[data-tc-ruler]` is the page's one slider (`role="slider"`, `aria-valuenow` = the committed time;
+  ← → step a sample, Shift ten, Home / End, Space plays). Press and drag on it, or on any run's track: the time follows,
+  live, snapped to the plot grid. No other time slider is drawn.
+- **One track per run** `[data-tc-lane-track="<situation name>"]` (`data-shown`), grouped as the situation chips are
+  (`[data-tc-lane-group="<group>"]`: folds its tracks, remembered; its eye toggles every run in it): an eye
+  `[data-tc-lane-eye]` (the run on or off on every chart, the 3D and the answer), its colour, its whole name
+  (ellipsized, whole in `title`), Δ `[data-tc-lane-delta]`, its error at the playhead `[data-tc-lane-value]` (the largest
+  |reference − run| over the joints), a band of that error over time on one scale for every run, and its moments
+  `[data-tc-moment="worst|rise|limit"]`: ◆ its worst moment (the answer's "Its worst moment" for the worst run), ▲ its
+  error rises (the first sample above half its own peak), × a broken limit (`Situation.verdict`). Click one to go there.
+  The count `[data-tc-lane-count]` reads "N of M shown". The situation, Δ and zoom chips are hidden under the lane; they
+  stay the state machinery (prefs, `#run=`) the lane calls.
+- **The zoom bar** `[data-tc-zoom-bar]` over the whole motion (an overview of the shown runs' error): drag a range to
+  zoom every chart, drag the window `[data-tc-zoom-window]` to pan, its edges to resize, the wheel to zoom; a
+  double-click resets. Shift-drag and Ctrl/⌘+wheel on a chart still zoom, and the window follows.
+- **One line** `[data-tc-line]` runs through every chart of the open tab at the committed time, from the first chart
+  down to the lane, behind what is not on the time axis (cards, tables, headings). WHY it can: every chart stacks one
+  per row at full width (a hand's finger row stacks its joints too), its title in a left column as wide as the lane's
+  names column, with a fixed y-axis width and padding, so every plotting area starts and ends at the ruler's x pixels.
+  Each chart keeps its own `[data-tc-playhead]` under the line. On the track tab the "when was it worst" charts come
+  before the statistics table.
+- **Sizes**: the lane's top edge drags its height `[data-tc-lane-resize]` (double-click: default, about six tracks), it
+  folds to its bar and ruler, and the names column drags `[data-tc-lane-names-resize]` (the charts' title column
+  follows). All three are remembered (localStorage, try/catch).
+
+Costs taken with it: the lane uses about 180 px (3 runs) to 300 px (17 runs) until folded or dragged smaller; charts
+no longer sit side by side. Tests: `tests/test_time_lane_browser.py`.
 
 ### The tabs (`traj_compare.tabs.TABS`, in this order)
 
@@ -141,7 +181,8 @@ Rerun keeps its own time panel and gestures (`rerun_export` is unchanged). Tests
      Rerun: a bar chart per part under `/stats/joint_rms/<part>` with the joint order in the view title.
   2. **Part selector** when there are ≥ 2 parts: HTML buttons `[data-tc-part="<index>"]` labelled
      `<part> · <n> joints`; Rerun: nested `Tabs`, one per part, same labels.
-  3. Inside a part: an arm draws one row per joint; a hand draws one row per finger, that finger's joints as columns.
+  3. Inside a part: an arm draws one row per joint; a hand draws one row per finger, that finger's joints as columns
+     (under the time lane a finger's joints stack in its row, one chart per row, so they share the lane's x).
 - What it looks like (the acceptance fixtures):
   - **1 DOF**: tabs track, (where, timing with a tool), (torque with a breakdown), signals; no `joints` tab, no ranking,
     no part selector.
