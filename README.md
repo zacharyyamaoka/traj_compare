@@ -385,6 +385,26 @@ write_dataset_report(runs, "out/", title="Wrist coverage", group_by=("tape",), t
   commanded − applied) per target × config; a Target's "How repeatable…" tab adds a feedback-torque and an FB-share chart
   per joint (±150 ms window), as lines or fans per config like the joint error. No breakdown: "—" or nothing.
 
+## Runs workbench: every run of several sites, one target, playback
+
+`write_runs_workbench` puts the runs of several dataset sites (one per robot) into ONE stock data-ui `<data-workbench>`
+(docs/RUNS_WORKBENCH.md; Zach picked V2 of `docs/proposals/tensorboard-2026-11-24/`). Three levels: the workbench (a rail
+that filters runs across every deployment; tabs Overview · Targets · Runs), a target view (one target's runs as summary
+data, the rail's runs ticked), and playback of the ticked runs, in traj_compare's comparison viewer or in Rerun.
+
+```python
+from traj_compare import write_runs_workbench
+
+write_runs_workbench({"Arm cell": "out/arm", "Pendulum": "out/pendulum"}, "out/all", model_type={"pd_v2": "PD gains"})
+```
+
+```bash
+python -m traj_compare.serve out
+```
+
+Then open `/all/index.html`. The server builds each run's report, a playback (`POST <dir>/__playback`) and a selection's
+`.rrd` (`POST <dir>/__rerun/selection`) on demand; on a static host the target view's buttons say what they need.
+
 ## data-ui
 
 The dataset also feeds data-ui's robotics dashboards (`traj_compare.data_ui`, 2026-11-11), through data-ui's **trajectory

@@ -4,7 +4,7 @@
 schema = "robot-sdk-declaration/1"
 role = "viewer"
 layer = "viewers"
-one_line = "A/B trajectory comparison report; trajectory and grasp coverage viewers"
+one_line = "A/B trajectory comparison report; a runs workbench over many sites; trajectory and grasp coverage viewers"
 summary = "Viewers on robot_msgs types, in three parts. Comparison: a turn-key A/B trajectory viewer that writes one static `report.html` (target vs sim vs real). Trajectory coverage (`traj_compare.coverage`: how much of a robot's joint limits, workspace and tool orientations a set of trajectories visits) and grasp coverage (`traj_compare.grasp_coverage`: how much of a gripper's jaw range, approach directions, rolls and offered area a set of GraspPose uses, and where the failures sat), each one payload feeding a data-ui workbench, Matplotlib, Viser and W&B; grasp coverage is also deployed as its own grasp dataset viewer (`grasp_viewer` link). Coverage of any list of dataclass records moved to its own package, dataclass_coverage."
 use_when = "Comparing runs (target vs sim vs real, before vs after), benchmark reports, \"how much of the space does this trajectory or grasp dataset cover?\". **Never write a bespoke trajectory plot or coverage page.**"
 

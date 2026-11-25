@@ -364,9 +364,11 @@ def _base(rows: list[dict], target_rows: list[dict], sites: list[dict], *, rail:
         elif name == "speed":
             facet.update(**{"as": "values", "order": speeds})
         facets.append(facet)
-    # WHY on target_slug: two facets on one property share their typed text in data-ui (v2/NOTES.md gap 8)
-    facets.append({"property": "target_slug", "as": "search", "properties": ["target_slug", "target", "config"],
-                   "label": "Name search", "placeholder": "a target or a config"})
+    # WHY only columns no other facet has (the target's slug, the run's folder, which holds its config): in data-ui a
+    # search facet owns every property it searches, so a Config or Target tick also showed as a Name search pill, whose
+    # ✕ dropped it (measured on the bench, 2026-11-24; v2/NOTES.md gap 8 had it as shared typed text)
+    facets.append({"property": "target_slug", "as": "search", "properties": ["target_slug", "run"],
+                   "label": "Name search", "placeholder": "part of a target's or a run folder's name"})
 
     properties: dict[str, Any] = {name: {"displayName": labels.get(name, name)} for name in
                                   ("deployment", "config", "sim_real", "target", "run_report")}
@@ -514,7 +516,7 @@ def write_runs_workbench(
       carries its deployment (``"<dataset> · <deployment>"``).
     - ``rail``: the facets, in order: ``deployment``, ``dataset``, ``model_type``, ``config``, ``sim_real`` (the line's
       kind, real when its series name starts with "real"), ``series``, ``speed``, ``target``, or any run tag; one no row
-      has is left out. A Name search over target and config always ends it. ``columns``: more run tags in the rows and
+      has is left out. A Name search over the target's slug and the run's folder always ends it. ``columns``: more run tags in the rows and
       the Runs table. ``labels``: a name's rail and column label.
     - ``kpis``: ``Metric``s read from run tags (``{series}`` = the line's series); default every site's ``Sweep`` y and
       metrics. Each is a column named by its tag without ``{series}_``. ``league``: the column the League ranks by

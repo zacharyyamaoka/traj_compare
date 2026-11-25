@@ -58,10 +58,13 @@ const R = { base, deployment, config, errors: [], steps: {}, timings: {} };
   await shot('04-back');
   await openFirstTarget();
   // exactly three ticked: keep the rail's, add others until three
-  for (const box of await page.$$('[data-tc-run] input[type=checkbox]')) {
+  // (a tick redraws the run list, so each round looks the boxes up again)
+  for (let round = 0; round < 10; round += 1) {
     const n = await page.evaluate(() => (window.TV_STATE || { selected: [] }).selected.length);
     if (n >= 3) break;
-    if (!(await box.isChecked())) { await box.click(); await page.waitForTimeout(400); }
+    const box = await page.$('[data-tc-run] input[type=checkbox]:not(:checked)');
+    if (!box) break;
+    await box.click(); await page.waitForTimeout(600);
   }
   R.steps.three = await page.evaluate(() => window.TV_STATE);
   R.steps.playbackLabel = (await page.textContent('#playback')).trim();
