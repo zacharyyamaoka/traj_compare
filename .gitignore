@@ -21,3 +21,5 @@ docs/proposals/*/vendor/
 docs/proposals/*/shots/
 docs/proposals/*/v*/rows/
 docs/proposals/dashboard-pattern-2026-11-24/p1/rows.json
+docs/proposals/rerun-joint-trajectory-2026-11-24/r*/**/*.rrd
+docs/proposals/rerun-joint-trajectory-2026-11-24/r*/*.rrd

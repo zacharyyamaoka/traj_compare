@@ -1,12 +1,17 @@
 #!/usr/bin/env node
-// Screenshots of a recording in the REAL Rerun 0.40 web viewer, headless (the dispatcher's tool for this round; lanes run
-// it, never edit it). Starts its own `rerun --serve-web` on free ports and a CORS file server, kills both at the end.
+// The round's stills in the REAL Rerun 0.40 web viewer, headless (the dispatcher's tool; lanes run it, never edit it).
+// Starts its own `rerun --serve-web` + a CORS file server on free ports, kills both at the end. The playhead is SET through
+// the viewer's own handle after the load (R2's seek, adopted round-wide 2026-11-24), and the time it landed on is printed.
 //
-//   node shoot.cjs <file.rrd> <out-prefix> [--blueprint file.rbl] [--times 0.5,2.1,end] [--width 1600 --height 1000]
+//   node shoot.cjs <file.rrd> <out-prefix> [--blueprint file.rbl] [--times 0.4,1.8,end] [--timeline t] [--tab x,y]
 //
-// Writes <out-prefix>-<k>-t<time>.png for each time (default: the last frame). Same flags as docs/rerun_layouts/shoot.py
-// (renderer=webgl). The playhead comes from Rerun's link fragment #when=<timeline>@<t>s (--timeline, default t); LOOK at
-// each still: the time field shows where it landed.
+// A recording whose blueprint PLAYS keeps moving after the seek (stills drift; the printed time says where); open PAUSED
+// (rrb.TimePanel(play_state="paused")) for exact stills. Run one at a time. Prints has_panicked() and errors per still.
+// WHY (measured in the real 0.40 web viewer, 2026-11-24): with a paused blueprint every #when=t@<s> form tried
+// (1.8s, +1.8s, 1.800s, 1800ms, time_selection=) left the playhead at +0.000 s; with a playing one it is wherever
+// playback drifted (software rendering plays ~5x slower than real time); arrow-key seeks drop presses at random.
+// window._handle (the WebHandle the @rerun-io/web-viewer package drives: set_time_for_timeline, in nanoseconds on a
+// duration timeline) lands exactly. Prints the time read back and has_panicked() per still. LOOK at each still.
 
 const { spawn } = require('child_process');
 const fs = require('fs');
@@ -22,12 +27,12 @@ const prefix = path.resolve(argv[1]);
 const opt = (name, fallback) => { const i = argv.indexOf(`--${name}`); return i >= 0 ? argv[i + 1] : fallback; };
 const blueprint = opt('blueprint', null);
 const times = (opt('times', 'end')).split(',');
+const timeline = opt('timeline', 't');
+const tab = opt('tab', null);
 const width = Number(opt('width', 1600));
 const height = Number(opt('height', 1000));
 const waitMs = Number(opt('wait', 9000));
-const timeline = opt('timeline', 't');
 
-// WHY all three held open until each has a number: closing one before asking for the next can hand the same port back
 const freePorts = async (n) => {
   const held = [];
   for (let i = 0; i < n; i += 1) held.push(await new Promise((resolve) => { const s = net.createServer(); s.listen(0, '127.0.0.1', () => resolve(s)); }));
@@ -50,34 +55,39 @@ const freePorts = async (n) => {
   const viewer = spawn(RERUN, ['--serve-web', '--web-viewer-port', String(web), '--port', String(grpc)], { stdio: 'ignore', detached: true });
   let browser;
   try {
-    // WHY poll: the viewer's web server takes 2-10 s to come up; a page loaded before it is a blank 404
     for (let i = 0; i < 60; i += 1) {
       const up = await new Promise((resolve) => http.get(`http://127.0.0.1:${web}/`, (r) => { r.resume(); resolve(r.statusCode === 200); }).on('error', () => resolve(false)));
       if (up) break;
       await new Promise((r) => setTimeout(r, 500));
     }
     browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', headless: true,
-      // WHY no Vulkan/ANGLE flags (the Nov 19 shooter had them): here they failed Rerun's mesh shaders at random (blank
-      // page); the robot-description viewer's flags reach the NVIDIA driver (bam_ws memory robot-description-viewer)
       args: ['--enable-webgl', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
     const page = await browser.newPage({ viewport: { width, height } });
     const log = [];
-    page.on('console', (m) => { if (m.type() === 'error' || /panic|error/i.test(m.text())) log.push(m.text().slice(0, 300)); });
+    page.on('console', (m) => { if (m.type() === 'error' || /^\s*ERROR|panic/.test(m.text())) log.push(m.text().slice(0, 300)); });
     page.on('pageerror', (e) => log.push('pageerror ' + String(e).slice(0, 300)));
+    page.on('response', (r) => { if (r.status() >= 400) log.push(`HTTP ${r.status()} ${r.url().slice(0, 160)}`); });
     for (let k = 0; k < times.length; k += 1) {
       const t = times[k];
-      // WHY a link fragment, not typing into the time field: the field is egui on a canvas, and typing into it headless
-      // blanked the page; Rerun's own share links carry the playhead as #when=<timeline>@<time> on the data URL
-      const data = `http://127.0.0.1:${files}/0/${path.basename(rrd)}` + (t === 'end' ? '' : `#when=${timeline}@${t}s`);
-      let url = `http://127.0.0.1:${web}/?renderer=webgl&url=${encodeURIComponent(data)}`;
+      let url = `http://127.0.0.1:${web}/?renderer=webgl&url=${encodeURIComponent(`http://127.0.0.1:${files}/0/${path.basename(rrd)}`)}`;
       if (blueprint) url += `&url=${encodeURIComponent(`http://127.0.0.1:${files}/1/${path.basename(blueprint)}`)}`;
       await page.goto(url, { timeout: 120000 });
       await page.waitForTimeout(waitMs);
+      const landed = await page.evaluate(([name, at]) => {
+        const handle = window._handle;
+        const recording = handle.get_active_recording_id();
+        const range = handle.get_timeline_time_range(recording, name);
+        handle.set_time_for_timeline(recording, name, at === 'end' ? range.max : Math.round(Number(at) * 1e9));
+        return recording;
+      }, [timeline, t]);
+      await page.waitForTimeout(2500);
+      if (tab) { const [x, y] = tab.split(',').map(Number); await page.mouse.click(x, y); await page.waitForTimeout(1500); }
       await page.mouse.move(width / 2, 5);
+      const state = await page.evaluate(([name, recording]) => ({ ns: window._handle.get_time_for_timeline(recording, name),
+        panicked: window._handle.has_panicked() }), [timeline, landed]);
       const out = `${prefix}-${k + 1}-t${t}.png`;
       await page.screenshot({ path: out });
-      console.log(out);
-      if (process.env.SHOOT_DEBUG) console.log(JSON.stringify(log.splice(0)));
+      console.log(out, `playhead ${(state.ns / 1e9).toFixed(3)} s`, state.panicked ? 'PANICKED' : '', JSON.stringify(log.splice(0)));
     }
   } finally {
     if (browser) await browser.close();

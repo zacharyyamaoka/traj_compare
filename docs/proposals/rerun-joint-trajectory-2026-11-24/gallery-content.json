@@ -1,0 +1,150 @@
+{
+ "title": "How a JointTrajectory looks in Rerun: five ways, with the URDF",
+ "kicker": "/babble 5 · a real UR5e tour (workspace-dev-029) and a short A to B (workspace-dev-003), the UR5e URDF",
+ "brief": "Your Nov 24 note: \"One thing I don't like right now is how this trajectory looks in rerun … this should basically be the stock trajectory rerun viewer... 100% there should be a urdf showing. Please show 5 different proposals … Please find the previous examples we have done and base yours off of that.\" Today: a grey tool arc in an empty 3D view and nine separate q/qd/qdd panels. Each proposal is one function, a robot_msgs JointTrajectory + the URDF (+ the tool's path) in, an .rrd out, built on a previous layout, shot in the real Rerun 0.40 web viewer at the same moments.",
+ "defaultId": "r3",
+ "defaultWhy": "R3 · Solo run dashboard scores 95/100: the arm takes 60 % of one screen with faint ghosts at its start and end poses and the tool path solid up to the playhead, beside six named joint strips (degrees, limits, \"travel 130° · 38° to limit\") and a tool-speed strip, all cursors in step. It grows the Nov 19 Rerun pick (Solo Run Dashboard), and it already ran unchanged on another arm (robotparts' 1-DOF rig, no tool, no limits). What it lacks is speed and acceleration against their limits; the stock version adds R5's at-the-playhead table for that.",
+ "decisionHinge": "How much the joints' speed and acceleration matter next to the arm. Shift 10 points from \"robot first\" to \"joint motion legible\" and R3 still leads (93), but R5's joint cards (92) and R1's question tabs (91) close in: they show q, qd and qdd against limits, which R3 doesn't. If you want the arm alone on screen with the analysis a click away, R2 (evo's tabs) is the cleanest.",
+ "invariants": [
+  "The same two real UR5e trajectories (workspace-dev-029, a 3.2 s multi-waypoint tour; workspace-dev-003, a 1.8 s A to B), the same UR5e URDF (the official collision meshes: Rerun 0.40 can't load the .dae visuals).",
+  "One function per proposal: a robot_msgs JointTrajectory + the URDF (+ an optional tool PoseTrajectory) → an .rrd with its blueprint; angles shown in degrees.",
+  "Every still from the real Rerun 0.40 web viewer, headless, the playhead set through the viewer's own handle; every recording re-opened by the dispatcher with no ERROR line."
+ ],
+ "boundary": "Prototypes in traj_compare/docs/proposals/rerun-joint-trajectory-2026-11-24/; the .rrd files open in the native viewer too. Nothing is in robot_msgs yet: the pick becomes robot_msgs' stock JointTrajectory viewer next.",
+ "axes": [
+  {"name": "Built from", "values": ["traj_compare's questions layout (R1)", "traj_compare's evo layout (R2)", "the Nov 19 Solo Run Dashboard (R3)", "robot_msgs' logger + data-ui's decay trail (R4)", "robot_msgs' show(), grown (R5)"]},
+  {"name": "Screens", "values": ["one stage + tabs beside it (R1)", "a full-screen tab each (R2)", "one screen, no tabs (R3, R5)", "one screen + a bottom strip of tabs (R4)"]},
+  {"name": "How the motion reads in one still", "values": ["a per-joint-coloured arm + its path (R1)", "start/end labels on the path (R2)", "ghost arms at start and end (R3)", "5 ghost arms + a speed-coloured path (R4)", "the arm + a table at the playhead (R5)"]},
+  {"name": "Joints shown as", "values": ["a plot per joint, q / qd / qdd tabs, limits (R1)", "one plot of every joint per tab (R2)", "a strip per joint, q only (R3)", "gauges at the playhead + one plot (R4)", "a card per joint, q / qd / qdd as % of limit (R5)"]}
+ ],
+ "variants": [
+  {
+   "id": "r1", "name": "Stage + questions", "accent": "#2563eb",
+   "thesis": "traj_compare's default Rerun layout grown: the URDF arm on a stage, each link in the colour of the joint that drives it, and question tabs beside it — where are the joints, how fast, how hard, where does the tool go.",
+   "bestWhen": "You want the arm and the joint plots on screen together, with one colour key between them and every limit visible.",
+   "losesWhen": "Many joints (one plot per joint per tab) or small motions inside wide limits (dev-003's wrist 2 moves 3° in ±360° and reads flat).",
+   "decisions": [
+    {"label": "Colour key", "value": "Each link is tinted with its joint's colour, so the arm and the plots share one key."},
+    {"label": "Questions", "value": "Four tabs: Where are the joints? (°), How fast? (°/s), How hard? (°/s²), Where does the tool go? (mm)."},
+    {"label": "Limits", "value": "Dark limit lines with a red strip beyond; titles carry the key number (\"wrist 1 · peak 99 % of 180\")."},
+    {"label": "At a glance", "value": "A table under the arm: each joint's range, limits, peak speed and acceleration."}
+   ],
+   "keepParts": ["links tinted by their joint's colour", "titles with the key number", "the at-a-glance table"],
+   "proof": ["0 ERROR lines on re-open; exact-time stills 0.400 / 1.800 / 3.200 s", "runs with no tool, no velocities, no limits (falls back to FK)"],
+   "scores": {
+    "fr1": {"score": 4, "evidence": "The arm fills the left ~60 %, framed, with the tool path; the right half is plots (step 2).", "confidence": "high"},
+    "fr2": {"score": 5, "evidence": "One named plot per joint in degrees with its limits, q / qd / qdd in three tabs, plus the at-a-glance table.", "confidence": "high"},
+    "fr3": {"score": 4, "evidence": "One function, robot_msgs' entity layout for the series; a second robot (target + real) can't share the URDF's frame names yet.", "confidence": "medium"},
+    "fr4": {"score": 5, "evidence": "A direct evolution of traj_compare's 'questions' layout (stage + question tabs).", "confidence": "high"},
+    "fr5": {"score": 5, "evidence": "The arm, the orange path-so-far and every plot's cursor move together (steps 1-3).", "confidence": "high"}
+   },
+   "gateResults": {
+    "g1": {"pass": true, "evidence": "The URDF arm moves through the tour in steps 1-3 (and dev-003 in step 4)."},
+    "g2": {"pass": true, "evidence": "Dispatcher re-open of workspace-dev-029.rrd: 0 ERROR lines, no panic, playhead 1.800 s."},
+    "g3": {"pass": true, "evidence": "Plots in °, °/s, °/s²; the table in degrees."}
+   }
+  },
+  {
+   "id": "r2", "name": "evo: a tab per analysis", "accent": "#7c3aed",
+   "thesis": "traj_compare's evo layout (your Nov 11 pick) grown: Rerun tabs, each full screen — Robot first (the arm, its path so far and still ahead, start and end marked), then Joints, Speed, Acceleration and Data.",
+   "bestWhen": "You want the arm alone on screen, uncluttered, and the analysis one click away.",
+   "losesWhen": "You want to see a plot and the arm at the same instant: they are never on screen together.",
+   "decisions": [
+    {"label": "Opens on", "value": "The Robot tab, paused at t = 0: the start pose with the whole path ahead."},
+    {"label": "Path", "value": "Orange so far, grey still ahead, the tool point with its axes, \"start\" and \"end\" labels."},
+    {"label": "Analysis", "value": "One plot of all six joints per tab (q, qd, qdd), each joint's limits in its colour; a Data table that follows the playhead."}
+   ],
+   "keepParts": ["the path split into so-far / ahead", "start and end labels", "the Data tab"],
+   "proof": ["0 ERROR lines on re-open; exact-time stills on every tab", "runs with no tool and on a bare trajectory (tabs: Robot, Joints, Data)"],
+   "scores": {
+    "fr1": {"score": 5, "evidence": "The Robot tab is the arm full screen with its path and start/end (step 2).", "confidence": "high"},
+    "fr2": {"score": 3, "evidence": "All joints on one plot per tab in degrees with limits, but the legend lists each joint twice and ±360° squeezes the curves; one tab away from the arm.", "confidence": "high"},
+    "fr3": {"score": 4, "evidence": "One function, robot_msgs' layout; same two-robot gap as R1.", "confidence": "medium"},
+    "fr4": {"score": 5, "evidence": "evo's layout, your Nov 11 pick, grown.", "confidence": "high"},
+    "fr5": {"score": 3, "evidence": "Scrubbing moves the arm and the plot cursors, but only one tab is visible at a time.", "confidence": "high"}
+   },
+   "gateResults": {
+    "g1": {"pass": true, "evidence": "The arm moves through the tour on the Robot tab (steps 1-3)."},
+    "g2": {"pass": true, "evidence": "Dispatcher re-open: 0 ERROR lines, no panic, playhead 1.800 s."},
+    "g3": {"pass": true, "evidence": "Joints/Speed/Acceleration tabs in °, °/s, °/s²."}
+   }
+  },
+  {
+   "id": "r3", "name": "Solo run dashboard", "accent": "#ea580c",
+   "thesis": "The Nov 19 Rerun pick (Solo Run Dashboard) grown: one screen, no tabs — the arm large with faint ghosts at its start and end poses and the tool path solid up to the playhead, beside a column of named joint strips and a tool-speed strip.",
+   "bestWhen": "\"What does this whole motion look like, at a glance\": the start, the end, where it is now and what every joint is doing, on one screen.",
+   "losesWhen": "You need speed and acceleration against their limits (logged but not shown), or several trajectories overlaid (target vs real); on a short move the path is small next to the arm.",
+   "decisions": [
+    {"label": "Ghosts", "value": "Faint arms at the start (blue) and end (orange) poses."},
+    {"label": "Path", "value": "Solid up to the playhead, faint after; \"start\" and \"end\" labels."},
+    {"label": "Strips", "value": "One per joint: q in degrees with grey limit lines; titles like \"wrist_3_joint [°] · travel 309° · 14° to limit\"; plus the tool speed."},
+    {"label": "Any arm", "value": "Split into plan() (pure), log() and blueprint(); ran unchanged on robotparts' 1-DOF rig URDF."}
+   ],
+   "keepParts": ["start/end ghost arms", "\"travel · to limit\" strip titles", "the tool-speed strip"],
+   "proof": ["0 ERROR lines on re-open; exact-time stills 0.400 / 1.800 / 3.200 s", "ran on a 1-DOF rig URDF (continuous joint, no limits, no tool) and on the UR5e with no tool and no limits"],
+   "scores": {
+    "fr1": {"score": 5, "evidence": "The arm takes ~60 % of the screen, framed side-on from the motion; start/end ghosts and the path make the whole motion read in one still (step 2).", "confidence": "high"},
+    "fr2": {"score": 4, "evidence": "Six named strips in degrees with limits and travel / margin in the title; qd and qdd aren't shown.", "confidence": "high"},
+    "fr3": {"score": 5, "evidence": "plan / log / blueprint split, robot_msgs' logger, and proven on a second, very different URDF.", "confidence": "medium"},
+    "fr4": {"score": 5, "evidence": "The Solo Run Dashboard (the Nov 19 Rerun pick), grown.", "confidence": "high"},
+    "fr5": {"score": 5, "evidence": "All seven cursors stay in step with the arm and the path's solid/faint split (steps 1-3).", "confidence": "high"}
+   },
+   "gateResults": {
+    "g1": {"pass": true, "evidence": "The arm leaves the start ghost and ends inside the end ghost (steps 1-3)."},
+    "g2": {"pass": true, "evidence": "Dispatcher re-open: 0 ERROR lines, no panic, playhead 1.800 s."},
+    "g3": {"pass": true, "evidence": "Strips in degrees; the tool speed in mm/s."}
+   }
+  },
+  {
+   "id": "r4", "name": "Robot first, numbers at the cursor", "accent": "#0d9488",
+   "thesis": "The 3D view is the viewer: the arm fills ~¾ of the screen, the tool path coloured by speed with a bright trail of the last 0.5 s, five faint arms at evenly spaced instants with their times, and every joint's angle as a gauge at the playhead.",
+   "bestWhen": "A long, spatial motion: the five ghosts and the speed-coloured path tell the whole story in one still.",
+   "losesWhen": "Short or mostly-rotation moves (dev-003: the ghosts stack up and the path is a stub); no limit lines on the plots; the largest files (~2.4 MB with ghosts).",
+   "decisions": [
+    {"label": "Trail", "value": "The whole path faint, coloured by tool speed (blue slow → yellow fast), the last 0.5 s bright (data-ui's Oct 28 decay)."},
+    {"label": "Ghosts", "value": "Five faint arms at evenly spaced instants, each tool point labelled with its time."},
+    {"label": "At the playhead", "value": "Every joint's angle in °, a gauge between its limits (⚠ near one) and its speed; a % of range bar chart."},
+    {"label": "Plays on open", "value": "It plays and loops; a paused copy was used for the stills."}
+   ],
+   "keepParts": ["the speed-coloured path with a decaying trail", "time-labelled ghosts", "the playhead gauge table"],
+   "proof": ["0 ERROR lines on re-open; exact-time stills from its paused copy", "its FK matches the dataset's tool poses to 0.5 mm (a constant 144.6 mm tool offset)"],
+   "scores": {
+    "fr1": {"score": 5, "evidence": "The arm fills ~¾ of the screen; ghosts at 5 instants and the speed-coloured path show the whole motion (step 2).", "confidence": "high"},
+    "fr2": {"score": 4, "evidence": "A gauge per joint in degrees at the playhead and all q on one plot; no limit lines on the plots, the legend sorted alphabetically.", "confidence": "high"},
+    "fr3": {"score": 4, "evidence": "One function, but its URDF entity layout and a private robot_msgs name need reconciling first.", "confidence": "medium"},
+    "fr4": {"score": 4, "evidence": "robot_msgs' logger, traj_compare's stage framing and evo's trail, but no single named previous layout.", "confidence": "medium"},
+    "fr5": {"score": 5, "evidence": "The arm, the bright trail, the gauges and the bottom plot move together.", "confidence": "high"}
+   },
+   "gateResults": {
+    "g1": {"pass": true, "evidence": "The arm moves through the tour (steps 1-3)."},
+    "g2": {"pass": true, "evidence": "Dispatcher re-open: 0 ERROR lines, no panic (it plays on open, so the playhead drifted to 2.5 s)."},
+    "g3": {"pass": true, "evidence": "Gauges and plots in degrees; tool speed in mm/s."}
+   }
+  },
+  {
+   "id": "r5", "name": "robot_msgs' show(), grown", "accent": "#db2777",
+   "thesis": "The smallest change to what robot_msgs already draws: the URDF arm across the top beside a table of every joint at the playhead, and one card per joint below with q, qd and qdd as % of that joint's own limits on one shared ±100 % axis.",
+   "bestWhen": "You want every joint's position, speed and acceleration against its limits at a glance, the same way for any arm, with the least new code in robot_msgs.",
+   "losesWhen": "You want the arm to be the hero: it gets a third of the screen; card legends cover the first ~20 % of each card's time axis.",
+   "decisions": [
+    {"label": "Cards", "value": "One per joint (a 3 × 2 grid for six; adapts to the joint count): q, qd, qdd as % of limit, the ±100 % band shaded, 100 % stated in degrees in the legend."},
+    {"label": "At the playhead", "value": "A table: each joint's q, qd, qdd in degrees and its worst % of limit (\"99 qdd\")."},
+    {"label": "API", "value": "robot= on show / save / recording, and a robot() logger: a URDF path, so robot_msgs gains no dependency."}
+   ],
+   "keepParts": ["the at-the-playhead table", "% of limit cards that read the same for every joint", "robot= as a URDF path"],
+   "proof": ["0 ERROR lines on re-open; exact-time stills", "a made-up 3-joint arm with no limits and no tool works (the Another arm exhibit)"],
+   "scores": {
+    "fr1": {"score": 3, "evidence": "The arm sits in the top-left third; the cards take the bottom half (step 2).", "confidence": "high"},
+    "fr2": {"score": 5, "evidence": "Every joint's q / qd / qdd against its own limits in named cards, plus the playhead table in degrees.", "confidence": "high"},
+    "fr3": {"score": 5, "evidence": "A small diff to robot_msgs' existing API (robot= + robot()), scales by joint count, tested on a 3-joint arm.", "confidence": "high"},
+    "fr4": {"score": 5, "evidence": "robot_msgs' own show(), grown (the Before exhibit).", "confidence": "high"},
+    "fr5": {"score": 5, "evidence": "The arm, the table and every card's cursor move together.", "confidence": "high"}
+   },
+   "gateResults": {
+    "g1": {"pass": true, "evidence": "The arm moves through the tour (steps 1-3)."},
+    "g2": {"pass": true, "evidence": "Dispatcher re-open: 0 ERROR lines, no panic (it plays on open, so the playhead drifted to 2.8 s)."},
+    "g3": {"pass": true, "evidence": "The table in degrees; the cards' 100 % stated in degrees."}
+   }
+  }
+ ]
+}
