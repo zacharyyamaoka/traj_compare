@@ -11,7 +11,90 @@ Zach picked V2, "Two viewers, the filter carried", of the round in `docs/proposa
   rerun one."*
 
 Acceptance: `tests/test_runs_workbench.py` (Python) and `tests/test_runs_workbench_browser.py` (headless Chrome), both
-written red first.
+written red first. The two defaults added on 2026-11-25 (below): `tests/test_runs_workbench_picks.py` and
+`tests/test_runs_workbench_picks_browser.py`, against `tests/runs_picks_oracle.py`, also red first.
+
+## The defaults since 2026-11-25: the Overview's tiles and "Does sim match real?"
+
+The AI picks of the two rounds that followed V2, made the defaults of `write_runs_workbench` (every caller gets them;
+Zach can still swap, below). Code: `traj_compare/runs_overview.py` (the pages, the pairs) and
+`assets/runs_views.js` + `.css` (the host views, registered through data-ui's own `registerView`; promoted from the
+round's `kit/` and made generic: every name comes from the writer's config, `<script id="tc-views">` in `index.html`).
+
+**The Overview = O3 "Headline tiles → drill"** (`docs/proposals/v2-overview-2026-11-24/`, `o3/NOTES.md`; gallery
+`reports/media/v2-overview-proposals-2026-11-24.html`). Six tiles, each a small view whose Open chip (data-ui §55's
+`open:`) goes to its own full page:
+
+| Tile | Says | Opens |
+| --- | --- | --- |
+| Best config | the config with the lowest League value at the fastest speed left, the gap to the next, the top five | League (the round's League table: answer sentence, KPIs with sparklines, best-in counts, a row's worst targets) |
+| Speed growth | how much the best config's error grows from the slowest speed to the fastest | Speed (one line per config, small multiples per model type or deployment, the sweep table) |
+| Trade-off frontier | the configs no other beats on both accuracy and the first cost KPI, in the best config's deployment | Trade-off (accuracy against a cost per deployment, the Pareto frontier; the cost switches) |
+| Model × dataset coverage | the share of model type × dataset cells with runs (config × dataset without a mapping) | Model × dataset (model type › config × deployment › dataset, columns switchable) |
+| Worst target | the best config's worst target, linked to its target view | Worst targets (any config's 25 worst, each → target view) |
+| Runs left | runs, targets, configs, datasets, deployments the rail leaves | Targets |
+
+Every number is the round's rule, named on each figure: a target's value for a config = the median over its runs; the
+config's = the median over its targets; at the fastest speed the filter leaves; n = targets. A tile whose data is absent
+is absent with its page: one speed → no Speed growth and no Speed page; no cost KPI (a KPI other than the League's,
+`better="lower"`) → no Trade-off.
+
+**A fourth tab, "Does sim match real?"** = T1 (`docs/proposals/v2-tabs-2026-11-24/`, `t1/NOTES.md`; gallery
+`reports/media/v2-tab-proposals-2026-11-24.html`), after Runs. `pairs.json` holds one row per real line and each
+prediction of it in the same run folder (every other line of the folder: a simulation, a rehearsal), built in Python from
+the runs (`build_pairs`), never by the round's scraping. Linked one-way from the runs by the folder (`run_report`), so a
+pair stays while either of its lines passes the rail. The page: the answer ("On the real robot the tool tracking RMS is
+×1.21 what its sim run predicted …", a line per deployment), per config, each pair (log-log, the y = x line), the gap
+against speed, and the pairs that disagree most; a row's Open target view ticks exactly its two lines (`why=pair`, so the
+target view says "not in this pair" of the others) and ‹ returns to the tab with the filter. "Real against" (the stock
+page-level select) picks the prediction, default the one with the most pairs.
+
+- **No real run in the data → no tab** (and no `pairs.json`): a page is fixed when the workbench is written, and a tab
+  that can never hold a pair is clutter. **A filter that leaves no pair → one calm sentence** ("No real run in this
+  filter has a prediction of the same motion beside it …", and where the pairs are): the rail changes in the page,
+  the tabs cannot, and a 0 or "—" beside "real ÷ predicted" would read as a result.
+
+**One value both read, `accuracy`** (a column of `runs.json`): the League KPI where the run carries it, else
+traj_compare's own tool RMS (`robot_msgs.compare`), flagged `accuracy_from: "traj_compare"` on the row and counted under
+every figure that reads it. WHY: the V2 rounds' rule (their `extract.py`: "tcp falls back to rows[].tcp"); on the bench
+every real run of one arm carries no tool RMS tag, and without the stand-in it had no pair and no place in the League.
+Only into a League KPI in mm (the tool RMS's unit); the League KPI's own column is never touched.
+
+**Proved** on the bench's four deployments (18,507 runs, port 8855, headless Chrome 1440 × 900, 2026-11-25): every tile
+number equals the round's `oracle.json` unfiltered and with the UR5e cell ticked; each tile opens its page; the tab
+answers 1,752 pairs ×1.21 (real worse in 1,381) unfiltered and 26 pairs ×2.00 (24) with BAM FB ticked, as the tabs
+round's oracle; the top pair opens its target view with its two lines ticked and ‹ returns to the tab at 4,972 runs; no
+console error, no sideways scroll. Stills: `reports/media/v2-production-picks-2026-11-25/`.
+
+### How to swap
+
+```python
+write_runs_workbench(sites, out, overview="league")   # the round's O1 alone (also "matrix" O2, "speed" O4, "tradeoff" O5)
+write_runs_workbench(sites, out, overview="v2")       # V2's own Overview: the Vega League, League by model type, Speed sweeps
+write_runs_workbench(sites, out, overview={"name": "Overview", "layout": {...}}, views=[...])  # your own .base page
+write_runs_workbench(sites, out, sim_vs_real=False)   # no "Does sim match real?" tab
+write_runs_workbench(sites, out, accuracy_fallback=False)  # the League KPI only, no traj_compare stand-in
+```
+
+`"tiles"` (or `None`) is the default. With `"league"` … `"tradeoff"` the Overview is that one host view, full width,
+and no extra pages; with `"v2"` or a page of your own, V2's Vega views stay beside it (a caller's page may name them).
+
+### The rounds' named data-ui gaps that still hold (named, not patched)
+
+From `docs/proposals/v2-overview-2026-11-24/kit/GAPS.md` and `v2-tabs-2026-11-24/t1/NOTES.md`; each with its ask there:
+
+- A registered view cannot say it is content-sized: one CSS rule in `runs_views.css` (`data-views { height: auto }` on
+  a `tc-*` panel without `h`). *Ask:* `registerView(type, {fit: 'content'})`.
+- A records peek's rows open nothing: the worst-target lists are the host views' own, each row a target-view link.
+- A two-stage median (median over targets of each target's median over its runs) is no stock summary, so every tile and
+  page above is a host view. *Ask:* `value: {summary: Median, per: target_key}`; and a view plugin's `headline(input)`
+  for §55's tiles.
+- A chart's colour has eight slots and its legend lists every value: the host views draw direct labels.
+- A host view's switch (League facet, matrix columns and folds, sweep panels, trade-off cost) is kept in localStorage,
+  not the URL.
+- T1: a derived dataset is fixed at write time (the rail recounts which pairs show, never re-pairs); a line's
+  `point: true` overlay reads every row (drawn as layers); a sort after transforms is ignored (the per-config chart
+  ranks by a zero-padded `#01` label, as V2's League did).
 
 ## The three levels
 
@@ -58,8 +141,8 @@ selection `.rrd`s.
   plus traj_compare's worst-joint RMS (°), tool RMS (mm, `robot_msgs.compare`) and feedback share.
 - `rail=` (default V2's order: deployment, dataset, split, model type, config, sim / real, speed, kind, date, target,
   then a Name search) names columns or run tags; one no row has is left out.
-- Splice points for the sibling rounds: `overview=` replaces the Overview page (a `.base` page); `pages=` and `views=`
-  add tabs after Runs. The target view's playback is the existing `write_comparison_report`, called as a sub-assembly
+- Splice points: `overview=` picks the Overview (default the tiles; "How to swap" above) or replaces it with a `.base`
+  page; `pages=` and `views=` add tabs at the end (after "Does sim match real?"). The target view's playback is the existing `write_comparison_report`, called as a sub-assembly
   (`traj_compare.selection.build_playback`): a new look of that viewer lands there with no change here.
 
 ## V2's nine named gaps (`docs/proposals/tensorboard-2026-11-24/v2/NOTES.md`)
@@ -85,7 +168,11 @@ for a stream logged with options (`degrees`, `color`, `label`); `selection.build
 
 ## Not done here
 
-- The Overview stays V2's (League, League by model type, About, Speed sweeps). The sibling round's pick splices in
-  through `overview=`.
+- V2's own Overview (League, League by model type, About, Speed sweeps) is no longer the default; it stays one word
+  away (`overview="v2"`).
+- No in-page switch between the Overview options: the swap is the caller's `overview=` (the rounds' galleries are the
+  pick surface).
+- T2 ("Where in the workspace is it worst?") and T3 ("Which config wins head to head?") of the tabs round are not
+  built.
 - Playback colours are the comparison viewer's own palette, not the configs' colours: the viewer is called as it is.
 - A playback is one target's runs; picks of two targets are refused (400). A basket across targets (V5) is not built.
