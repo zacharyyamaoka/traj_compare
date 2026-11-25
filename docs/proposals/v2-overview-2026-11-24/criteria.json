@@ -1,0 +1,104 @@
+{
+ "frozen": "2026-11-24 night, after reading Zach's Daily Note ask, the Nov 23 League (3ce7e7c) and V2's Overview, before any of the five Overview variants was built.",
+ "requirements": [
+  {
+   "id": "fr1",
+   "name": "The answer comes first",
+   "weight": 25,
+   "why": "Nov 23 led with one sentence (\"At 1× ctc_tuned_v2 has the lowest tool tracking RMS: 0.0366 mm; the others are at 1.01×, 1.2×, 27×, 1,996×\") and he liked it; V2 has none. His UI rule: one calm answer first, detail on demand.",
+   "passCondition": "On the first screen at 1440 × 900, without scrolling or hovering, the reader can read which config is best at the top speed, its value and the gap to the rest, in plain words or one headline number, with the aggregation rule named; it recounts with the rail.",
+   "anchors": {
+    "1": "No stated winner: the reader decodes a chart (V2 today).",
+    "3": "The winner can be read off a figure or a label, or is stated below the fold, or without the gap to the others.",
+    "5": "A sentence or a headline tile at the top names the best config, its value, the gap to the others and the rule, and recounts."
+   }
+  },
+  {
+   "id": "fr2",
+   "name": "Where each model and config wins: model × dataset",
+   "weight": 20,
+   "why": "\"Probably shwoing a model x dataset or something seems reasonable here as one example\"; Nov 23's config × dataset·split heatmap; V2 shows neither.",
+   "passCondition": "Model type and config against dataset (and split / deployment), the best per column marked, a cell with no runs distinguishable from a bad one, the rule named, recounted from the rail.",
+   "anchors": {
+    "1": "Absent.",
+    "3": "Present but flat or not on the Overview's first two screens, or an empty cell reads as a value, or one axis only.",
+    "5": "Model type → config against deployment → dataset, best ringed, empty hatched, the column switchable (split / speed / deployment), recounted."
+   }
+  },
+  {
+   "id": "fr3",
+   "name": "What the Nov 23 League had is back",
+   "weight": 20,
+   "why": "\"It was better in the past not sure what is going on now\": the League table's KPIs (energy, jerk, stop error), the shape vs speed, n targets, best in X of Y cells, the worst-targets drill.",
+   "passCondition": "Each Nov 23 element is on the Overview or one click from it, or replaced by something that answers the same question better; recomputed over the rail.",
+   "anchors": {
+    "1": "Almost none (V2 today: tool RMS and n only).",
+    "3": "About half (e.g. the value and the speed shape, no other KPIs or no drill).",
+    "5": "All of them: every KPI, speed, best-in counts and a drill to the worst targets."
+   }
+  },
+  {
+   "id": "fr4",
+   "name": "Honest numbers across all four deployments",
+   "weight": 15,
+   "why": "The rail spans all deployments now (his Nov 24 spec); a config ranked against one on another robot misleads; model type is a guess; every figure must say how it was aggregated.",
+   "passCondition": "Every number is recounted in the browser from the kept runs and matches the independent oracle (oracle.py) before and after the shared tick; every figure names its rule; a config shows its deployment; a cross-deployment comparison is flagged, never blocked; model type says proposed.",
+   "anchors": {
+    "1": "Static or unnamed numbers, or a mismatch with the oracle.",
+    "3": "Recounts and matches, but a figure misses its rule or mixes deployments silently.",
+    "5": "Oracle match in both states, every rule named, deployment per config, cross-deployment flagged, proposed labelled."
+   }
+  },
+  {
+   "id": "fr5",
+   "name": "Calm and readable at 1440 × 900",
+   "weight": 10,
+   "why": "His UI rules: plain-word labels, never truncate a name silently (ellipsis + full text on hover), a legend only for what is drawn, amber/red only for problems; V2's 36-entry legend and cut names.",
+   "passCondition": "No silently cut name, no legend entry for something not drawn, no sideways scroll, no decorative colour; the first screen is mostly answer, little whitespace or prose.",
+   "anchors": {
+    "1": "Cut names without hover, a legend of absent things, clutter.",
+    "3": "One of those, or the first screen half empty.",
+    "5": "None of them; dense but calm."
+   }
+  },
+  {
+   "id": "fr6",
+   "name": "Stock parts, short path to production",
+   "weight": 10,
+   "why": "\"we don't need to reinvent the wheel\": stock data-ui first; what it cannot draw is a small view registered through its own plugin API, portable into traj_compare or data-ui; gaps named with the exact ask.",
+   "passCondition": "The Overview lives in the stock workbench page; host code is registered views (CONTRACT §1) with no DOM outside their panel; stock sections (§55, §56, Vega-Lite) used where they fit; each gap named in NOTES.md.",
+   "anchors": {
+    "1": "A bespoke page outside data-ui.",
+    "3": "Host views carrying most of the work, or glue outside the views.",
+    "5": "Stock where it fits, a small registered view where it does not, every gap named."
+   }
+  }
+ ],
+ "gates": [
+  {
+   "id": "G1",
+   "name": "Real bench data",
+   "condition": "The 18,507 real runs of all four deployments (V2's rows); no invented number; model type labelled proposed."
+  },
+  {
+   "id": "G2",
+   "name": "Recounts, matches the oracle",
+   "condition": "The shared tick (18,507 → 5,750 runs) changes the Overview's stated numbers, and they equal oracle.py's in both states."
+  },
+  {
+   "id": "G3",
+   "name": "Only the Overview changed",
+   "condition": "Rail, Targets, Runs and the V2 drill to the target view still work (the Targets row → Open target view → target page with Open in Rerun)."
+  },
+  {
+   "id": "G4",
+   "name": "Clean",
+   "condition": "No console errors; no sideways scroll at 1440 × 900; the rail drags, keeps its width after a reload and folds."
+  },
+  {
+   "id": "G5",
+   "name": "One local command",
+   "condition": "Runs from serve.py on 127.0.0.1, no CDN, no network."
+  }
+ ]
+}

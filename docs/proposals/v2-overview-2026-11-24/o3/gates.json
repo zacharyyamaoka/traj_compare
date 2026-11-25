@@ -1,0 +1,126 @@
+{
+ "ready": "html[data-ready='1']",
+ "count": "#tc data-count",
+ "filter": [
+  {
+   "click": "#tc data-facets input[data-k=\"v:deployment:UR5e + Conveyor PnP cell\"]"
+  },
+  {
+   "wait": 2500
+  }
+ ],
+ "figure": "#tc data-dashboard[tab='Overview'] [data-tc-view]",
+ "tabs": [
+  {
+   "id": "overview",
+   "label": "Overview",
+   "sel": "#tc data-tabs [role=tab]:nth-of-type(1)"
+  },
+  {
+   "id": "league",
+   "label": "League",
+   "sel": "#tc data-tabs [role=tab]:nth-of-type(2)"
+  },
+  {
+   "id": "model-x-dataset",
+   "label": "Model × dataset",
+   "sel": "#tc data-tabs [role=tab]:nth-of-type(3)"
+  },
+  {
+   "id": "speed",
+   "label": "Speed",
+   "sel": "#tc data-tabs [role=tab]:nth-of-type(4)"
+  },
+  {
+   "id": "trade-off",
+   "label": "Trade-off",
+   "sel": "#tc data-tabs [role=tab]:nth-of-type(5)"
+  },
+  {
+   "id": "worst-targets",
+   "label": "Worst targets",
+   "sel": "#tc data-tabs [role=tab]:nth-of-type(6)"
+  },
+  {
+   "id": "targets",
+   "label": "Targets",
+   "sel": "#tc data-tabs [role=tab]:nth-of-type(7)"
+  },
+  {
+   "id": "runs",
+   "label": "Runs",
+   "sel": "#tc data-tabs [role=tab]:nth-of-type(8)"
+  }
+ ],
+ "panel": "#tc data-fold.dw-rail",
+ "resizer": "#tc .dw-rail-handle",
+ "fold": "#fold",
+ "url_query": "?dry=1",
+ "target_link": [
+  {
+   "click": "#tc data-tabs [role=tab]:nth-of-type(7)"
+  },
+  {
+   "wait": 2500
+  },
+  {
+   "click": "#tc data-dashboard[tab='Targets'] tbody tr"
+  },
+  {
+   "wait": 1200
+  },
+  {
+   "click": "#tc button[data-drill-action]:has-text('Open target view')"
+  },
+  {
+   "wait": 5000
+  }
+ ],
+ "rerun_frame": null,
+ "rerun_button": "#rerun",
+ "story": [
+  {
+   "label": "Landing",
+   "actions": []
+  },
+  {
+   "label": "One deployment",
+   "actions": [
+    {
+     "click": "#tc data-facets input[data-k=\"v:deployment:UR5e + Conveyor PnP cell\"]"
+    },
+    {
+     "wait": 2500
+    }
+   ]
+  },
+  {
+   "label": "Best config opens the League",
+   "actions": [
+    {
+     "click": "#tc data-dashboard[tab='Overview'] .dd-panel:nth-of-type(1) button.dd-open"
+    },
+    {
+     "wait": 2000
+    }
+   ]
+  },
+  {
+   "label": "Worst target opens its page",
+   "actions": [
+    {
+     "click": "#tc data-tabs [role=tab]:nth-of-type(1)"
+    },
+    {
+     "wait": 1500
+    },
+    {
+     "click": "#tc data-dashboard[tab='Overview'] .dd-panel:nth-of-type(5) button.dd-open"
+    },
+    {
+     "wait": 2000
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,377 @@
+{
+ "title": "V2's Overview tab: five ways to make it answer again",
+ "kicker": "/babble 5 · traj_compare · V2 Overview · 2026-11-24",
+ "brief": "Zach picked V2 (the stock workbench, the target view as its own page) and asked: “improve the overview tab on the dataset view It was better in the past … show 5 proposals here … Probably shwoing a model x dataset or something seems reasonable here as one example”. V2's Overview lost Nov 23's answer sentence, League table, matrix and per-config colour to a 23-dot log plot and a 36-entry dataset legend (CONTRACT.md has the diagnosis). Each proposal below is V2 with only the Overview changed, live over the 18,507 real runs of all four deployments; every number recounts with the rail and matches a Python oracle before and after ticking the UR5e cell.",
+ "defaultId": "o3",
+ "defaultWhy": "O3 Headline tiles → drill, 91/100: the first screen is six calm answers (best config with its gap, speed growth, the energy frontier, model × dataset coverage, the worst target, runs left), and every one of Nov 23's elements plus Zach's model × dataset matrix is one click away on its own page (§55, stock). O1 The League, back, 86: Nov 23 exactly (it reproduces Nov 23's numbers after the tick), but the matrix sits a screen down and unfiltered the page is long. O2 76, O5 63, O4 60.",
+ "decisionHinge": "Whether the detail must be ON the Overview or may be one click away. Require it on the page (FR2 and FR3 count only what the Overview shows) and O3 drops to 79 while O1 stays 86 and leads. A natural splice either way: O3's tiles as the Overview's first row over O1's League, with O2's matrix as the League's matrix (nested by model type, columns switchable).",
+ "invariants": [
+  "V2 unchanged but for its Overview: the rail, Targets, Runs, the target view (keep= + back=) and Open in Rerun.",
+  "18,507 real runs of all four deployments (UR5e cell 5,750 · UR5e alone 3 · BAM FB 4,972 · pendulum 7,782); model type is V2's PROPOSED mapping, labelled.",
+  "One aggregation for every figure (kit/model.js): a target's value = the median over its runs, a group's = the median over its targets, at the fastest speed the filter leaves; oracle.py recomputes each stated number in Python.",
+  "Stock data-ui <data-workbench> (main 1f7c004); what it cannot draw is a host view registered through data-ui's own registerView, inside its panel."
+ ],
+ "boundary": "Live prototypes served by one local command over the real rows; the oracle match, the tick, each variant's switch and drill, and V2's target link were exercised headless at 1440 × 900. Not wired into traj_compare's dataset.py; no data-ui change (8 gaps named in kit/GAPS.md).",
+ "axes": [
+  {
+   "name": "What the Overview leads with",
+   "values": [
+    "a sentence, then the League table and a config × dataset·split matrix",
+    "a model type › config × deployment › dataset matrix",
+    "six headline tiles, each opening a page",
+    "tool RMS vs speed, one line per config",
+    "accuracy vs cost per config, per deployment, with the frontier"
+   ]
+  },
+  {
+   "name": "Where the detail lives",
+   "values": [
+    "under it, same page",
+    "under it, same page (a drill card)",
+    "one click away, its own tab",
+    "under it, the sweep table",
+    "under it, the frontier table"
+   ]
+  },
+  {
+   "name": "What the reader switches",
+   "values": [
+    "the dataset · split the League ranks on (a matrix column)",
+    "the column axis (dataset, split, speed, deployment) and folds",
+    "the page (a tile's Open)",
+    "panels per model type or per deployment",
+    "the cost: energy, jerk or stop error"
+   ]
+  }
+ ],
+ "variants": [
+  {
+   "id": "o1",
+   "name": "The League, back, over the rail",
+   "accent": "#2a78d6",
+   "thesis": "Nov 23's Overview recomputed over whatever the rail leaves: one answer sentence, the League table (every KPI at the fastest speed with its shape over speed, best-in counts, a worst-targets drill), then the config × dataset · split matrix whose column click re-ranks the table.",
+   "bestWhen": "You want the page you liked back: after the UR5e-cell tick it reproduces Nov 23's numbers exactly (0.0366 mm; 1.01×, 1.2×, 27×, 1,996×; best in 20 of 22, 4 of 44, 16 of 22, 4 of 44, 0 of 22).",
+   "losesWhen": "Nothing is filtered: 23 configs, a 50-value dataset · split select and a 50-column matrix a screen down that scrolls sideways; no model-type grouping.",
+   "decisions": [
+    {
+     "label": "Answer",
+     "value": "Nov 23's sentence: the best config, its value, every other's ×best (3 + the worst when there are many), the rule, a deployment note."
+    },
+    {
+     "label": "Detail",
+     "value": "One host view draws sentence, table and matrix, so a matrix column re-ranks the table (two stock panels cannot talk)."
+    },
+    {
+     "label": "Drill",
+     "value": "worst targets → opens that config's 10 worst targets under its row, each linking V2's target view."
+    }
+   ],
+   "keepParts": [
+    "the answer sentence",
+    "the League table with sparklines and best-in",
+    "the matrix column → League switch"
+   ],
+   "captions": [
+    "Unfiltered: the sentence ranks all 23 configs across four robots and says so.",
+    "Tick the UR5e cell: Nov 23's page, the same numbers.",
+    "A matrix column (Conveyor Collision v1 · holdout) re-ranks the League on it.",
+    "worst targets → lists ctc_tuned_v2's worst targets under its row, each with Open target view."
+   ],
+   "scores": {
+    "fr1": {
+     "score": 5,
+     "evidence": "The sentence is the first thing under the tabs in both states and names the best, its value, the others' ×best and the rule (shots/o1/story-1, story-2); it recounted (check.json numbers.changed).",
+     "confidence": "high"
+    },
+    "fr2": {
+     "score": 3,
+     "evidence": "Nov 23's config × dataset · split matrix with rings and hatching, but flat (no model type), one axis, and under the table (y ≈ 600 after the tick; below the first screen unfiltered).",
+     "confidence": "high"
+    },
+    "fr3": {
+     "score": 5,
+     "evidence": "Every Nov 23 element: answer, n, tool RMS ×best + log bar, sparkline vs speed, energy / jerk / stop with sparklines, best in X of Y (44 cells in the UR5e cell, as Nov 23), worst-targets drill, the matrix.",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 5,
+     "evidence": "oracle.py matched 439 numbers unfiltered and 127 after the tick, 121 on a facet; deployment beside each config; the sentence flags 4 deployments; rule in the foot.",
+     "confidence": "high"
+    },
+    "fr5": {
+     "score": 4,
+     "evidence": "No silent cut (middle ellipsis + hover), no legend; but unfiltered the matrix is 50 columns wide (scrolls in its card) and the facet is a 50-value select.",
+     "confidence": "medium"
+    },
+    "fr6": {
+     "score": 3,
+     "evidence": "Stock workbench page; one host view (tc-league) carries the whole Overview, a port of 3ce7e7c's dataset.js League; gaps 1, 2, 3, 5 in GAPS.md.",
+     "confidence": "high"
+    }
+   }
+  },
+  {
+   "id": "o2",
+   "name": "Model × dataset matrix first",
+   "accent": "#2f9e44",
+   "thesis": "The Overview is one grid: model type (proposed) › config down, deployment › dataset across, median tool RMS per cell, each column's best ringed and read off a roll-up row; the columns switch to split, speed or deployment and model types fold.",
+   "bestWhen": "The question is where each model type and config wins, and where it has never run — Zach's own model × dataset example, shaped like data-ui §56's nested matrix.",
+   "losesWhen": "You want energy, jerk, stop error or best-in counts: the cells hold tool RMS only; unfiltered it is 34 dataset columns wide and its answer leads with a BAM FB config that wins many BAM FB columns.",
+   "decisions": [
+    {
+     "label": "Answer",
+     "value": "Read off the matrix: the config with the most column bests and the best model type; the overall best in the muted tail."
+    },
+    {
+     "label": "Detail",
+     "value": "Rows nest at one pitch (§56's look); a model type's row pools its configs' runs per target; roll-up row = each column's best, roll-up column = the row over every column."
+    },
+    {
+     "label": "Drill",
+     "value": "A cell opens that config's worst targets in that column, a card under the grid, each row a target-view link."
+    }
+   ],
+   "keepParts": [
+    "nested model-type rows that fold",
+    "the column-axis switch",
+    "the roll-up row of column bests",
+    "hatched no-run cells"
+   ],
+   "captions": [
+    "Unfiltered: the dataset columns grouped by deployment, every model type open.",
+    "Tick the UR5e cell: 6 columns, 2 model types; rings show where each config wins.",
+    "Columns: speed — the shape over speed per config and per model type.",
+    "A cell opens that config's worst targets there.",
+    "A model type folds to its pooled row."
+   ],
+   "scores": {
+    "fr1": {
+     "score": 3,
+     "evidence": "An answer line tops the grid, but it states column wins (fullarm_jtc model-FF+LA, datasheet limits: 9 of 34 unfiltered), not the best config with its gap; the overall best is in the muted tail.",
+     "confidence": "medium"
+    },
+    "fr2": {
+     "score": 5,
+     "evidence": "Model type → config × deployment → dataset, rings, hatched no-runs, columns switchable to split / speed / deployment, folds; checked against the oracle on the dataset and speed axes.",
+     "confidence": "high"
+    },
+    "fr3": {
+     "score": 3,
+     "evidence": "Tool RMS, n (hover), the speed shape (speed columns) and a worst-targets drill; no energy, jerk, stop error or best-in counts.",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 5,
+     "evidence": "oracle.py matched every cell before and after the tick and on the speed axis (shots/o2/check.json); columns grouped by deployment; group-row rule named; model type labelled proposed.",
+     "confidence": "high"
+    },
+    "fr5": {
+     "score": 4,
+     "evidence": "Calm grid, no legend beyond the ramp, middle ellipsis with hover; unfiltered 34 vertical-header columns scroll sideways inside the card.",
+     "confidence": "medium"
+    },
+    "fr6": {
+     "score": 3,
+     "evidence": "Host view (tc-matrix) modelled on §56, which nests and switches x exactly like this but holds states, not numbers (GAPS.md 4); stock page around it.",
+     "confidence": "high"
+    }
+   }
+  },
+  {
+   "id": "o3",
+   "name": "Headline tiles → drill",
+   "accent": "#c22f6e",
+   "thesis": "Six calm headline tiles, each a small view whose title row and Open chip go to its full page (data-ui §55's Overview grid): best config, speed growth, energy frontier, model × dataset coverage, worst target, runs left.",
+   "bestWhen": "You check in often: the state in one glance, then one click into the question you have (the League, the model × dataset matrix, the speed sweep, the trade-off, the worst targets).",
+   "losesWhen": "You want two questions side by side: each detail is its own tab (eight tabs now), and the Overview shows only the top five configs.",
+   "decisions": [
+    {
+     "label": "Answer",
+     "value": "Six tiles, each one number + the rule: best config (top 5 with ×best), ×growth 0.1× → 1×, the energy frontier, % of model × dataset cells with runs, the worst target, runs left."
+    },
+    {
+     "label": "Detail",
+     "value": "Stock §55: each tile names the page it opens (open:); the pages reuse O1's League, O2's matrix, O4's sweep, O5's trade-off and a Worst targets list."
+    },
+    {
+     "label": "Drill",
+     "value": "The worst-target tile links its target view; the Worst targets page lists 25, each with Open target view; Runs left opens Targets."
+    }
+   ],
+   "keepParts": [
+    "§55 tiles with Open",
+    "the best-config tile with its top 5",
+    "the worst-target tile → target view",
+    "the runs-left tile"
+   ],
+   "captions": [
+    "Unfiltered: six answers on one screen, none scrolled.",
+    "Tick the UR5e cell: every tile recounts.",
+    "The Best config tile's Open goes to the League page.",
+    "The Worst target tile's Open goes to its page: 25 targets, each opening its target view."
+   ],
+   "scores": {
+    "fr1": {
+     "score": 5,
+     "evidence": "Best config tile top-left in both states: name, value, next ×best, top 5 with ×best and the rule (shots/o3/story-1, story-2); oracle-matched.",
+     "confidence": "high"
+    },
+    "fr2": {
+     "score": 4,
+     "evidence": "The coverage tile (filled model type × dataset cells) is on the first screen and O2's full matrix is one click away (Model × dataset page); not on the Overview itself.",
+     "confidence": "medium"
+    },
+    "fr3": {
+     "score": 5,
+     "evidence": "Every Nov 23 element is one click away (League page: every KPI, sparklines, best-in, drill; Speed; Worst targets), which the pass condition allows.",
+     "confidence": "medium"
+    },
+    "fr4": {
+     "score": 4,
+     "evidence": "Each tile's numbers matched the oracle before and after (25 + 25), the League page 42, the Worst targets page 25 rows; but a tile abbreviates its rule and coverage pools deployments.",
+     "confidence": "medium"
+    },
+    "fr5": {
+     "score": 5,
+     "evidence": "The calmest first screen: six tiles, no scroll, no legend, nothing cut; some white space in the lower tiles.",
+     "confidence": "medium"
+    },
+    "fr6": {
+     "score": 4,
+     "evidence": "The Overview grid, the Open chips and the page switch are stock §55; the tiles are small host views because a §55 headline is a kpi summary over rows (GAPS.md 7).",
+     "confidence": "medium"
+    }
+   }
+  },
+  {
+   "id": "o4",
+   "name": "Speed is the x axis",
+   "accent": "#eb6834",
+   "thesis": "The Overview is tool RMS against speed, one line per config (not per dataset), a small multiple per model type or per deployment, labelled at each line's end, with Nov 23's sweep table under it.",
+   "bestWhen": "The question is whether a config holds up as you go faster: which wins at 0.1× (id_pd) and which at 1× (ctc_tuned_v2), and by how much each degrades.",
+   "losesWhen": "Unfiltered: the computed-torque panel holds 20 configs and its labels crowd; there is no view by dataset, and energy, jerk and stop error are absent.",
+   "decisions": [
+    {
+     "label": "Answer",
+     "value": "The best config at the slowest and at the fastest speed, and how much the fastest one's error grows between them."
+    },
+    {
+     "label": "Detail",
+     "value": "Colour = config with a direct label at each line's end (no legend); a config run at one speed only is an unlabelled dot; one shared log y."
+    },
+    {
+     "label": "Drill",
+     "value": "A sweep-table value opens that config's worst targets at that speed, under its row."
+    }
+   ],
+   "keepParts": [
+    "per-config lines with direct labels",
+    "the model type / deployment panel switch",
+    "the sweep table with best chips"
+   ],
+   "captions": [
+    "Unfiltered: five model-type panels, one line per config.",
+    "Tick the UR5e cell: two panels; the table is Nov 23's Speed sweeps table, number for number.",
+    "One panel per deployment.",
+    "A value opens that config's worst targets at that speed."
+   ],
+   "scores": {
+    "fr1": {
+     "score": 4,
+     "evidence": "Answer line on top: best at 0.1× and at 1× with values and the 20× growth; the gap to the other configs at 1× is not stated.",
+     "confidence": "high"
+    },
+    "fr2": {
+     "score": 1,
+     "evidence": "No dataset dimension; panels are model types or deployments only.",
+     "confidence": "high"
+    },
+    "fr3": {
+     "score": 3,
+     "evidence": "Speed shape, Nov 23's sweep table (n, best per speed) and a drill; no energy, jerk, stop error or best-in counts.",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 4,
+     "evidence": "oracle.py matched 404 numbers unfiltered, 104 after, and the per-deployment panels; but model-type panels put configs of different robots on one axis (flagged once in the answer).",
+     "confidence": "high"
+    },
+    "fr5": {
+     "score": 3,
+     "evidence": "No legend (V2's 36 entries gone), but unfiltered the computed-torque panel stacks 12 labels and one long label runs past its panel.",
+     "confidence": "medium"
+    },
+    "fr6": {
+     "score": 3,
+     "evidence": "Host SVG (tc-sweep): a stock chart has 8 colour slots and no direct labels (GAPS.md 6).",
+     "confidence": "high"
+    }
+   }
+  },
+  {
+   "id": "o5",
+   "name": "Trade-off map",
+   "accent": "#8e5bd1",
+   "thesis": "Each config is one point, accuracy (tool RMS, log) against a cost (energy per task, or jerk, or stop error), one panel per deployment, the Pareto frontier drawn and named: which config is best and what it costs.",
+   "bestWhen": "Two configs are close on accuracy and you need the tiebreaker (UR5e cell: ctc_tuned_v2 0.0366 mm at 42.9 J against id_pd 0.043 mm at 22.8 J).",
+   "losesWhen": "You need where (dataset) or at what speed a config wins; configs without the cost tag leave their panel (UR5e alone; most of BAM FB's).",
+   "decisions": [
+    {
+     "label": "Answer",
+     "value": "Per deployment, the two ends of the frontier: the most accurate config and the cheapest, with its RMS as ×."
+    },
+    {
+     "label": "Detail",
+     "value": "One panel per deployment, so no frontier crosses robots; point size = n targets; the table marks the frontier."
+    },
+    {
+     "label": "Drill",
+     "value": "worst targets → under a table row opens that config's worst targets in that deployment."
+    }
+   ],
+   "keepParts": [
+    "the per-deployment frontier",
+    "the cost switch",
+    "the frontier named in the answer"
+   ],
+   "captions": [
+    "Unfiltered: three deployment panels with an energy tag, each with its frontier.",
+    "Tick the UR5e cell: one panel; three configs on the energy frontier.",
+    "Cost: jerk — the frontier changes (menagerie_stock is the least jerk).",
+    "A config's worst targets in that deployment."
+   ],
+   "scores": {
+    "fr1": {
+     "score": 4,
+     "evidence": "Answer line names the most accurate config with value and cost, and the cheapest with its ×RMS; unfiltered only the first deployment is in the answer (the rest in panel captions).",
+     "confidence": "medium"
+    },
+    "fr2": {
+     "score": 1,
+     "evidence": "No dataset dimension.",
+     "confidence": "high"
+    },
+    "fr3": {
+     "score": 3,
+     "evidence": "Tool RMS with energy / jerk / stop error one at a time, n and a drill; no speed shape or best-in counts.",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 5,
+     "evidence": "Frontiers never cross robots; points, costs and frontiers matched oracle.py for energy (before and after) and jerk; rule in the answer and the foot.",
+     "confidence": "high"
+    },
+    "fr5": {
+     "score": 3,
+     "evidence": "No legend; but close points' labels overlap their neighbours' circles (UR5e cell: id_pd over ctc_tuned; pendulum: round9_ff over ff_model).",
+     "confidence": "medium"
+    },
+    "fr6": {
+     "score": 3,
+     "evidence": "Host SVG (tc-tradeoff); a stock chart would need a computed frontier layer and per-config colours past 8 (GAPS.md 3, 6).",
+     "confidence": "high"
+    }
+   }
+  }
+ ]
+}
