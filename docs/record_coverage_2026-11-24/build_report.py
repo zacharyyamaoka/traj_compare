@@ -1,6 +1,6 @@
 """The 2026-11-24 report: the generic record-coverage viewer on two real datasets, one self-contained HTML page.
 
-    /home/bam/traj_compare/.venv/bin/python docs/record_coverage_2026-11-24/build_report.py
+    /home/bam/dataclass_coverage/.venv/bin/python docs/record_coverage_2026-11-24/build_report.py
 
 Reads the build (build.py) and its evidence folder (hero clip, tab captures, the Viser review, pytest's tail) under
 reports/media/record-coverage-2026-11-24/, and writes reports/media/record-coverage-2026-11-24.html with every image and
@@ -72,13 +72,14 @@ def main() -> None:
 
     body = f"""
 <header>
-  <p class="kicker">traj_compare · record coverage · 2026-11-24</p>
+  <p class="kicker">dataclass_coverage · 2026-11-24</p>
   <h1>Any list of records in, how well it covers its space out</h1>
   <p class="verdict"><b>The generic “ML dataclass” viewer works on two real datasets:</b> a list of frozen dataclasses
-  (robot_msgs messages, or JSON rows) goes into <code>traj_compare.record_coverage.analyze()</code>, which writes one
-  payload. That payload feeds the same four viewers as the trajectory family: a data-ui workbench page, Matplotlib
-  PNGs, Viser for the 3-D points, and W&amp;B summary scalars. On the lane branch <code>lane/record-coverage</code>,
-  landed on traj_compare <code>main</code> (commit in the handoff); {pytest_tail}.</p>
+  (robot_msgs messages, or JSON rows) goes into <code>dataclass_coverage.analyze()</code>, which writes one payload.
+  That payload feeds the same four viewers as the trajectory family: a data-ui workbench page, Matplotlib PNGs, Viser
+  for the 3-D points, and W&amp;B summary scalars. Its own public package:
+  <a href="https://github.com/zacharyyamaoka/dataclass_coverage">github.com/zacharyyamaoka/dataclass_coverage</a>
+  (<code>/home/bam/dataclass_coverage</code>); {pytest_tail}.</p>
 </header>
 
 <section>
@@ -224,7 +225,7 @@ def main() -> None:
     <tr><td>Histograms against a limit, heat planes</td><td>—</td><td>data-ui <code>coverage-hist</code>, <code>coverage-plane</code> (CONTRACT §52/§53)</td><td>white = empty, linear default, a legend on every figure</td></tr>
     <tr><td>Bins, percentiles, entropy</td><td>—</td><td>numpy (<code>np.histogram</code>'s bins); <code>robot_msgs.coverage.binned</code> is the pair-plane oracle</td><td>a reader re-bins with numpy and gets the same counts</td></tr>
     <tr><td>Declared ranges and classes</td><td>—</td><td><code>dataclass_values.Value</code> / <code>meta()</code>, robot_msgs <code>Space</code></td><td>the class declares the space</td></tr>
-    <tr><td>PNG figures, colour maps</td><td>traj_compare's trajectory family</td><td>its <code>matplotlib_view</code> colour rule and drawing helpers, imported</td><td>the same cell, the same colour, in every viewer</td></tr>
+    <tr><td>PNG figures, colour maps</td><td>traj_compare's trajectory family</td><td>its colour rule and drawing helpers, copied into <code>colour.py</code>; a test pins the stops to data-ui's <code>colormap.js</code></td><td>the same cell, the same colour, in every viewer</td></tr>
     <tr><td>3-D</td><td>—</td><td><code>viser_3d_viewer</code> (house viewer)</td><td>no logo, loopback, READY line</td></tr>
     <tr><td>Per-feature stats prior art</td><td>—</td><td>TFDV / Facets: ideas only (TFDV needs TensorFlow + protobuf schemas)</td><td>—</td></tr>
   </table>
@@ -235,16 +236,16 @@ def main() -> None:
   <h3>Done and proved</h3>
   <ul>
     <li>Analysis, workbench, Matplotlib, Viser and W&amp;B. The acceptance tests were written and committed before
-    each part; {pytest_tail} (the record family, plus the trajectory coverage suites it imports from).</li>
+    each part; {pytest_tail} in dataclass_coverage, headless-Chrome page tests included (CI on 3.11 to 3.13 runs the rest; the page tests need data-ui, Playwright and Chrome).</li>
     <li>Both real datasets build cleanly: <code>data-ui check</code> passes on both <code>.base</code> files, and every
     tab loads with no console errors.</li>
   </ul>
   <h3>Decided for you (each undoable)</h3>
   <ul>
-    <li><b>The home is traj_compare</b> (<code>traj_compare.record_coverage</code>, beside
-    <code>coverage</code> and the sibling's <code>grasp_coverage</code>), not data-ui. Your rule is “traj_compare for
-    runs and datasets, its coverage payload for coverage”, and data-ui stays the view kit it draws with. Undo: move
-    the package; nothing imports it yet.</li>
+    <li><b>Its own public package, <code>dataclass_coverage</code></b> (your call after the first build: “make this a
+    standalone viewer with its own public github repo”). It sits beside <code>dataclass_values</code> because it views
+    any dataclass, not only robotics data. The house <code>viser_3d_viewer</code> is optional (it is not published);
+    without it, plain viser keeps the same rules. The real-data proof stays private in traj_compare.</li>
     <li><b>The growth band's centre is the median, not the mean.</b> With 32 discrete shuffles, a mean can fall
     outside p10–p90. I changed the contract and its test before any consumer existed.</li>
     <li><b>Cohort parts with a categories-only rail</b>, for exactness at this size (see above).</li>

@@ -426,9 +426,11 @@ read only that payload.
 
 - **Trajectories** (`traj_compare.coverage`, `docs/COVERAGE.md`): joint limits, phase planes, the tool's workspace.
 - **Grasps** (`traj_compare.grasp_coverage`, `docs/GRASP_COVERAGE.md`): GraspPose + outcome + the jaw range.
-- **Any records** (`traj_compare.record_coverage`, `docs/RECORD_COVERAGE.md`): a list of frozen dataclasses (robot_msgs
-  messages, JSON rows); per field against its declared `Value(low=, high=)`, class balance, missing values, pair planes,
-  growth with a Chao1 ceiling, held-out support. `python -m traj_compare.record_coverage rows.jsonl --out site/`.
+- **Any records** lives in its own public package, [dataclass_coverage](https://github.com/zacharyyamaoka/dataclass_coverage)
+  (`/home/bam/dataclass_coverage`): a list of frozen dataclasses (robot_msgs messages, JSON rows), each field against its
+  declared `Value(low=, high=)`, class balance, missing values, pair planes, growth with a Chao1 ceiling, held-out
+  support. It was `traj_compare.record_coverage` for a day (2026-11-24); its proof on BAM data stays here,
+  `docs/record_coverage_2026-11-24/`.
 
 ## Parquet and MCAP exports
 

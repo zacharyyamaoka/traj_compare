@@ -1,8 +1,11 @@
 """Build the record-coverage viewer on the two real datasets (2026-11-24): a data-ui workbench, the Matplotlib PNGs and
 coverage.json for each, data-ui vendored once beside them. Optionally log each payload's numbers to W&B.
 
-    taskset -c 2-5,16,17 /home/bam/traj_compare/.venv/bin/python docs/record_coverage_2026-11-24/build.py [--out DIR] [--wandb]
-    python -m traj_compare.serve <out>     # then /repick-grasps/index.html and /bench-tasks/index.html
+    taskset -c 2-5,16,17 /home/bam/dataclass_coverage/.venv/bin/python docs/record_coverage_2026-11-24/build.py [--out DIR] [--wandb]
+    python -m http.server 8934 --bind 127.0.0.1 --directory <out>     # then /repick-grasps/index.html, /bench-tasks/index.html
+
+WHY in traj_compare, with dataclass_coverage's interpreter: the viewer moved to its own public package
+(github.com/zacharyyamaoka/dataclass_coverage) the same day; this proof on BAM's own data stays private, here.
 
 The datasets are read by datasets.py (read-only). Output defaults to the main checkout's reports/media (gitignored).
 """
@@ -18,12 +21,11 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-sys.path.insert(0, str(HERE.parents[1] / "src"))
 
 from datasets import bench_tasks, repick_plans  # noqa: E402
 
-from traj_compare.coverage.workbench import DATA_UI, _vendor  # noqa: E402
-from traj_compare.record_coverage import analyze  # noqa: E402
+from dataclass_coverage import analyze  # noqa: E402
+from dataclass_coverage._kit import DATA_UI, _vendor  # noqa: E402
 
 OUT = Path("/home/bam/traj_compare/reports/media/record-coverage-2026-11-24")
 PI = math.pi
@@ -75,6 +77,8 @@ def main(argv=None) -> None:
     kit = out / "vendor" / "data-ui"
     if not (kit / "data-ui.js").is_file():
         _vendor(out, "main", DATA_UI)
+    # WHY keep the earlier W&B links: a rebuild without --wandb must not forget the runs already logged
+    previous = json.loads((out / "build-summary.json").read_text()) if (out / "build-summary.json").is_file() else {}
     summary = {}
     for slug, spec in datasets().items():
         records = spec.pop("records")
@@ -88,6 +92,8 @@ def main(argv=None) -> None:
         summary[slug] = {"records": len(records), "analyze_s": round(seconds, 3), "pngs": [p.name for p in pngs],
                          "numbers": coverage.numbers, "notes": coverage.payload["source"]["notes"],
                          "bytes": {p.name: p.stat().st_size for p in site.glob("*.json")}}
+        if (previous.get(slug) or {}).get("wandb"):
+            summary[slug]["wandb"] = previous[slug]["wandb"]
         if args.wandb:
             import wandb
 
