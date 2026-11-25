@@ -2072,6 +2072,17 @@
     return match ? match[1] : null;
   }
 
+  /** `#trajectory=<name>` (a target view's "Coverage ↗", traj_compare.runs_workbench): highlight that trajectory, as a
+      click on its row does. WHY by name: the page's trajectories are named by dataset.coverage_names, the links too. */
+  function hashTrajectory() {
+    const match = /(?:^#|&)trajectory=([^&]*)/.exec(global.location.hash || '');
+    if (!match) return;
+    let name = null;
+    try { name = decodeURIComponent(match[1]); } catch (error) { return; }
+    const index = payload.trajectories.findIndex((item) => item.name === name);
+    if (index >= 0 && index !== state.highlight) setHighlight(index);
+  }
+
   function restore() {
     const cmap = load('cmap', 'viridis');
     state.cmap = Color.NAMES.includes(cmap) ? cmap : 'viridis';
@@ -2084,6 +2095,9 @@
   }
 
   function boot() {
+    // framed (the runs workbench's Coverage tab): its links (the breadcrumb, the siblings) open in the whole window, so
+    // the dataset page never loads inside the tab. WHY <base target>: the page has no in-page # links it would misroute
+    if (global.top !== global && !document.querySelector('base')) document.head.append(el('base', { target: '_top' }));
     const node = document.getElementById('cov-payload');
     payload = JSON.parse(node.textContent);
     const root = document.getElementById('cov-root');
@@ -2111,7 +2125,8 @@
         }
       }
     });
-    global.addEventListener('hashchange', () => { const id = hashTab(); if (id && id !== state.tab) show(id); });
+    global.addEventListener('hashchange', () => { hashTrajectory(); const id = hashTab(); if (id && id !== state.tab) show(id); });
+    hashTrajectory();
     const wanted = hashTab() || load('tab', 'overview');
     show(tabs.some((tab) => tab.id === wanted) ? wanted : 'overview');
   }

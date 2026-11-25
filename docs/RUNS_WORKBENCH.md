@@ -96,6 +96,35 @@ From `docs/proposals/v2-overview-2026-11-24/kit/GAPS.md` and `v2-tabs-2026-11-24
   `point: true` overlay reads every row (drawn as layers); a sort after transforms is ignored (the per-config chart
   ranks by a zero-padded `#01` label, as V2's League did).
 
+## Coverage, one tab away (2026-11-25)
+
+Feedback fb-5defddb0, Zach, Daily Note 2026-11-23 "Coverage Feedback": *"I need to basically like integrate this into the
+viewer ... trajectory Coverage Viewer Where you can put in like datasets or single trajectories ... a page you can see
+standalone or just quickly get there from the traj compare stuff"*. The coverage viewer is `traj_compare.coverage`
+(docs/COVERAGE.md), and every site written with `write_dataset_report(coverage=True)` (every bench site) has its page at
+`<site>/coverage/index.html`. The workbench reaches it from both levels:
+
+- **The Coverage tab** (after Runs and "Does sim match real?", before `pages=`), present when any site has a coverage page:
+  one card per such deployment (its page's own headline numbers: joint range used, angle × speed cells visited, tool
+  voxels; how many of its targets the rail keeps runs of), the picked deployment's page **embedded below as written**
+  (an iframe of the site's own file, so the tab and the standalone page cannot disagree), and **Open on its own ↗**. The
+  deployments without a page are named in one line. The pick is remembered; when the rail keeps no run of it, the tab
+  shows the first deployment it does keep.
+- **The target view's Coverage ↗** (when its site has a page): the page with this target's trajectory highlighted,
+  `<site>/coverage/index.html#tab=trajectories&trajectory=<name>` (the Trajectories tab, its row selected, and the
+  One joint paths and 3-D views draw it in black). The name is the page's own (`dataset.coverage_names`).
+- **What the rail does to it:** it picks the deployment and recounts the cards; it never refilters the page, which counts
+  every target of its deployment once (a target repeated by many runs counts once) and is written with the site. The
+  answer line says so. Refiltering by the rail would need the coverage *workbench* (`traj_compare.coverage.workbench`,
+  per-trajectory parts) written per site and the rail carried into it: not built.
+- Framed, the page's own links (its breadcrumb to the dataset page) open in the whole window (`<base target="_top">`).
+- Files: nothing new in `out_dir`; `index.html`'s `tc-views` carries `coverage: {deployments: [{deployment, site, href,
+  title, trajectories, numbers, names}], missing: [...]}` (or `null`), `target.html`'s `tc-config` carries
+  `coverage: {<site key>: {href, names}}`. Python: `runs_workbench._coverage`; the view: `tc-coverage` in
+  `assets/runs_views.js`.
+- Acceptance: `tests/test_runs_workbench_coverage.py` (Python) and `tests/test_runs_workbench_coverage_browser.py`
+  (headless Chrome), both written red first.
+
 ## The three levels
 
 | Level | Page | What it is |

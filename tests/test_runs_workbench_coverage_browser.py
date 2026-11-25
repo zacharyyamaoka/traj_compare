@@ -50,7 +50,9 @@ const shot = async (page, name) => { if (args.shots) await page.screenshot({ pat
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();
   page.on('pageerror', (error) => out.errors.push(String(error)));
-  page.on('console', (m) => { if (m.type() === 'error' && !/favicon/.test(m.text())) out.errors.push(m.text()); });
+  page.on('console', (m) => { if (m.type() === 'error' && !/favicon|Failed to load resource/.test(m.text())) out.errors.push(m.text()); });
+  // a failed load is named by its URL (the console line above does not say which)
+  page.on('response', (r) => { if (r.status() >= 400 && !/favicon/.test(r.url())) out.errors.push(r.status() + ' ' + r.url()); });
   const ready = async () => { await page.waitForFunction(() => document.documentElement.dataset.ready === '1', null, { timeout: 60000 }); await page.waitForTimeout(500); };
   const tick = async (prop, value) => { await page.click(`#tc data-facets input[type=checkbox][data-p="${prop}"][data-value="${value}"]`); await page.waitForTimeout(900); };
   const tab = async (name) => { await page.click(`#tc data-tabs [role=tab]:text-is(${JSON.stringify(name)})`); await page.waitForTimeout(1200); };
@@ -65,13 +67,17 @@ const shot = async (page, name) => { if (args.shots) await page.screenshot({ pat
     await frame.waitForTimeout(800);
     return { box, url: frame.url(), ...(await frame.evaluate(() => ({
       title: (document.querySelector('[data-cov-title]') || {}).textContent || '',
+      leaves: !!document.querySelector('base[target="_top"]'),  // its breadcrumb opens in the window, not in the tab
       tabs: [...document.querySelectorAll('[data-cov-tab]')].map((b) => b.dataset.covTab),
-      inked: [...document.querySelectorAll('canvas[data-cov-heat]')].some((c) => {
-        if (!c.width || !c.height) return false;
-        const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
-        for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 0 && (d[i] < 240 || d[i + 1] < 240 || d[i + 2] < 240)) return true;
-        return false;
-      }),
+      // the shown tab's figures drew: marks in an SVG, or a canvas with non-white pixels
+      shown: [...document.querySelectorAll('[data-cov-view]')].filter((s) => !s.hidden).map((s) => s.dataset.covView),
+      inked: [...document.querySelectorAll('[data-cov-view]:not([hidden]) [data-cov-figure]')].some((fig) =>
+        fig.querySelector('svg path, svg rect, svg polyline, svg line') || [...fig.querySelectorAll('canvas')].some((c) => {
+          if (!c.width || !c.height) return false;
+          const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+          for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 0 && (d[i] < 240 || d[i + 1] < 240 || d[i + 2] < 240)) return true;
+          return false;
+        })),
     }))) };
   };
 """
@@ -144,7 +150,8 @@ def test_the_coverage_tab_shows_the_page_in_the_viewer_and_counts_the_rails_targ
     assert frame is not None, "the Coverage tab embeds no coverage page"
     assert frame["url"].startswith(served + "/arm/coverage/index.html")
     assert "Arm cell" in frame["title"]
-    assert frame["inked"], "the embedded coverage page drew no heatmap"
+    assert frame["leaves"]
+    assert frame["shown"] and frame["inked"], ("the embedded coverage page drew nothing", frame)
     assert frame["box"]["height"] >= 400 and frame["box"]["width"] >= 800, frame["box"]  # room to read it, in the tab
     assert out["open"] == served + "/arm/coverage/index.html"
     holdout = {row["target_slug"] for row in rows_of(bench) if row["deployment"] == ARM and row.get("split") == "holdout"}

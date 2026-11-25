@@ -273,3 +273,10 @@ write_workbench(coverage, trajectories, out, tool=poses, title="UR5e", rrd_for=l
   site's distinct targets (each target's reference once; TCP from `poses` when given), with `back` pointing to the
   dataset page; the Dataset level shows a `a[data-tc-coverage-link]` "Coverage" link to it. `coverage=False` (default):
   today's page, no link.
+- The runs workbench (`write_runs_workbench`, the traj_compare viewer since 2026-11-24) has a **Coverage** tab over those
+  pages (each deployment's page embedded, its headline numbers, the rail's targets counted) and its target view a
+  **Coverage ↗** to the target's own trajectory on it: docs/RUNS_WORKBENCH.md "Coverage, one tab away" (feedback
+  fb-5defddb0, 2026-11-25).
+- `#trajectory=<name>` in the page's URL highlights that trajectory on load (as a click on its row does), beside
+  `#tab=<id>`; names follow `traj_compare.dataset.coverage_names` for a site's page. Framed, the page's links open in the
+  whole window.

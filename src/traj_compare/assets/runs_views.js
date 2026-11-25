@@ -12,7 +12,8 @@
    them against tests/runs_picks_oracle.py).
 
    Types: tc-tile (the Overview's headline tiles) · tc-league · tc-matrix · tc-sweep · tc-tradeoff · tc-worst (the
-   tiles' own pages, and the Overview's other options) · tc-pairs (the "Does sim match real?" answer).
+   tiles' own pages, and the Overview's other options) · tc-pairs (the "Does sim match real?" answer) · tc-coverage
+   (the Coverage tab: each deployment's coverage page, embedded).
 
    The rule, named on every figure (V2's and Nov 23's): a target's value for a group (a config, a model type) = the
    median over its runs; the group's value = the median over its targets; n = targets; at the fastest speed the filter
@@ -1065,6 +1066,100 @@ class PairsView extends Base {
   }
 }
 
+// ── the Coverage tab ──
+
+// WHY these three of the page's headline numbers on a card: one per question the page answers (how much of each joint's
+// range, how much of angle × speed, how much of the workspace); the page holds the rest, labelled as here
+const COVERAGE_CARD = ['q_span_median_pct', 'q_qd_visited_mean_pct', 'tool_voxels_visited'];
+
+/** The Coverage tab (feedback fb-5defddb0; Zach, Daily Note 2026-11-23: "integrate this into the viewer ... a page you
+    can see standalone or just quickly get there from the traj compare stuff"). One card per deployment whose site wrote
+    a coverage page (its own headline numbers, how many of its targets the rail keeps runs of), the picked deployment's
+    page embedded below, as written (traj_compare.coverage), and its "Open on its own ↗". WHY the page and not a redraw:
+    one coverage viewer, so the tab and the standalone page can never disagree. WHY the counts but not a refiltered page:
+    the page counts every target of its deployment once (a target repeated by many runs counts once), and it is written
+    with the site; the rail picks which deployment is shown, and the answer says so. */
+class CoverageView extends Base {
+  static type = 'tc-coverage';
+  update(input) {
+    this.input = input;
+    this.tc = (input.view && input.view.tc) || {};
+    this.rows = input.rows || [];
+    this.draw();
+  }
+  onClick(e) {
+    const card = e.target.closest('[data-tc-coverage-pick]');
+    if (!card || !this.el.contains(card)) return;
+    this.pick = card.dataset.tcCoveragePick;
+    store.set(this.key('deployment'), this.pick);
+    this.draw();
+  }
+  render() {
+    const P = C.coverage || { deployments: [], missing: [] };
+    const kept = new Map();
+    for (const r of this.rows) {
+      if (!kept.has(r.deployment)) kept.set(r.deployment, new Set());
+      kept.get(r.deployment).add(r.target_slug);
+    }
+    this.cards = P.deployments.map((d) => ({
+      deployment: d.deployment, of: d.trajectories,
+      kept: [...(kept.get(d.deployment) || [])].filter((slug) => Object.prototype.hasOwnProperty.call(d.names || {}, slug)).length,
+    }));
+    if (this.pick === undefined) this.pick = store.get(this.key('deployment'), null);
+    const cardOf = (name) => this.cards.find((c) => c.deployment === name);
+    // the pick stays while the rail keeps runs of it (or of no deployment with a page); else the first the rail keeps
+    let shown = cardOf(this.pick) && (cardOf(this.pick).kept > 0 || !this.cards.some((c) => c.kept > 0)) ? this.pick : null;
+    if (!shown) shown = (this.cards.find((c) => c.kept > 0) || this.cards[0] || {}).deployment || null;
+    this.shown = shown;
+    const entry = P.deployments.find((d) => d.deployment === shown);
+    const card = cardOf(shown);
+    if (!this.el.querySelector('.tc-coverage')) {
+      // the frame is made once and kept across redraws, so a rail tick never reloads the page inside it
+      this.el.innerHTML = '<div class="tc tc-coverage"><div class="tc-cov-head" data-tc-coverage-head></div>' +
+        '<iframe class="tc-cov-frame" data-tc-coverage-frame title="Coverage page"></iframe></div>';
+    }
+    const frame = this.el.querySelector('[data-tc-coverage-frame]');
+    const head = this.el.querySelector('[data-tc-coverage-head]');
+    if (!entry) {
+      head.innerHTML = '<div class="tc-answer" data-tc-answer>No deployment here has a coverage page.</div>';
+      frame.hidden = true;
+      return;
+    }
+    const n = (v) => Number(v).toLocaleString('en-US');
+    const keptText = card.kept === 0
+      ? `the rail keeps no run of its targets right now`
+      : `the rail keeps runs of <b>${n(card.kept)}</b> of them`;
+    let html = `<div class="tc-answer" data-tc-answer>Coverage of <b>${esc(shown)}</b>: its <b>${n(entry.trajectories)}</b> target trajectories, each once; ${keptText}.` +
+      `<span class="tc-mut" style="display:block;margin-top:2px">The page below is the deployment's own coverage page (traj_compare.coverage): it counts every target of the deployment, so a tick picks which deployment it shows, never what it counts. A target view's “Coverage ↗” opens one target's trajectory on it.</span></div>`;
+    html += '<div class="tc-cov-cards" role="tablist">';
+    P.deployments.forEach((d, i) => {
+      const c = this.cards[i];
+      const numbers = Object.fromEntries((d.numbers || []).map((x) => [x.key, x]));
+      const facts = COVERAGE_CARD.filter((k) => numbers[k]).map((k) => {
+        const x = numbers[k];
+        return `<span class="tc-cov-fact"><span class="tc-mut">${esc(x.label)}</span> <b>${esc(num3(x.value))}${x.unit ? (x.unit === '%' ? ' %' : ` ${esc(x.unit)}`) : ''}</b></span>`;
+      }).join('');
+      html += `<button type="button" role="tab" class="tc-cov-card" data-tc-coverage-pick="${esc(d.deployment)}" aria-selected="${d.deployment === shown}">` +
+        `<b>${esc(d.deployment)}</b> <span class="tc-mut">${n(d.trajectories)} targets · the rail keeps runs of ${n(c.kept)}</span>${facts}</button>`;
+    });
+    html += '</div>';
+    html += `<div class="tc-cov-bar"><a class="tc-link" data-tc-coverage-open href="${esc(entry.href)}" target="_blank" rel="noopener">Open on its own ↗</a>`;
+    if ((P.missing || []).length) {
+      html += `<span class="tc-mut">No coverage page for ${P.missing.map(esc).join(', ')}: its site was written without one (write_dataset_report(coverage=True) writes it).</span>`;
+    }
+    html += '</div>';
+    head.innerHTML = html;
+    frame.hidden = false;
+    if (frame.dataset.src !== entry.href) {
+      frame.dataset.src = entry.href;
+      frame.src = entry.href;
+    }
+  }
+  hook() {
+    return { kind: 'coverage', shown: this.shown, cards: this.cards || [], missing: (C.coverage && C.coverage.missing) || [] };
+  }
+}
+
 // ── registration (data-ui CONTRACT §1: registerView(type, {name, icon, load})) ──
 const VIEWS = [
   [TileView, 'Headline tile', 'gauge'],
@@ -1074,6 +1169,7 @@ const VIEWS = [
   [TradeoffView, 'Trade-off map', 'chart-scatter'],
   [WorstView, 'Worst targets', 'list'],
   [PairsView, 'Sim against real', 'scale'],
+  [CoverageView, 'Coverage', 'grid'],
 ];
 export function registerRunsViews(registerView, config) {
   C = config;

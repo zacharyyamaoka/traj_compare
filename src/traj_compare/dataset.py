@@ -63,7 +63,7 @@ import struct
 import sys
 import warnings
 from array import array
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -2290,6 +2290,22 @@ def write_dataset_report(
     return index
 
 
+def coverage_names(targets: Iterable[tuple[str, str]]) -> dict[str, str]:
+    """``{slug: the name its target's trajectory has on the site's coverage page}`` for ``(title, slug)`` in the site's
+    target order (``payload["levels"]["targets"]``'s): the title, or ``"<title> (<slug>)"`` once an earlier target took it.
+
+    WHY one rule, public: the page names its trajectories by it (``_write_coverage``) and the runs workbench's Coverage
+    tab and target view link a target's trajectory by it (``#trajectory=<name>``), so a link can never name another one.
+    """
+    names: dict[str, str] = {}
+    taken: set[str] = set()
+    for title, slug in targets:
+        name = title if title not in taken else f"{title} ({slug})"
+        taken.add(name)
+        names[slug] = name
+    return names
+
+
 def _write_coverage(output_dir: Path, targets: Sequence[_Target], poses: Callable[..., Any] | None,
                     title: str) -> dict[str, Any]:
     """``output_dir/coverage/{index.html, coverage.json}`` over the site's targets, each reference once; the Dataset
@@ -2302,10 +2318,8 @@ def _write_coverage(output_dir: Path, targets: Sequence[_Target], poses: Callabl
     """
     from .coverage import analyze  # lazy: a site without coverage never imports it
 
-    references: dict[str, JointTrajectory] = {}
-    for target in targets:
-        name = target.title if target.title not in references else f"{target.title} ({target.slug})"
-        references[name] = target.reference
+    names = coverage_names((target.title, target.slug) for target in targets)
+    references: dict[str, JointTrajectory] = {names[target.slug]: target.reference for target in targets}
     tool = {name: poses(reference) for name, reference in references.items()} if poses is not None else None
     result = analyze(references, tool=tool, title=title,  # the page's <title> adds "· coverage"
                      subtitle=f"the {len(references)} target trajectories of this dataset, each once")

@@ -108,6 +108,15 @@
 .tc-fill { fill: #5a8fca; }
 .tc-empty { fill: var(--data-rule, #e3e2dc); }
 .tc-dep0 { fill: #2a78d6; } .tc-dep1 { fill: #86afdb; } .tc-dep2 { fill: #eb6834; } .tc-dep3 { fill: #2f9e44; }
+/* the Coverage tab: cards over the deployment's own coverage page, embedded */
+.tc-coverage { display: flex; flex-direction: column; gap: 8px; }
+.tc-cov-cards { display: flex; flex-wrap: wrap; gap: 8px; }
+.tc-cov-card { font: inherit; font-size: 12.5px; text-align: left; display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; border: 1px solid var(--data-border, #d0d7de); border-radius: 8px; background: var(--data-bg, #fff); color: inherit; cursor: pointer; min-width: 220px; max-width: 360px; }
+.tc-cov-card[aria-selected="true"] { border-color: var(--data-accent, #0969da); box-shadow: inset 0 0 0 1px var(--data-accent, #0969da); }
+.tc-cov-fact { display: flex; justify-content: space-between; gap: 10px; font-variant-numeric: tabular-nums; }
+.tc-cov-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 12.5px; }
+/* WHY a height of its own: a tc-* panel grows with its content (above), and an iframe has none */
+.tc-cov-frame { display: block; width: 100%; height: max(480px, calc(100vh - 330px)); border: 1px solid var(--data-border, #d0d7de); border-radius: 8px; background: #fff; }
 @media (prefers-color-scheme: dark) {
   .tc-warn-t { color: #e3b341; background: #272115; }
   .tc-x.tc-best, .tc-bestchip { color: #57ab5a; border-color: #2b6a30; }

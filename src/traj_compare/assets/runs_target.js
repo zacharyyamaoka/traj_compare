@@ -11,6 +11,7 @@
  * - "Ticked" = checked AND matching the regex AND its chips on. That one set is what every chart draws, what the
  *   buttons count and what they send. keep= ticks the runs the workbench's rail kept; every other run of the target is
  *   listed unticked (out of the filter), so one tick adds it.
+ * - Coverage ↗ (when the site wrote a coverage page): that page, this target's trajectory highlighted (#trajectory=).
  * - Open playback: POST __playback (traj_compare.serve) -> traj_compare's comparison viewer over the target and the
  *   ticked runs, opened in this tab; its breadcrumb returns here with the same runs ticked. Open in Rerun: POST
  *   __rerun/selection -> one recording, one plot per joint, one line per ticked run. Without the server (a static host,
@@ -157,6 +158,14 @@
     var kinds = { sim: 0, real: 0 }; entries.forEach(function (e) { kinds[e.kind]++; });
     $('sub').textContent = site.deployment + ' · ' + plural(entries.length, 'run') + ' (' + kinds.sim + ' sim · ' + kinds.real + ' real) · ' + site.joints.join(', ');
     document.title = targetName() + ' · target view';
+    // "Coverage ↗": this target's trajectory on its site's coverage page, highlighted among the deployment's targets
+    // (feedback fb-5defddb0: "a page you can see standalone or just quickly get there from the traj compare stuff").
+    // WHY by the page's own name (CONFIG.coverage, dataset.coverage_names): a link must name exactly one trajectory there
+    var cov = (CONFIG.coverage || {})[Q.get('site')], name = cov && cov.names ? cov.names[Q.get('target')] : null, link = $('coverage');
+    if (name) {
+      link.href = cov.href + '#tab=trajectories&trajectory=' + encodeURIComponent(name);
+      link.hidden = false;
+    }
   }
 
   function renderVerdict() {

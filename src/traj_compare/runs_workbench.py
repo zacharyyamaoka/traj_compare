@@ -23,6 +23,10 @@ rerun one."):
    "Open in Rerun": one recording, one plot per joint, one line per ticked run (``POST __rerun/selection``,
    ``selection.build_selection_rrd``, stock robot_msgs.viz.rerun). Each level's ‹ link returns with its state.
 
+Coverage, one tab away (feedback fb-5defddb0, docs/RUNS_WORKBENCH.md): when a site was written with
+``write_dataset_report(coverage=True)``, a Coverage tab embeds each such deployment's coverage page (its headline numbers,
+the rail's targets counted), and the target view's "Coverage ↗" opens the target's own trajectory on it, highlighted.
+
 Written into ``out_dir``:
 
     runs.json       one row per line: deployment, dataset, the rail's run tags, model type (with ``model_type=``), config,
@@ -60,7 +64,7 @@ from pathlib import Path
 from typing import Any
 
 from . import _files
-from .dataset import Metric, read_site_payload
+from .dataset import Metric, coverage_names, read_site_payload
 from .report import SITUATION_PALETTE
 from .runs_overview import (FILL, OVERVIEWS, RULE, against_order, build_pairs, config_order, fill_accuracy,
                             overview_parts, pairs_parts, pairs_schema)
@@ -285,6 +289,35 @@ def _site_rows(site: dict[str, Any], out_dir: Path, *, dataset: str, dataset_tit
     return rows, target_rows, model
 
 
+def _coverage(site: dict[str, Any], out_dir: Path) -> dict[str, Any] | None:
+    """The site's coverage page, for the Coverage tab and the target view, or ``None`` when it has none (a site written
+    with ``write_dataset_report(coverage=False)``, the default, or whose page is gone).
+
+    ``{"deployment", "site", "href"}`` (the page, relative to ``out_dir``), ``"title"``, ``"trajectories"``, ``"numbers"``
+    (the page's own headline numbers, ``coverage.json``'s, never recomputed) and ``"names"``: each target's slug -> the
+    name of its trajectory on the page (``dataset.coverage_names``, the rule the page was named by), so a link names
+    exactly one trajectory there.
+    """
+    entry = site["payload"].get("coverage")
+    if not entry or not entry.get("href"):
+        return None
+    page = site["path"] / entry["href"]
+    data = page.parent / "coverage.json"
+    if not page.is_file() or not data.is_file():
+        return None
+    payload = json.loads(data.read_text("utf-8"))
+    on_page = {item["name"] for item in payload.get("trajectories") or []}
+    targets = site["payload"]["levels"].get("targets") or []
+    names = coverage_names((str(target.get("title") or target["key"]), target["slug"]) for target in targets)
+    return {
+        "deployment": site["title"], "site": site["key"],
+        "href": Path(os.path.relpath(page.resolve(), out_dir.resolve())).as_posix(),
+        "title": payload.get("title") or site["title"], "trajectories": (payload.get("source") or {}).get("trajectories"),
+        "numbers": payload.get("numbers") or [],
+        "names": {slug: name for slug, name in names.items() if name in on_page},
+    }
+
+
 def _time_axis(t: Sequence[float]) -> list:
     """A target's drawn time axis for the target view: ``[t0, t_end, n]`` when evenly spaced to 0.5 ms, else
     ``["ms", ...every sample in ms]``. WHY compact: 2,000 targets at 50 Hz are about 3 MB as plain lists."""
@@ -355,7 +388,8 @@ def _league_chart(group: str, kpi: str, kpi_title: str) -> dict:
 def _base(rows: list[dict], target_rows: list[dict], sites: list[dict], *, rail: Sequence[str], labels: Mapping[str, str],
           kpis: Sequence[Metric], league: str, model_types: list[str] | None, speed_label: str,
           overview: Mapping | str, pages: Sequence[Mapping], views: Sequence[Mapping], rerun_server: bool,
-          colors: Mapping[str, str], costs: Sequence[Metric], pairs: tuple[dict, list[dict]] | None) -> dict:
+          colors: Mapping[str, str], costs: Sequence[Metric], pairs: tuple[dict, list[dict]] | None,
+          coverage: bool = False) -> dict:
     has = lambda column: any(row.get(column) is not None for row in rows)  # noqa: E731
     kpi_of = {_kpi_id(m.tag): m for m in kpis}
     league_label = kpi_of[league].label if league in kpi_of else labels.get(league, league)
@@ -497,10 +531,22 @@ def _base(rows: list[dict], target_rows: list[dict], sites: list[dict], *, rail:
                 {"view": "Runs", "w": 12, "h": 7,
                  "title": "Every run the rail keeps · click one: target view, run report, Rerun"}]}},
             *([pairs_page] if pairs_page else []),
+            *([COVERAGE_PAGE] if coverage else []),
             *[dict(page) for page in pages],
         ],
-        "views": [*base_views, *table_views, *pairs_views, *[dict(view) for view in views]],
+        "views": [*base_views, *table_views, *pairs_views, *([COVERAGE_VIEW] if coverage else []),
+                  *[dict(view) for view in views]],
     }
+
+
+# WHY a tab of the workbench, the site's own page inside it (feedback fb-5defddb0; Zach, Daily Note 2026-11-23 "Coverage
+# Feedback": "I need to basically like integrate this into the viewer ... a page you can see standalone or just quickly
+# get there from the traj compare stuff"). The page is the coverage viewer as written (traj_compare.coverage), embedded,
+# never redrawn here, so the tab and the standalone page can never disagree (docs/RUNS_WORKBENCH.md "Coverage").
+COVERAGE_VIEW = {"type": "tc-coverage", "name": "Coverage"}
+COVERAGE_PAGE = {"name": "Coverage", "layout": {"columns": 12, "rowHeight": 88, "panels": [
+    {"view": "Coverage", "w": 12, "h": 8,
+     "title": "Coverage · of what each robot can do, how much its targets visit (the deployment's own coverage page)"}]}}
 
 
 # ── the pages ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -593,6 +639,7 @@ def write_runs_workbench(
         models.append(model)
     if not rows:
         raise ValueError("the sites hold no runs")
+    coverages = [entry for entry in (_coverage(site, out) for site in resolved) if entry is not None]
     kpi_ids = [_kpi_id(m.tag) for m in kpis]
     has = lambda column: any(row.get(column) is not None for row in rows)  # noqa: E731
     league = league or next((k for k in kpi_ids if has(k)), None) or ("tool_rms" if has("tool_rms") else "worst")
@@ -621,7 +668,7 @@ def write_runs_workbench(
     target_columns = list(dict.fromkeys(k for row in target_rows for k in row))
     base = _base(rows, target_rows, resolved, rail=rail, labels=names, kpis=kpis, league=league, model_types=model_types,
                  speed_label=names["speed"], overview=overview, pages=pages, views=views, rerun_server=rerun_server,
-                 colors=colors, costs=costs, pairs=pairs_page)
+                 colors=colors, costs=costs, pairs=pairs_page, coverage=bool(coverages))
 
     run_schema = _schema(run_columns, names, kpis, numeric)
     run_schema["accuracy"] = {"type": "number", "label": f"{league_label} (Overview: the tag, else traj_compare's)",
@@ -660,7 +707,9 @@ def write_runs_workbench(
               "league": {"id": league, "label": names.get(league) if league not in kpi_ids else
                          next(m.label for m in kpis if _kpi_id(m.tag) == league),
                          "unit": UNITS.get(league, "") if league not in kpi_ids else
-                         next(m.unit for m in kpis if _kpi_id(m.tag) == league)}}
+                         next(m.unit for m in kpis if _kpi_id(m.tag) == league)},
+              # the target view's "Coverage ↗": its site's page, its target's trajectory named (#trajectory=)
+              "coverage": {entry["site"]: {"href": entry["href"], "names": entry["names"]} for entry in coverages}}
     _files.write_text(out / "target.html", _TARGET.format(
         title=html.escape(title), config=_script_json(config), serve=html.escape(serve),
         uplot_css=_asset("uplot.min.css"), css=_asset("runs_target.css"), uplot=_asset("uplot.iife.min.js"),
@@ -685,6 +734,9 @@ def write_runs_workbench(
         "rule": RULE,
         "pairs": ({"label": league_label, "against": against_order(pairs),
                    "deployments": [d for d in deployments if any(p["deployment"] == d for p in pairs)]} if pairs else None),
+        "coverage": ({"deployments": coverages,
+                      "missing": [site["title"] for site in resolved
+                                  if site["key"] not in {entry["site"] for entry in coverages}]} if coverages else None),
     }
     _files.write_text(out / "runs_views.js", f"const CSS = {json.dumps(_asset('runs_views.css'))};\n"
                       + _asset("runs_views.js"))
@@ -733,6 +785,7 @@ _TARGET = """<!doctype html>
           <div class="tv-play-buttons">
             <button id="playback" class="tv-primary" type="button" title="traj_compare's comparison viewer: the target and every ticked run, 3D stage and question tabs">Open playback</button>
             <button id="rerun" class="tv-second" type="button" title="One Rerun recording: the target and every ticked run, one plot per joint, one line per run">Open in Rerun</button>
+            <a id="coverage" class="tv-second" data-tc-coverage-link hidden title="This target's trajectory on its deployment's coverage page: of what the robot can do, how much the targets visit">Coverage ↗</a>
           </div>
           <div class="tv-status" id="status" role="status"></div>
         </div>
