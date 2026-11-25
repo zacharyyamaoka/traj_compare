@@ -38,7 +38,8 @@ const R = { base, deployment, config, errors: [], steps: {}, timings: {} };
   const targetView = () => page.evaluate(() => ({ url: location.href, title: document.getElementById('title').textContent,
     lines: [...document.querySelectorAll('[data-tc-run]')].map((r) => ({ line: r.dataset.line, config: r.dataset.config, ticked: r.querySelector('input').checked })) }));
   const openFirstTarget = async () => {
-    await page.click('#tc data-tabs [role=tab]:nth-of-type(2)'); await page.waitForTimeout(2000);
+    // by its name: since 2026-11-25 the Overview's own pages (League, …) come before Targets
+    await page.click("#tc data-tabs [role=tab]:text-is('Targets')"); await page.waitForTimeout(2000);
     await page.click("#tc data-dashboard[tab='Targets'] tbody tr"); await page.waitForTimeout(1200);
     await Promise.all([page.waitForNavigation(), page.click("#tc button[data-drill-action]:has-text('Open target view')")]);
     await ready();

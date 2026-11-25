@@ -36,6 +36,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
+from . import report
 from .rerun_export import LAYOUTS, blueprint_path, viewer_argv, viewer_command
 
 DEFAULT_PORT = 8767
@@ -299,11 +300,15 @@ def make_handler(
             if not isinstance(title, str) or len(title) > 300:
                 raise ValueError("title is a string of at most 300 characters")
             count = f"{len(picks)} run{'s' if len(picks) != 1 else ''}"
-            folder = base / "playback" / selection_key(picks, title, crumbs)
+            # WHY the viewer in the key and the assets folder's name (2026-11-25): keyed by the selection alone, a
+            # selection opened before a viewer upgrade kept yesterday's page forever; one shared assets folder would
+            # also hand an old page a newer viewer's files. Each viewer version gets its own pages and its own files.
+            viewer = report.viewer_digest()
+            folder = base / "playback" / selection_key(picks, title, crumbs, viewer)
             with build_lock:
                 if not (folder / "report.html").is_file():
                     build_playback(picks, folder, title=title, breadcrumb=[*crumbs, (f"Playback · {count}", "")],
-                                   assets=base / "playback" / "assets")
+                                   assets=base / "playback" / f"assets-{viewer}")
             href = "/" + quote((folder / "report.html").relative_to(root).as_posix())
             self._json(200, {"ok": True, "n": len(picks), "href": href})
 

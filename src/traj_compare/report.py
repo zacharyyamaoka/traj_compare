@@ -7,6 +7,7 @@ any browser — no server, no network, no install.
 
 from __future__ import annotations
 
+import hashlib
 import html
 import importlib.resources
 import json
@@ -49,6 +50,18 @@ VIEWER_ASSETS = (
 
 def _asset(name: str) -> str:
     return importlib.resources.files("traj_compare").joinpath("assets", name).read_text("utf-8")
+
+
+def viewer_digest() -> str:
+    """12 hex characters naming this version of the viewer: its files (``VIEWER_ASSETS``) and this module, which writes
+    the page they read. WHY (2026-11-25): a cache keyed by what was compared alone (``traj_compare.serve``'s playbacks)
+    kept serving yesterday's viewer after an upgrade; a cache or a shared assets folder carries this digest instead."""
+
+    digest = hashlib.sha1()
+    for _, name in VIEWER_ASSETS:
+        digest.update(name.encode("utf-8") + b"\0" + _asset(name).encode("utf-8") + b"\0")
+    digest.update(Path(__file__).read_bytes())
+    return digest.hexdigest()[:12]
 
 
 def _is_url(location: str) -> bool:
