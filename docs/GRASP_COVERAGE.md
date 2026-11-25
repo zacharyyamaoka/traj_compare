@@ -176,3 +176,21 @@ part rows (`coverage.sum: grid`), so a tick ("failed") recounts every tab.
   approach sphere coloured by count (colormap dropdown + Reverse). Prints `READY <url>`.
 - **W&B** `log_grasp_coverage(run, payload, *, prefix="grasp_coverage/") -> dict`: `run.summary[prefix + key]` for every
   `numbers` entry and `run.config[prefix + "title"]`. Scalars only (Zach 2026-11-21).
+
+## Deployed: the grasp dataset viewer
+
+Live at **https://grasp-viewer.zach-yamaoka.workers.dev** (Zach, 2026-11-24: "please deploy this as its own grasp dataset
+viewer"): a landing page with one card per grasp dataset (its headline numbers from its payload, two figures, the
+payload to download) and each dataset's workbench, from one data-ui kit. A static-assets Cloudflare Worker, no server code.
+
+- Build + privacy scan + deploy + live check, one command: `npm --prefix /home/bam/traj_compare/deploy/grasp-viewer run deploy`
+  (`run rebuild` first re-reads /archive through build_real.py; `run check` re-checks the live site only).
+- The site: `docs/grasp_viewer/build_site.py` publishes every dataset folder build_real.py wrote, so a new grasp set shows up on
+  the next build. Its privacy scan fails the build on a home or archive path, an email, the word "zach" or a token-looking
+  string (two printed exceptions: the kit's VENDOR.json files are left out; the kit's own WHY comments, public on
+  data-ui.dev, may name Zach), and the .base files lose their comment lines (the generator's notes).
+- The live check (`docs/grasp_viewer/check_live.py`): headless Chrome, one card per dataset, every workbench ready with its
+  payload's count, no console errors or failed requests; screenshots in reports/media/grasp-viewer-site-checks/.
+- Rollback, from any folder: `/home/bam/traj_compare/deploy/grasp-viewer/node_modules/.bin/wrangler rollback --name
+  grasp-viewer <version-id>` (`wrangler deployments list --name grasp-viewer` names the versions); first version
+  `bfd307d5-014c-4bb6-ab47-6f8c59c58320`.

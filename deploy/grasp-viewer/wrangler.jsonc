@@ -1,0 +1,15 @@
+// Cloudflare deploy of the Grasp dataset viewer: a static-assets Worker (no server code) serving the site that
+// docs/grasp_viewer/build_site.py writes (landing page + one data-ui workbench per grasp dataset + one data-ui kit).
+// `npm run deploy` (this folder) builds, privacy-scans, uploads and checks the live site.
+// Zach, 2026-11-24: "please deploy this as its own grasp dataset viewer".
+{
+  "name": "grasp-viewer",
+  "compatibility_date": "2026-10-26",
+  "assets": {
+    "directory": "../../reports/media/grasp-viewer-site",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  },
+  // WHY workers.dev and no routes: no domain was asked for; grasp-viewer.<account>.workers.dev is the address
+  "workers_dev": true
+}

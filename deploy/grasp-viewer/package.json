@@ -1,0 +1,14 @@
+{
+  "name": "grasp-viewer-deploy",
+  "private": true,
+  "description": "Pinned deploy tooling for the Grasp dataset viewer (wrangler, the version data-ui deploys with). WHY its own folder: traj_compare is a Python package; this keeps wrangler and its node_modules out of it.",
+  "scripts": {
+    "build": "taskset -c 2-5,16,17 nice -n 10 python3 ../../docs/grasp_viewer/build_site.py",
+    "rebuild": "taskset -c 2-5,16,17 nice -n 10 python3 ../../docs/grasp_viewer/build_site.py --rebuild",
+    "check": "python3 ../../docs/grasp_viewer/check_live.py",
+    "deploy": "npm run build && wrangler deploy && npm run check"
+  },
+  "devDependencies": {
+    "wrangler": "4.151.0"
+  }
+}

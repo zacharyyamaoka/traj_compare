@@ -23,3 +23,7 @@ docs/proposals/*/v*/rows/
 docs/proposals/dashboard-pattern-2026-11-24/p1/rows.json
 docs/proposals/rerun-joint-trajectory-2026-11-24/r*/**/*.rrd
 docs/proposals/rerun-joint-trajectory-2026-11-24/r*/*.rrd
+
+# the grasp dataset viewer deploy (deploy/grasp-viewer): wrangler and its local state, never source
+deploy/grasp-viewer/node_modules/
+deploy/grasp-viewer/.wrangler/
