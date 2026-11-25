@@ -22,6 +22,25 @@ import numpy as np
 from robot_msgs.geometry.rotations import quat_to_matrix
 from robot_msgs.trajectory import JointLimits, JointTrajectory, PoseTrajectory
 
+from . import bins
+from .bins import SPHERE_RINGS, SPHERE_SECTORS  # noqa: F401  (re-exported: the payload's sphere grid)
+# WHY aliases: the binning moved to bins.py (shared with grasp_coverage, 2026-11-24); workbench.py and the tests
+# call these by their old names
+_bin_index = bins.bin_index
+_edges = bins.edges
+_paths_per_cell = bins.paths_per_cell
+_max_per_cell = bins.max_per_cell
+_evenness_pct = bins.evenness_pct
+_grid_cells = bins.grid_cells
+_sphere_counts = bins.sphere_counts
+_grid_2d = bins.grid_2d
+_histogram_1d = bins.histogram_1d
+_ints = bins.ints
+_floats = bins.floats
+_number = bins.number
+_finite = bins.finite
+_decimals = bins.decimals
+
 SCHEMA = "traj_compare.coverage/1"
 SIGNALS = ("q", "qd", "qdd", "qddd")
 MAGNITUDE_LIMITS = {"qd": "max_velocity", "qdd": "max_acceleration", "qddd": "max_jerk"}
@@ -47,7 +66,6 @@ PARALLEL_SAMPLES_MAX = 50_000
 SHUFFLES = 32
 PIXEL_M, VOXEL_M = 0.02, 0.05
 SPEED_BINS = 60
-SPHERE_RINGS, SPHERE_SECTORS = 12, 24
 TILT_GRID_BINS, AZIMUTH_BINS, TILT_BINS, YAW_BINS = 18, 36, 36, 72
 PROJECTIONS = {"xy": (0, 1), "xz": (0, 2), "yz": (1, 2)}
 
@@ -370,22 +388,6 @@ def _planner_limits(planner: JointLimits | None, joint_names: tuple[str, ...]) -
 # ── binning ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 
-def _bin_index(values: np.ndarray, low: float, high: float, bins: int) -> np.ndarray:
-    """Linear bin of each value, -1 outside [low, high] or not finite.
-
-    WHY linear (Zach 2026-11-19: "I feel it would be better to just have a linear scale"): equal cells, so a visited
-    % is a share of the space. WHY a tolerance: a sample timed AT its limit lands on the last edge to the last ulp.
-    """
-    values = np.asarray(values, float)
-    tolerance = 1e-9 * (high - low)
-    with np.errstate(invalid="ignore"):
-        index = np.floor((values - low) / (high - low) * bins)
-        index = np.where((values >= high) & (values <= high + tolerance), bins - 1, index)
-        index = np.where((values < low) & (values >= low - tolerance), 0, index)
-        inside = (index >= 0) & (index < bins)
-    return np.where(inside, index, -1).astype(np.int64)
-
-
 def _beyond(values: np.ndarray, bound: _Bound) -> int:
     """Samples past the stated limit (same tolerance as the bins); a data-derived box has no 'beyond'."""
     if bound.source != "limit":
@@ -395,40 +397,9 @@ def _beyond(values: np.ndarray, bound: _Bound) -> int:
     return int(((finite < bound.low - tolerance) | (finite > bound.high + tolerance)).sum())
 
 
-def _edges(low: float, high: float, bins: int) -> list:
-    return [float(low), float(high), int(bins)]
-
-
 def _cells(plane: str) -> int:
     x, y = plane.split("_")
     return PLANE_BINS[x] * PLANE_BINS[y]
-
-
-def _paths_per_cell(cell: np.ndarray, owner: np.ndarray, cells: int) -> tuple[np.ndarray, np.ndarray]:
-    """Distinct trajectories through each cell, and the unique (trajectory * cells + cell) keys behind it.
-
-    WHY count trajectories, not samples (arm_motion_bench, Zach: "colour by runs, not samples"): a long dwell is one
-    visit."""
-    keys = np.unique(owner.astype(np.int64) * cells + cell)
-    return np.bincount(keys % cells, minlength=cells), keys
-
-
-def _max_per_cell(cell: np.ndarray, values: np.ndarray, cells: int) -> np.ndarray:
-    """The largest value in each cell; NaN where no finite value landed."""
-    finite = np.isfinite(values)
-    largest = np.full(cells, -np.inf)
-    np.maximum.at(largest, cell[finite], values[finite])
-    largest[np.isneginf(largest)] = np.nan
-    return largest
-
-
-def _evenness_pct(counts: np.ndarray) -> float:
-    """exp(Shannon entropy) as a share of all cells: 100 % only if every cell holds the same (Hill number of order 1)."""
-    total = counts.sum()
-    if total == 0:
-        return 0.0
-    share = counts[counts > 0] / total
-    return 100.0 * math.exp(float(-(share * np.log(share)).sum())) / counts.size
 
 
 # ── 1-D histograms ──────────────────────────────────────────────────────────────────────────────────────────────────
@@ -780,20 +751,6 @@ def _tool_bounds(samples: _ToolSamples, reach: np.ndarray | None) -> tuple[np.nd
     return every.min(axis=0) - VOXEL_M, every.max(axis=0) + VOXEL_M
 
 
-def _grid_cells(points: np.ndarray, size: float, low: np.ndarray, high: np.ndarray, axes) -> tuple[np.ndarray, list]:
-    """Flat cell index (row-major over `axes`) of each point on a grid of `size` anchored at the base origin, -1
-    outside; and the grid's shape. WHY anchored at the origin, not at the data: two datasets' cells line up."""
-    first = np.floor(low[list(axes)] / size).astype(np.int64)
-    shape = (np.floor(high[list(axes)] / size).astype(np.int64) - first + 1)
-    with np.errstate(invalid="ignore"):
-        index = np.floor(points[:, list(axes)] / size)
-    inside = np.isfinite(index).all(axis=1)
-    index = np.where(inside[:, None], index, 0).astype(np.int64) - first
-    inside &= ((index >= 0) & (index < shape)).all(axis=1)
-    flat = np.ravel_multi_index(tuple(np.where(inside[:, None], index, 0).T), tuple(shape))
-    return np.where(inside, flat, -1), [int(n) for n in shape]
-
-
 def _projection(samples: _ToolSamples, reach, low, high, axes: tuple[int, int]) -> dict:
     raw, shape = _grid_cells(samples.positions, PIXEL_M, low, high, axes)
     dense, _ = _grid_cells(samples.path_points, PIXEL_M, low, high, axes)
@@ -864,10 +821,8 @@ def _orientation(rotations: np.ndarray, tool_reference) -> tuple[dict, np.ndarra
     and every sample's tilt (rad)."""
     reference = np.asarray(tool_reference, float)
     reference = reference / np.linalg.norm(reference)
-    z_axis, x_axis = rotations[:, :, 2], rotations[:, :, 0]
-    tilt = np.arccos(np.clip(z_axis @ reference, -1.0, 1.0))
-    azimuth = np.arctan2(z_axis[:, 1], z_axis[:, 0])
-    yaw = np.arctan2(x_axis[:, 1], x_axis[:, 0])
+    z_axis = rotations[:, :, 2]
+    tilt, azimuth, yaw = bins.direction_angles(rotations, reference)
     block = {
         "reference": [float(v) for v in reference],
         "sphere": {"rings": SPHERE_RINGS, "sectors": SPHERE_SECTORS, "counts": _ints(_sphere_counts(z_axis))},
@@ -879,30 +834,6 @@ def _orientation(rotations: np.ndarray, tool_reference) -> tuple[dict, np.ndarra
         "yaw": _histogram_1d(yaw, -math.pi, math.pi, YAW_BINS),
     }
     return block, tilt
-
-
-def _sphere_counts(directions: np.ndarray) -> np.ndarray:
-    """Equal-area cells of unit vectors (prior art sphere_cell): rings uniform in z (Archimedes: equal z bands have equal
-    area) x sectors uniform in azimuth from -pi. Flat index ring * sectors + sector."""
-    ring = np.clip(np.floor((directions[:, 2] + 1.0) / 2.0 * SPHERE_RINGS), 0, SPHERE_RINGS - 1).astype(np.int64)
-    azimuth = np.arctan2(directions[:, 1], directions[:, 0])
-    sector = np.clip(np.floor((azimuth + math.pi) / (2 * math.pi) * SPHERE_SECTORS), 0,
-                     SPHERE_SECTORS - 1).astype(np.int64)
-    return np.bincount(ring * SPHERE_SECTORS + sector, minlength=SPHERE_RINGS * SPHERE_SECTORS)
-
-
-def _grid_2d(x_values, x_edges, y_values, y_edges, x_key: str, y_key: str) -> dict:
-    x_index = _bin_index(x_values, *x_edges)
-    y_index = _bin_index(y_values, *y_edges)
-    inside = (x_index >= 0) & (y_index >= 0)
-    nx, ny = x_edges[2], y_edges[2]
-    return {x_key: _edges(*x_edges), y_key: _edges(*y_edges), "shape": [nx, ny],
-            "counts": _ints(np.bincount(x_index[inside] * ny + y_index[inside], minlength=nx * ny))}
-
-
-def _histogram_1d(values, low: float, high: float, bins: int) -> dict:
-    index = _bin_index(values, low, high, bins)
-    return {"edges": _edges(low, high, bins), "counts": _ints(np.bincount(index[index >= 0], minlength=bins))}
 
 
 # ── source and headline numbers ─────────────────────────────────────────────────────────────────────────────────────
@@ -970,31 +901,3 @@ def _tool_numbers(tool: dict, extremes: dict[str, float]) -> list[tuple]:
 
 # ── JSON-safe values ────────────────────────────────────────────────────────────────────────────────────────────────
 
-
-def _ints(values) -> list[int]:
-    return np.asarray(values).astype(np.int64).tolist()
-
-
-def _floats(values, decimals: int | None = None) -> list:
-    """Python floats, NaN/inf -> None (json.dumps(allow_nan=False) must work)."""
-    values = np.asarray(values, float)
-    if decimals is not None:
-        values = np.round(values, decimals)
-    return [value if math.isfinite(value) else None for value in values.tolist()]
-
-
-def _number(value) -> float | None:
-    value = float(value)
-    return value if math.isfinite(value) else None
-
-
-def _finite(value) -> float:
-    value = float(value)
-    return value if math.isfinite(value) else 0.0
-
-
-def _decimals(span: float, digits: int = 4) -> int:
-    """Decimals that keep `digits` significant figures of a limit span (a path drawn on a figure needs no more)."""
-    if not span > 0 or not math.isfinite(span):
-        return 6
-    return max(0, int(math.ceil(digits - math.log10(span))))
