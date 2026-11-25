@@ -31,7 +31,7 @@ needs_data_ui = pytest.mark.skipif(not ((DATA_UI / "bin" / "data-ui.mjs").is_fil
 needs_browser = pytest.mark.skipif(not (PLAYWRIGHT.is_dir() and CHROME.is_file() and shutil.which("node")
                                         and (DATA_UI / "bin" / "data-ui.mjs").is_file()),
                                    reason="needs Node Playwright, Chrome and the data-ui repo")
-PAGES = ["Overview", "Position", "Gripper", "Orientation", "Objects", "Grasps"]
+PAGES = ["Overview", "Grippers", "Position", "Gripper", "Orientation", "Objects", "Over time", "Grasps"]  # round 2 (2026-11-24) added Grippers and Over time
 
 
 @pytest.fixture(scope="module")
@@ -316,3 +316,40 @@ def test_ticking_failed_recounts_every_tab_and_every_figure(browsed, inputs):
 @needs_browser
 def test_embedded_it_stays_in_the_hosts_slot(browsed):
     assert browsed["embed"]["inSlot"] and browsed["embed"]["scrollX"] <= 1
+
+
+# ── added 2026-11-24 (round 2: thin grippers, heatmaps, more kinds of view), written before the code ─────────────────
+
+ROUND_2_VIEWS = {"Thin grippers in 3-D", "Thin grippers from above", "Thin grippers from the side",
+                 "Grasp density from above", "Picked share per spot", "Density per outcome", "Width per object",
+                 "Width × tilt per object", "Where each object was grasped", "Roll rose", "Approach directions in 3-D",
+                 "Grasps per day", "Picked share per day", "Coverage growth", "Grasps per day per object",
+                 "Every grasp as a line"}
+PAGES_2 = ["Overview", "Grippers", "Position", "Gripper", "Orientation", "Objects", "Over time", "Grasps"]
+
+
+def test_glyph_rows_are_one_polyline_per_grasp_linked_to_it(inputs, tmp_path):
+    from traj_compare.grasp_coverage.analysis import gripper_polylines
+
+    coverage, grasps, _, _ = inputs
+    write_grasp_workbench(coverage, grasps, tmp_path, kit="../kit")
+    glyphs = json.loads((tmp_path / "glyphs.json").read_text("utf-8"))["rows"]
+    rows = json.loads((tmp_path / "grasps.json").read_text("utf-8"))["rows"]
+    assert len(glyphs) == 7 * len(rows)
+    lines = gripper_polylines(coverage.payload["grasps"]) * 1000.0
+    first = [g for g in glyphs if g["grasp"] == rows[0]["id"]]
+    assert [g["t"] for g in first] == list(range(7))  # the path's order
+    assert [[g["x_mm"], g["y_mm"], g["z_mm"]] for g in first] == pytest.approx(lines[0].tolist(), abs=0.01)
+    assert {g["outcome"] for g in first} == {rows[0]["outcome"]}
+
+
+def test_round_two_views_and_tabs_are_in_the_base(site):
+    yaml = pytest.importorskip("yaml")
+    base = yaml.safe_load((site / "grasp_coverage.base").read_text("utf-8"))
+    names = {view["name"] for view in base["views"]}
+    assert ROUND_2_VIEWS <= names, ROUND_2_VIEWS - names
+    assert [page["name"] for page in base["pages"]] == PAGES_2
+    links = {(link["from"], link["to"]) for link in base["links"]}
+    assert ("grasps.id", "glyphs.grasp") in links
+    shown = {panel["view"] for page in base["pages"] for panel in page["layout"]["panels"]}
+    assert ROUND_2_VIEWS <= shown, ROUND_2_VIEWS - shown

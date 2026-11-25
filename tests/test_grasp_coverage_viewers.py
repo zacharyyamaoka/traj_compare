@@ -188,3 +188,34 @@ def test_the_colormap_and_reverse_recolour_the_sphere(viewer):
     view.colours.value = "viridis"
     view.reverse.value = True
     assert np.any(np.array(nodes["/sphere/cells"].colors) != first)
+
+
+# ── added 2026-11-24 (round 2: thin grippers, heatmaps, more kinds of figure), written before the code ─────────────
+
+ROUND_2 = {"grippers.png", "success-map.png", "roll-rose.png", "width-tilt-objects.png", "over-time.png",
+           "growth.png", "density-outcomes.png"}
+
+
+def test_round_two_writes_the_new_figures_too(payload, tmp_path):
+    names = {path.name for path in plot_grasp_coverage(payload, tmp_path)}
+    assert ROUND_2 <= names and PNGS <= names
+
+
+def test_the_thin_grippers_are_drawn_in_outcome_colours(payload):
+    image = figure_pixels(payload, "grippers")
+    rgb = np.array([int(mpl_view.OUTCOME_COLORS["picked"][i:i + 2], 16) for i in (1, 3, 5)]) / 255.0
+    # thin lines at low opacity blend toward white: look for the hue, not the exact colour
+    tinted = (image[..., 2] - image[..., 0] > 0.15) & (image[..., 2] > 0.5)
+    assert tinted.sum() > 30 and rgb[2] > rgb[0]
+
+
+def test_the_success_map_repaints_with_the_colour_controls(payload):
+    viridis = figure_pixels(payload, "success-map")
+    magma = figure_pixels(payload, "success-map", cmap="magma")
+    assert np.mean(np.any(np.abs(magma - viridis) > 0.02, axis=-1)) > 0.002
+
+
+def test_without_outcomes_the_outcome_figures_say_so_instead(tmp_path):
+    grasps, _, _, _ = made_up()
+    names = {path.name for path in plot_grasp_coverage(analyze_grasps(grasps).payload, tmp_path)}
+    assert "success-map.png" not in names and "grippers.png" in names and "growth.png" in names

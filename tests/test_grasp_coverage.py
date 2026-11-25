@@ -350,3 +350,69 @@ def test_the_shared_binning_is_the_trajectory_viewers():
 
     assert trajectory_analysis._bin_index is bins.bin_index and trajectory_analysis._grid_cells is bins.grid_cells
     assert analysis.bins is bins
+
+
+# ── added 2026-11-24 (round 2, Zach: "I don't see thin grippers I don't see any heat maps ... add more different types of
+#    visulziations"): written before the code ──────────────────────────────────────────────────────────────────────────
+
+
+def test_the_thin_gripper_is_one_polyline_per_grasp_in_robot_msgs_shape(payload, inputs):
+    """jaw tip, palm, palm centre, wrist end, palm centre, palm, jaw tip: the robot_msgs glyph as ONE polyline, so a
+    viewer draws a grasp as one path (data-ui's lines `by`, a Matplotlib LineCollection, Viser's segments)."""
+    from traj_compare.grasp_coverage.analysis import GLYPH_DEPTH_M, GLYPH_STEM_M, gripper_polylines
+
+    rows = payload["grasps"]
+    lines = gripper_polylines(rows)
+    assert lines.shape == (len(rows), 7, 3)
+    for row, line in zip(rows, lines, strict=True):
+        p, a, j = (np.asarray(row[key]) for key in ("position", "approach", "jaw"))
+        half = max(row["width"], 0.004) / 2
+        palm = p - GLYPH_DEPTH_M * a
+        expected = [p - half * j, palm - half * j, palm, palm - GLYPH_STEM_M * a, palm, palm + half * j, p + half * j]
+        assert np.allclose(line, expected), row["name"]
+    assert gripper_polylines(rows, size=0.5)[0, 3] == pytest.approx(
+        np.asarray(rows[0]["position"]) - 0.5 * (GLYPH_DEPTH_M + GLYPH_STEM_M) * np.asarray(rows[0]["approach"]))
+
+
+def test_each_projection_carries_picked_and_closed_counts_per_pixel(payload, inputs):
+    """The success map's two grids (picked share = picked / closed per pixel), independent of group_by."""
+    outcomes = inputs[1]
+    for face, block in payload["position"]["projections"].items():
+        assert sum(block["picked"]) == outcomes.count("picked"), face
+        assert sum(block["closed"]) == outcomes.count("picked") + outcomes.count("failed"), face
+        assert all(p <= c for p, c in zip(block["picked"], block["closed"], strict=True))
+    grouped = analyze_grasps(inputs[0], outcomes=outcomes, group_by="object").payload
+    assert grouped["position"]["projections"]["xy"]["picked"] == payload["position"]["projections"]["xy"]["picked"]
+
+
+def test_without_outcomes_there_is_no_success_map(inputs):
+    block = analyze_grasps(inputs[0]).payload["position"]["projections"]["xy"]
+    assert block["picked"] is None and block["closed"] is None
+
+
+def test_coverage_growth_as_grasps_are_added(payload):
+    """Is each new grasp still adding coverage? Distinct xy pixels, approach cells and width bins after the first k
+    grasps (the given order), ending on the payload's own totals."""
+    growth = payload["growth"]
+    n = payload["source"]["grasps"]
+    assert growth["grasps"][-1] == n and growth["grasps"] == sorted(growth["grasps"])
+    for key in ("position_pixels_xy", "direction_cells", "width_bins", "roll_bins"):
+        series = growth[key]
+        assert len(series) == len(growth["grasps"]) and series == sorted(series), key
+    assert growth["position_pixels_xy"][-1] == sum(1 for v in payload["position"]["projections"]["xy"]["samples"] if v)
+    assert growth["direction_cells"][-1] == sum(1 for v in payload["orientation"]["sphere"]["counts"] if v)
+    assert growth["width_bins"][-1] == sum(1 for v in payload["width"]["counts"] if v)
+    shown = payload["orientation"][payload["orientation"]["roll_shown"]]["counts"]
+    assert growth["roll_bins"][-1] == sum(1 for v in shown if v)
+    first = payload["grasps"][0]
+    assert growth["grasps"][0] == 1 and growth["position_pixels_xy"][0] == 1 and growth["direction_cells"][0] == 1
+    assert first  # the first grasp always opens one pixel, one cell
+
+
+def test_growth_is_thinned_for_a_big_set_but_keeps_its_ends(monkeypatch):
+    from traj_compare.grasp_coverage import analysis
+
+    monkeypatch.setattr(analysis, "GROWTH_POINTS", 10)
+    grasps = [grasp((0.01 * k, 0, 0), 0.0, 0.0, 0.0, 0.02) for k in range(57)]
+    growth = analyze_grasps(grasps).payload["growth"]
+    assert len(growth["grasps"]) <= 11 and growth["grasps"][0] == 1 and growth["grasps"][-1] == 57
