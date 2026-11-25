@@ -5,6 +5,13 @@ schema = "robot-sdk-declaration/1"
 role = "viewer"
 layer = "viewers"
 one_line = "A/B trajectory comparison and coverage viewers, one static report.html"
+summary = "The viewers, on robot_msgs types: a turn-key A/B trajectory comparison viewer that writes one static `report.html` (target vs sim vs real), and the dataset coverage viewers, one payload feeding a data-ui page, Matplotlib, Viser and W&B: `traj_compare.coverage` (trajectories) and `traj_compare.grasp_coverage` (grasps). Coverage of any list of dataclass records (each field against its declared `Value` range, class balance, missing values, \"is more data still adding coverage?\") moved to its own package, dataclass_coverage."
+use_when = "Comparing runs (target vs sim vs real, before vs after), benchmark reports, \"how much of the space does this dataset cover?\". **Never write a bespoke trajectory plot or coverage page.**"
+
+# Where to read more. github and pypi are required; the rest are what this package has.
+[links]
+github = "https://github.com/zacharyyamaoka/traj_compare"
+pypi = "https://pypi.org/project/traj-compare/"
 
 [[consumes]]
 type = "robot_msgs.compare.Tolerances"
