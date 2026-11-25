@@ -40,12 +40,11 @@ from ..coverage.viser_view import (
     sphere_cell_points,
     sphere_grid_segments,
 )
-from .analysis import SCHEMA
+from .analysis import SCHEMA, gripper_polylines
 from .matplotlib_view import outcome_colours
 
 GRASPS, SPHERE = "Grasps in 3-D", "Approach sphere"
 VIEWS = (GRASPS, SPHERE)
-DEPTH_M, STEM_M = 0.04, 0.05  # robot_msgs viz/viser.py _gripper: finger length and the stem behind the palm
 
 
 def _rgb(hex_colour: str) -> tuple[int, int, int]:
@@ -53,23 +52,14 @@ def _rgb(hex_colour: str) -> tuple[int, int, int]:
 
 
 def glyph_segments(rows: Sequence[Mapping[str, Any]], size: float = 1.0) -> np.ndarray:
-    """robot_msgs' two-finger glyph per grasp row, in the payload's frame: (4 * n, 2, 3) float32.
-
-    In the tool frame the jaws sit at x = ±width/2 and run back to the palm at z = -depth; a stem runs further back
-    along -z (where the wrist comes from). Same shape as robot_msgs.viz.viser._gripper, so a grasp reads alike in both."""
-    if not rows:
+    """robot_msgs' two-finger glyph per grasp row as four segments (4 * n, 2, 3) float32: the two jaws, the palm and the
+    stem. The shape is analysis.gripper_polylines' (one definition for every viewer); a segment list drops the polyline's
+    retraced stem."""
+    lines = gripper_polylines(rows, size)
+    if not len(lines):
         return np.zeros((0, 2, 3), np.float32)
-    out = []
-    for row in rows:
-        p = np.asarray(row["position"], float)
-        z = np.asarray(row["approach"], float)
-        x = np.asarray(row["jaw"], float)
-        half = max(float(row["width"]), 0.004) / 2.0
-        depth, stem = DEPTH_M * size, STEM_M * size
-        palm = p - depth * z
-        out += [[p - half * x, palm - half * x], [p + half * x, palm + half * x],
-                [palm - half * x, palm + half * x], [palm, palm - stem * z]]
-    return np.asarray(out, np.float32)
+    pairs = ((0, 1), (1, 5), (2, 3), (5, 6))  # jaw, palm, stem, jaw
+    return np.stack([lines[:, [a, b]] for a, b in pairs], axis=1).reshape(-1, 2, 3).astype(np.float32)
 
 
 class GraspCoverageViewer:

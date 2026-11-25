@@ -44,7 +44,7 @@ def figure_pixels(payload: dict, figure_id: str, **colour) -> np.ndarray:
 
 def test_plot_writes_exactly_the_contract_pngs(payload, tmp_path):
     written = plot_grasp_coverage(payload, tmp_path / "png")
-    assert {path.name for path in written} == PNGS
+    assert {path.name for path in written} == PNGS | ROUND_2  # round 2 (2026-11-24) added seven figures
     assert all(path.parent == tmp_path / "png" and path.stat().st_size > 5000 for path in written)
 
 

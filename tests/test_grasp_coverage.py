@@ -381,7 +381,8 @@ def test_each_projection_carries_picked_and_closed_counts_per_pixel(payload, inp
         assert sum(block["picked"]) == outcomes.count("picked"), face
         assert sum(block["closed"]) == outcomes.count("picked") + outcomes.count("failed"), face
         assert all(p <= c for p, c in zip(block["picked"], block["closed"], strict=True))
-    grouped = analyze_grasps(inputs[0], outcomes=outcomes, group_by="object").payload
+    # same inputs as `payload` (the area sets the grid's bounds), grouped by object instead
+    grouped = analyze_grasps(inputs[0], outcomes=outcomes, group_by="object", area=AREA).payload
     assert grouped["position"]["projections"]["xy"]["picked"] == payload["position"]["projections"]["xy"]["picked"]
 
 

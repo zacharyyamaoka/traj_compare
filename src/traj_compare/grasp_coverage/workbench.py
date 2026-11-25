@@ -30,12 +30,15 @@ import numpy as np
 from .. import _files
 from ..coverage import bins
 from ..coverage.workbench import _EMBED, _INDEX, DATA_UI, _page, _parts_view, _vendor, _write_json, _yaml
-from .analysis import ARROW_M, PROJECTIONS, SCHEMA, GraspValues, _named, grasp_values
+from .analysis import ARROW_M, PROJECTIONS, SCHEMA, GraspValues, _named, grasp_values, gripper_polylines, time_buckets
 from .colours import GROUP_SLOTS, SLOT_HEX, outcome_slots
 
 DEG = 180.0 / math.pi
 FACES = {"xy": "from above", "xz": "from the front", "yz": "from the side"}
-PAGES = ("Overview", "Position", "Gripper", "Orientation", "Objects", "Grasps")
+PAGES = ("Overview", "Grippers", "Position", "Gripper", "Orientation", "Objects", "Over time", "Grasps")
+GLYPHS_PER_OBJECT = 300  # plain (picked / unlabelled) thin grippers drawn per object; see glyph_grasps
+GLYPH_PATH = (3, 2, 1, 0, 1, 5, 6)  # gripper_polylines' points, re-ordered to start at the wrist end (glyph_rows)
+DIRECTION_MM = (100.0, 70.0)  # "Approach directions in 3-D": a point 100 mm out where the gripper comes from, an arrow in
 HIST_KINDS = ("width", "pre_grasp_width", "tilt", "roll", "score")  # the stock strips panel, top to bottom
 LIMIT_HEX = "#b4442f"  # data-ui's --data-limit (light): a limit is a boundary, never a status
 BEYOND_HEX = "#dddcd6"  # data-ui's --data-outside: past the range
@@ -54,6 +57,7 @@ def grasp_workbench_rows(coverage, grasps=None) -> tuple[list[dict], list[dict]]
     outcome_of = {row["name"]: row for row in payload["grasps"]}
     ids = _ids(values.names)
     rows = [_grasp_row(payload, values, k, ids[k], outcome_of[values.names[k]]) for k in range(len(values))]
+    _round_two_columns(payload, values, rows)
     parts: list[dict] = []
     for k in range(len(values)):
         parts += _parts(payload, values, k, ids[k], outcome_of[values.names[k]]["group"])
@@ -126,6 +130,72 @@ def _grasp_row(payload: Mapping, values: GraspValues, k: int, grasp_id: str, pay
         "t": 0.0,
     })
     return row
+
+
+def _round_two_columns(payload: Mapping, values: GraspValues, rows: list[dict]) -> None:
+    """The columns the round-2 views read (2026-11-24), added in place: `seq` (the given order), `picked_flag` (1
+    picked, 0 failed, else null: a mean of it is the picked share), `closed_flag`, the grasp's xy pixel / approach cell
+    / width bin (`pixel_xy`, `dir_cell`, `width_bin`: coverage growth counts each one's first grasp, so it follows the
+    rail), `when` (its day, else its batch) and the approach-sphere point and arrow (`dir_*_mm`, `dir_to_*_mm`)."""
+    xy = payload["position"]["projections"]["xy"]
+    pixel = bins.grid_cells_on(values.positions, xy["origin"], xy["shape"], payload["position"]["pixel_m"],
+                               PROJECTIONS["xy"])
+    direction = bins.sphere_cell(values.approach)
+    width_bin = bins.bin_index(values.width, *payload["width"]["edges"])
+    when, _, _ = time_buckets([{"tags": row["tags"]} for row in payload["grasps"]]) if len(payload["grasps"]) == len(rows) \
+        else time_buckets([{"tags": {}} for _ in rows])
+    out_mm, in_mm = DIRECTION_MM
+    for k, row in enumerate(rows):
+        outcome = row["outcome"]
+        frm = -values.approach[k] * out_mm  # where the gripper comes from (the approach reversed)
+        to = -values.approach[k] * in_mm
+        row.update({
+            "seq": k, "picked_flag": 1 if outcome == "picked" else 0 if outcome == "failed" else None,
+            "closed_flag": 1 if outcome in ("picked", "failed") else 0, "pixel_xy": int(pixel[k]),
+            "dir_cell": int(direction[k]), "width_bin": int(width_bin[k]), "when": when[k],
+            "dir_x_mm": round(float(frm[0]), 2), "dir_y_mm": round(float(frm[1]), 2), "dir_z_mm": round(float(frm[2]), 2),
+            "dir_to_x_mm": round(float(to[0]), 2), "dir_to_y_mm": round(float(to[1]), 2),
+            "dir_to_z_mm": round(float(to[2]), 2)})
+
+
+def glyph_grasps(rows: list[dict], per_object: int = GLYPHS_PER_OBJECT) -> set[int]:
+    """Which grasps get a thin gripper: every one that is not plain (failed, hovered, refused, any other word), and of
+    the plain ones (picked, unknown) at most `per_object` per object, evenly in the given order.
+
+    WHY thin them: the Nov 19 gallery found that past ~150 wireframes per object they hide the object they sit on, and
+    2 400 GraspNet labels drew one solid blob (round 2 review); WHY never the others: the failures are what the view is
+    for ("showing where the failures where and not")."""
+    keep: set[int] = set()
+    plain: dict[str, list[int]] = {}
+    for k, row in enumerate(rows):
+        if row["outcome"] in ("picked", "unknown"):
+            plain.setdefault(row["object"], []).append(k)
+        else:
+            keep.add(k)
+    for indices in plain.values():
+        if len(indices) <= per_object:
+            keep.update(indices)
+        else:
+            keep.update(indices[int(i)] for i in np.unique(np.linspace(0, len(indices) - 1, per_object).round()))
+    return keep
+
+
+def glyph_rows(payload: Mapping, rows: list[dict]) -> list[dict]:
+    """The thin grippers: seven rows per grasp (its polyline, in order as `t`), in mm, with the grasp's id, outcome and
+    object, for data-ui's scene3d `lines` (by grasp) and the Vega-Lite views from above and the side."""
+    # WHY this order (wrist end, palm centre, one jaw out and back, across the palm, the other jaw): data-ui's scene3d
+    # draws a "now" ball at every path's first point and has no switch for it; starting at the wrist end makes that
+    # ball the gripper's wrist instead of a stray dot on one jaw tip. The shape drawn is gripper_polylines' exactly.
+    lines = gripper_polylines(payload["grasps"])[:, GLYPH_PATH] * 1000.0
+    drawn = glyph_grasps(rows)
+    out = []
+    for k, (row, line) in enumerate(zip(rows, lines, strict=True)):
+        if k not in drawn:
+            continue
+        for t, (x, y, z) in enumerate(line):
+            out.append({"id": f"{row['id']}/{t}", "grasp": row["id"], "outcome": row["outcome"], "object": row["object"],
+                        "t": t, "x_mm": round(float(x), 2), "y_mm": round(float(y), 2), "z_mm": round(float(z), 2)})
+    return out
 
 
 def _one_hot(index: int, bins_: int) -> list[int]:
@@ -249,6 +319,10 @@ def write_grasp_workbench(coverage, grasps, out_dir: Path | str, *, title: str |
                                       "properties": _grasp_properties(payload, tag_keys), "rows": rows})
     _write_json(out / "parts.json", {"id": "grasp-coverage-parts", "title": f"{title}: each grasp's share of every figure",
                                      "titleProperty": "id", "properties": _part_properties(), "rows": parts})
+    if payload["grasps_subsampled"] is None:
+        _write_json(out / "glyphs.json", {"id": "grasp-coverage-glyphs", "title": f"{title}: every grasp as a thin gripper",
+                                          "titleProperty": "id", "properties": _glyph_properties(),
+                                          "rows": glyph_rows(payload, rows)})
     areas = payload["position"]["area"] or []
     base = _base(payload, rows, facets=facets, areas=bool(areas))
     _files.write_text(out / "grasp_coverage.base", _HEADER + _yaml(base) + "\n")
@@ -288,10 +362,31 @@ def _grasp_properties(payload: Mapping, tag_keys: list[str]) -> dict:
         properties[f"from_{axis}_mm"] = {"type": "number", "label": f"approach from {axis}", "unitText": "mm",
                                          "decimals": 1, "hidden": True}
     properties["t"] = {"type": "number", "label": "t", "hidden": True}
+    properties.update({
+        "seq": {"type": "number", "label": "Order", "description": "the grasp's place in the set as given"},
+        "picked_flag": {"type": "number", "label": "Picked (1) / failed (0)", "hidden": True},
+        "closed_flag": {"type": "number", "label": "Closed", "hidden": True},
+        "pixel_xy": {"type": "number", "label": "xy pixel", "hidden": True},
+        "dir_cell": {"type": "number", "label": "Approach cell", "hidden": True},
+        "width_bin": {"type": "number", "label": "Width bin", "hidden": True},
+        "when": {"type": "text", "label": "Day" if all(row["tags"].get("day") for row in payload["grasps"]) else "Batch"},
+    })
+    for axis in "xyz":
+        properties[f"dir_{axis}_mm"] = {"type": "number", "label": f"comes from {axis}", "hidden": True}
+        properties[f"dir_to_{axis}_mm"] = {"type": "number", "label": f"approach arrow {axis}", "hidden": True}
     if payload["pre_grasp_width"] is None:
         del properties["pre_grasp_mm"]
     if payload["score"] is None:
         del properties["score"]
+    return properties
+
+
+def _glyph_properties() -> dict:
+    properties: dict[str, Any] = {"id": {"type": "text", "label": "Point", "hidden": True},
+                                  "grasp": {"type": "text", "label": "Grasp"}, "outcome": {"type": "text", "label": "Outcome"},
+                                  "object": {"type": "text", "label": "Object"}, "t": {"type": "number", "label": "Point"}}
+    for axis in "xyz":
+        properties[f"{axis}_mm"] = {"type": "number", "label": axis, "unitText": "mm", "decimals": 1}
     return properties
 
 
@@ -347,7 +442,8 @@ def _base(payload: Mapping, rows: list[dict], *, facets: Sequence[str], areas: b
         family = slots
     else:
         family = {name: GROUP_SLOTS[i % len(GROUP_SLOTS)] for i, name in enumerate(payload["source"]["groups"])}
-    datasets: dict[str, Any] = {"parts": {"data": "parts.json", "label": "Coverage parts"}}
+    datasets: dict[str, Any] = {"parts": {"data": "parts.json", "label": "Coverage parts"},
+                                "glyphs": {"data": "glyphs.json", "label": "Thin grippers"}}
     return {
         "data": "grasps.json",
         "noun": ["grasp", "grasps"],
@@ -355,55 +451,87 @@ def _base(payload: Mapping, rows: list[dict], *, facets: Sequence[str], areas: b
         "properties": {"name": {"displayName": "Grasp"}, "object": {"displayName": "Object"},
                        "outcome": {"displayName": "Outcome", "colors": slots}},
         "style": {"numbers": {"digits": 3},
+                  # each object's colour where a view colours by object (the thin grippers of a set without outcomes)
+                  "palette": {name: SLOT_HEX[GROUP_SLOTS[i % len(GROUP_SLOTS)]] for i, name in enumerate(objects)
+                              if name not in slots},
                   # the histograms stack by the payload's group_by, in the rail's outcome colours
                   "families": {"property": group_by, "colors": family},
                   "heatmap": {"colormap": "viridis", "reverse": False, "scale": "linear"}},
         "settings": ["heatmap.colormap", "heatmap.reverse", "heatmap.scale"],
         "drill": {"actions": [{"label": "Copy its name", "copy": "{name}", "title": "Copies {name}"}]},
         "datasets": datasets,
-        "links": [{"from": "grasps.id", "to": "parts.grasp", "direction": "one-way"}],
+        "links": [{"from": "grasps.id", "to": "parts.grasp", "direction": "one-way"},
+                  {"from": "grasps.id", "to": "glyphs.grasp", "direction": "one-way"}],
         "pages": _pages(payload, areas),
         "views": _views(payload, rows, slots, areas),
     }
 
 
 def _pages(payload: Mapping, areas: bool) -> list[dict]:
-    pages = [
-        # WHY this order: the grid fills row by row, so the right column (widths, then objects) runs as tall as the top
-        # view beside it, and the second row pairs the approach disk with the roll line
+    """Eight tabs. WHY the order and the sizes: the grid fills row by row, so a tall panel on the left runs beside
+    two short ones on the right; the Overview leads with the three ways to see positions (dots, a heatmap, thin
+    grippers), then the gripper's numbers (Zach 2026-11-24: "I don't see thin grippers I don't see any heat maps")."""
+    pre = payload["pre_grasp_width"] is not None
+    return [
         _page("Overview", [
-            {"view": "Where the gripper closed", "w": 5, "h": 5},
-            {"view": "Jaw width against the claw", "w": 7, "h": 3},
-            {"view": "Grasps per object", "w": 7, "h": 2},
-            {"view": "Which way it approaches", "w": 5, "h": 4},
-            {"view": "Roll about the approach", "w": 7, "h": 4},
+            {"view": "Where the gripper closed", "w": 4, "h": 5},
+            {"view": "Grasp density from above", "w": 4, "h": 5},
+            {"view": "Thin grippers from above", "w": 4, "h": 5},
+            {"view": "Jaw width against the claw", "w": 6, "h": 3},
+            {"view": "Which way it approaches", "w": 3, "h": 3},
+            {"view": "Grasps per object", "w": 3, "h": 3},
+            {"view": "Roll about the approach", "w": 6, "h": 3},
+            {"view": "Roll rose", "w": 3, "h": 3},
+            {"view": "Picked share per spot", "w": 3, "h": 3},
+        ]),
+        _page("Grippers", [
+            {"view": "Thin grippers in 3-D", "w": 7, "h": 7},
+            {"view": "Thin grippers from above", "w": 5, "h": 4},
+            {"view": "Thin grippers from the side", "w": 5, "h": 3},
         ]),
         _page("Position", [
             {"view": "In 3-D", "w": 7, "h": 6},
             {"view": "Where the gripper closed", "w": 5, "h": 3},
             {"view": "Seen from the side", "w": 5, "h": 3},
+            {"view": "Picked share per spot", "w": 5, "h": 4},
+            {"view": "Grasp density from above", "w": 7, "h": 4},
+            {"view": "Density per outcome", "w": 12, "h": 4},
             {"view": "The grasps from three sides", "w": 12, "h": 4, "style": {"title": "none"}},
         ]),
         _page("Gripper", [panel for panel in (
             {"view": "Jaw width against the claw", "w": 12, "h": 3},
-            {"view": "Pre-grasp opening", "w": 12, "h": 3} if payload["pre_grasp_width"] is not None else None,
-            {"view": "Every histogram against its range", "w": 7, "h": 4},
-            {"view": "Width × tilt", "w": 5, "h": 4},
+            {"view": "Pre-grasp opening", "w": 12, "h": 3} if pre else None,
+            {"view": "Width per object", "w": 6, "h": 4},
+            {"view": "Width × tilt", "w": 6, "h": 4},
+            {"view": "Width × tilt per object", "w": 12, "h": 4},
+            {"view": "Every histogram against its range", "w": 12, "h": 5},
         ) if panel]),
         _page("Orientation", [
-            {"view": "Which way it approaches", "w": 5, "h": 5},
-            {"view": "Every approach, equal area", "w": 7, "h": 5},
-            {"view": "Roll about the approach", "w": 7, "h": 3},
-            {"view": "Tilt from straight down", "w": 5, "h": 3},
+            {"view": "Which way it approaches", "w": 4, "h": 5},
+            {"view": "Approach directions in 3-D", "w": 4, "h": 5},
+            {"view": "Every approach, equal area", "w": 4, "h": 5},
+            {"view": "Roll about the approach", "w": 6, "h": 3},
+            {"view": "Roll rose", "w": 3, "h": 3},
+            {"view": "Tilt from straight down", "w": 3, "h": 3},
             {"view": "Tilt × roll", "w": 12, "h": 4},
         ]),
         _page("Objects", [
-            {"view": "Grasps per object", "w": 7, "h": 5},
-            {"view": "Outcome share per object", "w": 5, "h": 5},
+            {"view": "Grasps per object", "w": 6, "h": 4},
+            {"view": "Outcome share per object", "w": 6, "h": 4},
+            {"view": "Where each object was grasped", "w": 12, "h": 4},
+            {"view": "Width × tilt per object", "w": 12, "h": 4},
         ]),
-        _page("Grasps", [{"view": "Grasps", "w": 12, "h": 6, "style": {"title": "none"}}]),
+        _page("Over time", [
+            {"view": "Grasps per day", "w": 7, "h": 4},
+            {"view": "Picked share per day", "w": 5, "h": 4},
+            {"view": "Coverage growth", "w": 7, "h": 4},
+            {"view": "Grasps per day per object", "w": 5, "h": 4},
+        ]),
+        _page("Grasps", [
+            {"view": "Every grasp as a line", "w": 12, "h": 4},
+            {"view": "Grasps", "w": 12, "h": 6, "style": {"title": "none"}},
+        ]),
     ]
-    return pages
 
 
 def _colour_scale(slots: Mapping[str, int]) -> dict:
@@ -492,12 +620,189 @@ def _views(payload: Mapping, rows: list[dict], slots: Mapping[str, int], areas: 
     low, high, count = orientation["tilt"]["edges"]
     views.append(_hist_chart("Tilt from straight down", "tilt_deg", "tilt of the approach from straight down (°)",
                              (low * DEG, high * DEG, count), colour, [("dashed", 90.0, None, "level")]))
+    views += _round_two_views(payload, rows, colour, stage, reach)
     present = {key for row in rows for key in row}
     tag_keys = [key for row in payload["grasps"] for key in row["tags"]]
     order = [key for key in ("name", "object", "outcome", *tag_keys, "width_mm", "pre_grasp_mm", "tilt_deg",
                              "roll_deg", "azimuth_deg", "score", "x_mm", "y_mm", "z_mm") if key in present]
     views.append({"type": "table", "name": "Grasps", "order": list(dict.fromkeys(order)),
                   "display": {"outcome": "badge", "object": "badge"}})
+    return views
+
+
+# ── round 2 (Zach 2026-11-24: "I don't see thin grippers I don't see any heat maps ... add more different types") ──
+
+
+VIRIDIS = {"scheme": "viridis"}
+
+
+def _heat_colour(title: str, **scale) -> dict:
+    return {"aggregate": "count", "type": "quantitative", "title": title, "scale": {**VIRIDIS, **scale}}
+
+
+def _binned(field: str, title: str, step: float, anchor: float = 0.0) -> dict:
+    # WHY anchor 0: the payload's grids are anchored at the frame's origin, so a 10 mm bin here is the payload's pixel
+    return {"field": field, "bin": {"step": step, "anchor": anchor}, "type": "quantitative", "title": title}
+
+
+def _round_two_views(payload: Mapping, rows: list[dict], colour: Mapping, stage: Mapping, reach: float) -> list[dict]:
+    pixel_mm = payload["position"]["pixel_m"] * 1000.0
+    width_low, width_high, width_bins = payload["width"]["edges"]
+    width_step = round((width_high - width_low) * 1000.0 / width_bins, 6)
+    has_outcomes = any(row["closed_flag"] for row in rows)
+    thin = {"type": "line", "strokeWidth": 0.7, "opacity": 0.3}
+    objects = list(payload["source"]["objects"])
+    by_object = {"field": "object", "title": "Object", "type": "nominal", "sort": objects,
+                 "scale": {"domain": objects, "range": [SLOT_HEX[GROUP_SLOTS[i % len(GROUP_SLOTS)]] for i in range(len(objects))]}}
+    # WHY by object without outcomes: a label set is all "unknown", so outcome colours drew one violet blob
+    glyph_colour = colour if has_outcomes else by_object
+    glyph_by = "outcome" if has_outcomes else "object"
+    glyph_tip = [{"field": "grasp"}, {"field": "outcome"}, {"field": "object"}]
+    rect = {"type": "rect", "cornerRadius": 0}  # WHY 0: data-ui's theme radius drops a binned mark's x in Vega-Lite 6.5
+    when_title = "day" if all(row["tags"].get("day") for row in payload["grasps"]) else "batch (the given order)"
+    views: list[dict] = [
+        # the thin grippers (the Nov 19 gallery's "thin gripper wireframes"): one polyline per grasp, see-through
+        {"type": "scene3d", "name": "Thin grippers in 3-D", "scene3d": {
+            **{key: value for key, value in stage.items() if key != "layers"},
+            "layers": [{"primitive": "lines", "data": "glyphs", "x": "x_mm", "y": "y_mm", "z": "z_mm", "t": "t",
+                        "by": "grasp", "color": glyph_by, "opacity": 0.45}]}},
+        {"type": "chart", "name": "Thin grippers from above", "from": "glyphs", "chart": {
+            "mark": thin, "encoding": {
+                "x": {"field": "x_mm", "type": "quantitative", "scale": {"type": "linear", "zero": False}, "title": "x (mm)"},
+                "y": {"field": "y_mm", "type": "quantitative", "scale": {"type": "linear", "zero": False}, "title": "y (mm)"},
+                "detail": {"field": "grasp"}, "order": {"field": "t"}, "color": glyph_colour, "tooltip": glyph_tip}}},
+        {"type": "chart", "name": "Thin grippers from the side", "from": "glyphs", "chart": {
+            "mark": thin, "encoding": {
+                "x": {"field": "x_mm", "type": "quantitative", "scale": {"type": "linear", "zero": False}, "title": "x (mm)"},
+                "y": {"field": "z_mm", "type": "quantitative", "scale": {"type": "linear", "zero": False}, "title": "z (mm)"},
+                "detail": {"field": "grasp"}, "order": {"field": "t"}, "color": glyph_colour, "tooltip": glyph_tip}}},
+        # heatmaps
+        _parts_view("coverage-projection", "Grasp density from above", 'kind == "projection" && grid == "xy"'),
+        {"type": "chart", "name": "Density per outcome", "chart": {
+            "mark": rect, "encoding": {
+                "x": _binned("x_mm", "x (mm)", pixel_mm), "y": _binned("y_mm", "y (mm)", pixel_mm),
+                "color": _heat_colour("grasps in the 1 cm pixel"), "column": {"field": "outcome", "title": None,
+                                                                              "sort": list(payload["outcomes"]["order"])},
+                "tooltip": [{"aggregate": "count", "title": "grasps"}]}}},
+        {"type": "chart", "name": "Width per object", "chart": {
+            "mark": rect, "encoding": {
+                "x": {**_binned("width_mm", "jaw width (mm)", width_step, round(width_low * 1000.0, 6))},
+                "y": {"field": "object", "type": "nominal", "title": None, "sort": list(payload["source"]["objects"])},
+                "color": _heat_colour("grasps"), "tooltip": [{"aggregate": "count", "title": "grasps"}]}}},
+        {"type": "chart", "name": "Width × tilt per object", "chart": {
+            "mark": rect, "encoding": {
+                "x": _binned("width_mm", "jaw width (mm)", 5.0), "y": _binned("tilt_deg", "tilt (°)", 10.0),
+                "color": _heat_colour("grasps"), "column": {"field": "object", "title": None,
+                                                            "sort": list(payload["source"]["objects"])},
+                "tooltip": [{"aggregate": "count", "title": "grasps"}]}}},
+        {"type": "chart", "name": "Where each object was grasped", "chart": {
+            "mark": {"type": "point", "filled": True, "size": 18, "opacity": 0.8}, "encoding": {
+                "x": {"field": "x_mm", "type": "quantitative", "scale": {"type": "linear", "zero": False}, "title": "x (mm)"},
+                "y": {"field": "y_mm", "type": "quantitative", "scale": {"type": "linear", "zero": False}, "title": "y (mm)"},
+                "color": colour, "column": {"field": "object", "title": None, "sort": list(payload["source"]["objects"])},
+                "tooltip": [{"field": "name"}, {"field": "outcome"}]}}},
+        # the rose: WHY one layer in `layer:` — data-ui gives a chart with no x or y default axes unless it is layered,
+        # and an arc mark must have none. WHY the full circle: a symmetric set shows its two halves alike
+        {"type": "chart", "name": "Roll rose", "chart": {"layer": [{
+            "transform": [{"bin": {"extent": [-180, 180], "step": 10}, "field": "roll_deg", "as": ["roll_bin", "roll_bin_end"]},
+                          {"aggregate": [{"op": "count", "as": "grasps"}], "groupby": ["roll_bin"]},
+                          {"impute": "grasps", "key": "roll_bin", "keyvals": {"start": -180, "stop": 180, "step": 10},
+                           "value": 0},
+                          {"calculate": "1", "as": "slice"}],
+            "mark": {"type": "arc", "stroke": "#ffffff", "strokeWidth": 0.6, "color": "#2a78d6"},
+            "encoding": {"theta": {"field": "slice", "type": "quantitative", "stack": True},
+                         "radius": {"field": "grasps", "type": "quantitative",
+                                    "scale": {"type": "sqrt", "zero": True, "rangeMin": 6}},
+                         "order": {"field": "roll_bin", "type": "quantitative"},
+                         "tooltip": [{"field": "roll_bin", "title": "roll from (°)"}, {"field": "grasps"}]}}]}},
+        {"type": "scene3d", "name": "Approach directions in 3-D", "scene3d": {
+            "unit": "mm", "projection": "perspective", "show": "all", "axes": "none",
+            "layers": [{"primitive": "points", "x": "dir_x_mm", "y": "dir_y_mm", "z": "dir_z_mm", "color": "outcome",
+                        "density": 100000},
+                       {"primitive": "arrows", "from": ["dir_x_mm", "dir_y_mm", "dir_z_mm"],
+                        "to": ["dir_to_x_mm", "dir_to_y_mm", "dir_to_z_mm"], "color": "outcome", "density": 100000}],
+            "workspace": {"box": [[-100, -100, -100], [100, 100, 100]], "opacity": 0.03}}},
+        # over time
+        {"type": "chart", "name": "Grasps per day", "chart": {
+            "mark": "bar", "encoding": {"x": {"field": "when", "type": "ordinal", "title": when_title},
+                                        "y": {"aggregate": "count", "title": "grasps"}, "color": colour}}},
+        {"type": "chart", "name": "Grasps per day per object", "chart": {
+            "mark": rect, "encoding": {"x": {"field": "when", "type": "ordinal", "title": when_title},
+                                       "y": {"field": "object", "type": "nominal", "title": None,
+                                             "sort": list(payload["source"]["objects"])},
+                                       "color": _heat_colour("grasps"),
+                                       "tooltip": [{"aggregate": "count", "title": "grasps"}]}}},
+        {"type": "chart", "name": "Coverage growth", "chart": {
+            # WHY window transforms over the kept rows, not the payload's growth: the curve follows the rail (a tick on
+            # one object shows that object's growth); a cell counts once, at its first grasp in the given order
+            "transform": [
+                {"window": [{"op": "row_number", "as": "nth_pixel"}], "groupby": ["pixel_xy"], "sort": [{"field": "seq"}]},
+                {"window": [{"op": "row_number", "as": "nth_direction"}], "groupby": ["dir_cell"], "sort": [{"field": "seq"}]},
+                {"window": [{"op": "row_number", "as": "nth_width"}], "groupby": ["width_bin"], "sort": [{"field": "seq"}]},
+                {"calculate": "datum.nth_pixel == 1 && datum.pixel_xy >= 0 ? 1 : 0", "as": "new_pixel"},
+                {"calculate": "datum.nth_direction == 1 ? 1 : 0", "as": "new_direction"},
+                {"calculate": "datum.nth_width == 1 && datum.width_bin >= 0 ? 1 : 0", "as": "new_width"},
+                {"window": [{"op": "sum", "field": "new_pixel", "as": "xy_pixels"},
+                            {"op": "sum", "field": "new_direction", "as": "approach_cells"},
+                            {"op": "sum", "field": "new_width", "as": "width_bins"},
+                            {"op": "row_number", "as": "seen"}],
+                 "sort": [{"field": "seq"}], "frame": [None, 0]},
+                {"fold": ["xy_pixels", "approach_cells", "width_bins"], "as": ["reached", "cells"]},
+                # WHY word-only names above and readable words only as values here: data-ui renames an encoding's
+                # field to \w characters (safe()), never a transform's output, so "grasps so far" drew nothing
+                {"calculate": f"datum.reached == 'xy_pixels' ? 'xy pixels (1 cm)' : datum.reached == 'approach_cells' "
+                              f"? 'approach cells (of 288)' : 'width bins (of {width_bins})'", "as": "measure"}],
+            "mark": {"type": "line", "interpolate": "step-after", "strokeWidth": 1.6},
+            "encoding": {"x": {"field": "seen", "type": "quantitative", "title": "grasps so far (the given order)"},
+                         "y": {"field": "cells", "type": "quantitative", "title": "distinct cells reached"},
+                         # WHY an explicit scale: data-ui looks a nominal colour field up in the file's columns for its
+                         # badge colours, and a field a transform makes is not one ("reading 'colors'" of undefined)
+                         "color": {"field": "measure", "type": "nominal", "title": None, "scale": {
+                             "domain": ["xy pixels (1 cm)", "approach cells (of 288)", f"width bins (of {width_bins})"],
+                             "range": [SLOT_HEX[1], SLOT_HEX[3], SLOT_HEX[7]]}}}}},
+        # every grasp as a line across its numbers (parallel coordinates), each axis its own min..max
+        {"type": "chart", "name": "Every grasp as a line", "chart": {
+            "transform": [
+                {"fold": ["x_mm", "y_mm", "z_mm", "width_mm", "tilt_deg", "roll_deg"], "as": ["measure", "reading"]},
+                {"joinaggregate": [{"op": "min", "field": "reading", "as": "low"},
+                                   {"op": "max", "field": "reading", "as": "high"}], "groupby": ["measure"]},
+                {"calculate": "datum.high > datum.low ? (datum.reading - datum.low) / (datum.high - datum.low) : 0.5",
+                 "as": "range_share"}],
+            "mark": {"type": "line", "strokeWidth": 0.6, "opacity": 0.3},
+            "encoding": {"x": {"field": "measure", "type": "nominal", "title": None,
+                               "sort": ["x_mm", "y_mm", "z_mm", "width_mm", "tilt_deg", "roll_deg"]},
+                         "y": {"field": "range_share", "type": "quantitative", "title": "low … high (each axis its own)"},
+                         "detail": {"field": "id"}, "color": colour,
+                         "tooltip": [{"field": "name"}, {"field": "outcome"}]}}},
+    ]
+    if has_outcomes:
+        closed_only = [{"filter": "datum.closed_flag == 1"}]
+        views += [
+            {"type": "chart", "name": "Picked share per spot", "chart": {
+                "transform": closed_only, "mark": rect, "encoding": {
+                    "x": _binned("x_mm", "x (mm)", pixel_mm), "y": _binned("y_mm", "y (mm)", pixel_mm),
+                    "color": {"aggregate": "mean", "field": "picked_flag", "type": "quantitative",
+                              "title": "picked share", "scale": {**VIRIDIS, "domain": [0, 1]}, "legend": {"format": ".0%"}},
+                    "tooltip": [{"aggregate": "mean", "field": "picked_flag", "title": "picked share", "format": ".0%"},
+                                {"aggregate": "count", "title": "closed grasps"}]}}},
+            {"type": "chart", "name": "Picked share per day", "chart": {
+                "transform": closed_only, "layer": [{
+                    "mark": {"type": "line", "point": True, "color": "#22221f"},
+                    "encoding": {"x": {"field": "when", "type": "ordinal", "title": when_title},
+                                 "y": {"aggregate": "mean", "field": "picked_flag", "type": "quantitative",
+                                       "title": "picked share of the closed grasps", "axis": {"format": ".0%"},
+                                       "scale": {"domain": [0, 1]}},
+                                 "tooltip": [{"field": "when"}, {"aggregate": "mean", "field": "picked_flag",
+                                                                 "title": "picked share", "format": ".0%"},
+                                             {"aggregate": "count", "title": "closed grasps"}]}}]}},
+        ]
+    else:
+        # WHY still listed: a set without outcomes (a dataset's labels) has no picked share; the panel says so
+        for name in ("Picked share per spot", "Picked share per day"):
+            views.append({"type": "chart", "name": name, "chart": {
+                "mark": {"type": "text", "fontSize": 13, "color": "#6f6e69"},
+                "transform": [{"aggregate": [{"op": "count", "as": "grasps"}]}],
+                "encoding": {"text": {"value": "no outcomes in this set: nothing was picked or failed"}}}})
     return views
 
 
@@ -542,7 +847,8 @@ def _hist_chart(name: str, field: str, title: str, edges, colour: Mapping, marks
                        "encoding": {"x": {"datum": round(at, 3), **x}, "text": {"value": label}}})
     off = [{"filter": f"datum['{field}'] > {round(high, 4)} || datum['{field}'] < {round(low, 4)}"}, *one,
            {"filter": "datum.n > 0"}, {"calculate": "datum.n + ' off the chart'", "as": "label"}]
-    layers.append({"mark": {"type": "text", "color": LIMIT_HEX, "align": "right", "baseline": "top", "dx": -4, "y": 4,
+    # WHY y 22: a limit's label sits at the top (y 4) and the open stop is the rightmost one; this one goes under it
+    layers.append({"mark": {"type": "text", "color": LIMIT_HEX, "align": "right", "baseline": "top", "dx": -4, "y": 22,
                             "fontSize": 11}, "transform": off,
                    "encoding": {"x": {"datum": round(high, 3), **x}, "text": {"field": "label"}}})
     return {"type": "chart", "name": name, "chart": {"layer": layers}}

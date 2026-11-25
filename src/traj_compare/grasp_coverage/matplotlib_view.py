@@ -41,19 +41,24 @@ from ..coverage.matplotlib_view import (
     edges,
     scale_counts,
 )
-from .analysis import SCHEMA
+from .analysis import SCHEMA, gripper_polylines, time_buckets
 from .colours import OUTCOME_SLOTS, SLOT_HEX, group_hex, outcome_hex
 
 # the outcome colours are colours.py's (data-ui's slots), so the workbench, these PNGs and Viser paint an outcome alike
 OUTCOME_COLORS = {name: SLOT_HEX[slot] for name, slot in OUTCOME_SLOTS.items()}
 OUTCOME_MARKERS = {"picked": "o", "failed": "o", "hovered": "x", "refused": "+", "unknown": "."}
 BEYOND = "#efeee9"  # the histogram strip past the jaw range: the claw cannot open there
-FIGURE_IDS = ("positions", "position-density", "width", "roll", "pointing", "sphere", "width-tilt", "objects")
+FIGURE_IDS = ("positions", "position-density", "width", "roll", "pointing", "sphere", "width-tilt", "objects",
+              # round 2 (Zach 2026-11-24: "I don't see thin grippers I don't see any heat maps ... add more")
+              "grippers", "success-map", "density-outcomes", "roll-rose", "width-tilt-objects", "over-time", "growth")
+GLYPHS_MAX = 900  # thin grippers drawn per figure (evenly picked): past ~1000 the lines become one solid smear
 FACES = (("xy", "top view", "x", "y"), ("xz", "front view", "x", "z"), ("yz", "side view", "y", "z"))
 
 
 def figure_ids(payload: Mapping[str, Any]) -> list[str]:
-    return list(FIGURE_IDS)
+    """The PNGs this payload gets: the success map only when some grasp was closed (it is picked / closed)."""
+    closed = payload["position"]["projections"]["xy"].get("closed")
+    return [name for name in FIGURE_IDS if name != "success-map" or (closed is not None and any(closed))]
 
 
 def group_colours(payload: Mapping[str, Any]) -> dict[str, str]:
@@ -448,8 +453,323 @@ def _objects(payload, cmap, reverse, scale):
     return fig
 
 
+# ── round 2: thin grippers, more heatmaps, other kinds of figure ───────────────────────────────────────────────────
+
+
+def _evenly(rows: Sequence, most: int) -> list:
+    if len(rows) <= most:
+        return list(rows)
+    return [rows[k] for k in np.unique(np.linspace(0, len(rows) - 1, most).round().astype(int))]
+
+
+def _glyph_segments(lines: np.ndarray) -> np.ndarray:
+    """The 7-point polylines as their 6 segments each (N * 6, 2, 3)."""
+    return np.stack([lines[:, :-1], lines[:, 1:]], axis=2).reshape(-1, 2, 3)
+
+
+def _grippers(payload, cmap, reverse, scale):
+    from matplotlib.collections import LineCollection
+    from mpl_toolkits.mplot3d.art3d import Line3DCollection
+
+    colours = outcome_colours(payload)
+    objects = [row["object_id"] for row in payload["objects"]][:4]
+    fig = _new_figure(14.0, 9.2)
+    grid = fig.add_gridspec(2, max(len(objects), 2), height_ratios=[1.05, 1.0])
+    drawn = 0
+    for column, name in enumerate(objects):
+        rows = _evenly([row for row in payload["grasps"] if row["object_id"] == name], GLYPHS_MAX // max(len(objects), 1))
+        ax = fig.add_subplot(grid[0, column], projection="3d")
+        lines = gripper_polylines(rows) * 1000.0
+        segments = _glyph_segments(lines)
+        seg_colours = np.repeat([colours[row["outcome"]] for row in rows], 6)
+        ax.add_collection3d(Line3DCollection(segments, colors=seg_colours, linewidths=0.55, alpha=0.38))
+        points = lines.reshape(-1, 3)
+        low, high = points.min(axis=0), points.max(axis=0)
+        middle, half = (low + high) / 2, max(float((high - low).max()) / 2, 10.0)
+        for setter, centre in zip((ax.set_xlim, ax.set_ylim, ax.set_zlim), middle, strict=True):
+            setter(centre - half, centre + half)
+        ax.set_box_aspect((1, 1, 1))
+        ax.view_init(elev=22, azim=-58)
+        ax.tick_params(labelsize=6.5, colors=MUTED, pad=0)
+        ax.set_xlabel("x (mm)", fontsize=7, labelpad=-2)
+        ax.set_ylabel("y (mm)", fontsize=7, labelpad=-2)
+        ax.set_zlabel("z (mm)", fontsize=7, labelpad=-2)
+        total = sum(1 for row in payload["grasps"] if row["object_id"] == name)
+        ax.set_title(f"{name}: {len(rows)} of {total} grasps", fontsize=9)
+        drawn += len(rows)
+    rows = _evenly(payload["grasps"], GLYPHS_MAX)
+    lines = gripper_polylines(rows) * 1000.0
+    seg_colours = np.repeat([colours[row["outcome"]] for row in rows], 6)
+    half_columns = max(len(objects), 2) // 2
+    for k, (title, (u, v), names) in enumerate((("from above", (0, 1), ("x", "y")), ("from the side", (0, 2), ("x", "z")))):
+        ax = fig.add_subplot(grid[1, k * half_columns:(k + 1) * half_columns] if half_columns else grid[1, k])
+        flat = _glyph_segments(lines)[:, :, [u, v]]
+        ax.add_collection(LineCollection(flat, colors=seg_colours, linewidths=0.5, alpha=0.32))
+        ax.autoscale()
+        ax.set_aspect("equal", adjustable="datalim")
+        ax.set_xlabel(f"{names[0]} (mm)")
+        ax.set_ylabel(f"{names[1]} (mm)")
+        ax.set_title(f"every grasp {title} ({len(rows)} of {len(payload['grasps'])} drawn)", fontsize=9)
+        ax.grid(color="#efeee9", linewidth=0.6)
+    handles = [_line(f"{name} ({payload['outcomes']['counts'][name]})", color=colours[name], width=2.0)
+               for name in payload["outcomes"]["order"]]
+    _header(fig, "Where do the grippers go? Every grasp as a thin gripper",
+            _data_line(payload) + " · robot_msgs' two-finger glyph per grasp (jaws at the closing width, 40 mm fingers, "
+            "a stem back up the approach), thin and see-through so dense places read darker · top: one 3-D panel per "
+            "object (the most grasped first); bottom: all of them from above and from the side",
+            handles, columns=min(len(handles), 5))
+    return fig
+
+
+def _xy_grid(payload):
+    block = payload["position"]["projections"]["xy"]
+    nu, nv = block["shape"]
+    pixel = float(payload["position"]["pixel_m"])
+    u0, v0 = block["origin"]
+    return block, nu, nv, (u0 + np.arange(nu + 1) * pixel) * 1000.0, (v0 + np.arange(nv + 1) * pixel) * 1000.0
+
+
+def _crop(ax, counts: np.ndarray, u_edges, v_edges, pad: int = 2) -> None:
+    """Zoom to the pixels that hold anything (a pick cluster in a big offered area is otherwise a few specks)."""
+    used = np.argwhere(counts > 0)
+    if not len(used):
+        return
+    (i0, j0), (i1, j1) = used.min(axis=0), used.max(axis=0)
+    ax.set_xlim(u_edges[max(i0 - pad, 0)], u_edges[min(i1 + 1 + pad, len(u_edges) - 1)])
+    ax.set_ylim(v_edges[max(j0 - pad, 0)], v_edges[min(j1 + 1 + pad, len(v_edges) - 1)])
+
+
+def _success_map(payload, cmap, reverse, scale):
+    block, nu, nv, u_edges, v_edges = _xy_grid(payload)
+    picked = np.asarray(block["picked"], float).reshape(nu, nv)
+    closed = np.asarray(block["closed"], float).reshape(nu, nv)
+    share = np.where(closed > 0, picked / np.maximum(closed, 1), np.nan)
+    t = np.where(closed > 0, np.nan_to_num(share), -1.0)
+    fig = _new_figure(12.0, 6.4)
+    left, right = fig.subplots(1, 2)
+    outside = (np.asarray(block["area"]).reshape(nu, nv) == 0) & (closed == 0) if block["area"] is not None else None
+    mesh = _heat(left, u_edges, v_edges, t, _colormap(cmap, reverse), outside)
+    counts = scale_counts(closed, scale, enough=int(payload.get("enough", 10)))
+    right_mesh = _heat(right, u_edges, v_edges, counts.t, _colormap(cmap, reverse), outside)
+    for ax, title in ((left, "picked share of the closed grasps in each 1 cm pixel"),
+                      (right, "how many grasps closed there (the share's sample size)")):
+        _crop(ax, closed, u_edges, v_edges)
+        ax.set_aspect("equal")
+        ax.set_xlabel("x (mm)")
+        ax.set_ylabel("y (mm)")
+        ax.set_title(title, fontsize=9)
+        ax.spines[["top", "right"]].set_visible(True)
+    bar = fig.colorbar(mesh, ax=left, fraction=0.05, pad=0.02, aspect=28)
+    bar.outline.set_visible(False)
+    bar.set_ticks([0, 0.25, 0.5, 0.75, 1.0], labels=["0 %", "25 %", "50 %", "75 %", "100 %"])
+    bar.set_label("picked / (picked + failed)\nlinear", fontsize=8.5)
+    _colorbar(fig, right_mesh, right, counts, "closed grasps in the pixel")
+    low = int(((closed > 0) & (share < 0.5)).sum())
+    handles = [_patch("white", "no closed grasp there"), _ramp_patch(cmap, reverse, "colour = picked share (left) or "
+                                                                                     "count (right)")]
+    if outside is not None:
+        handles.append(_patch(_rgb_hex(OUTSIDE_RGB), "outside the offered area"))
+    _header(fig, "Where does picking work, and where does it fail?",
+            _data_line(payload) + f" · {int((closed > 0).sum())} pixels hold a closed grasp, {low} of them pick under "
+            "half the time; read the left map beside the right one: a pixel of 1 closed grasp is 0 % or 100 %",
+            handles, columns=3)
+    return fig
+
+
+def _density_outcomes(payload, cmap, reverse, scale):
+    from ..coverage import bins
+
+    block, nu, nv, u_edges, v_edges = _xy_grid(payload)
+    order = payload["outcomes"]["order"]
+    rows = payload["grasps"]
+    pixel = float(payload["position"]["pixel_m"])
+    grids = {}
+    for name in order:
+        mine = np.array([row["position"] for row in rows if row["outcome"] == name], float).reshape(-1, 3)
+        cell = bins.grid_cells_on(mine, block["origin"], block["shape"], pixel, (0, 1))
+        grids[name] = np.bincount(cell[cell >= 0], minlength=nu * nv).reshape(nu, nv).astype(float)
+    pooled = scale_counts(np.concatenate([g.ravel() for g in grids.values()]), scale, enough=int(payload.get("enough", 10)))
+    columns = min(len(order), 5)
+    fig = _new_figure(3.3 * columns + 1.2, 4.6)
+    axes = np.atleast_1d(fig.subplots(1, columns))
+    every = sum(grids.values())
+    mesh = None
+    for k, (ax, name) in enumerate(zip(axes, order[:columns], strict=False)):
+        t = pooled.t[k * nu * nv:(k + 1) * nu * nv].reshape(nu, nv)
+        mesh = _heat(ax, u_edges, v_edges, t, _colormap(cmap, reverse))
+        _crop(ax, every, u_edges, v_edges)
+        ax.set_aspect("equal")
+        ax.set_title(f"{name}: {int(grids[name].sum())}", fontsize=9, color=outcome_colours(payload)[name])
+        ax.set_xlabel("x (mm)", fontsize=8)
+        ax.tick_params(labelsize=7)
+        ax.spines[["top", "right"]].set_visible(True)
+    axes[0].set_ylabel("y (mm)")
+    _colorbar(fig, mesh, list(axes), pooled, "grasps in the pixel")
+    _header(fig, "Where does each outcome happen? One density map per outcome, one colour scale",
+            _data_line(payload) + f" · 1 cm pixels from above, cropped to where any grasp sits · {pooled.note}",
+            [_patch("white", "none there"), _ramp_patch(cmap, reverse, "colour = grasps of that outcome (bar)")])
+    return fig
+
+
+def _roll_rose(payload, cmap, reverse, scale):
+    orientation = payload["orientation"]
+    key = orientation["roll_shown"]
+    block = orientation[key]
+    low, high, count = block["edges"]
+    width = (high - low) / count
+    centres = low + (np.arange(count) + 0.5) * width
+    groups = payload["source"]["groups"]
+    colours = group_colours(payload)
+    fig = _new_figure(7.4, 7.4)
+    ax = fig.add_subplot(projection="polar")
+    total = np.asarray(block["counts"], float)
+    top = max(float(total.max()), 1.0)
+    folded = key == "roll_folded"
+    for offset, alpha in ((0.0, 1.0), (math.pi, 0.35)) if folded else ((0.0, 1.0),):
+        bottom = np.zeros(count)
+        for name in groups:
+            counts = np.asarray(block["groups"].get(name, [0] * count), float) / top
+            if counts.any():
+                ax.bar(centres + offset, counts, width=width * 0.94, bottom=bottom, color=colours[name], alpha=alpha,
+                       linewidth=0)
+            bottom += counts
+        ax.bar(centres[total > 0] + offset, 0.05, bottom=1.06, width=width * 0.94, color=INK, alpha=0.5 * alpha,
+               linewidth=0)
+    ax.set_ylim(0, 1.14)
+    ax.set_yticks([])
+    ax.set_xticks(np.radians([0, 45, 90, 135, 180, 225, 270, 315]),
+                  ["0°", "45°", "90°", "135°", "±180°" if not folded else "180°", "−135°" if not folded else "225°",
+                   "−90°" if not folded else "270°", "−45°" if not folded else "315°"], fontsize=8)
+    ax.grid(color="#d2d2d7", linewidth=0.5)
+    visited = int((total > 0).sum())
+    ax.set_title(f"{visited} of {count} {math.degrees(width):.0f}° bins hold a grasp", fontsize=9, color=MUTED, pad=10)
+    handles = [_patch(colours[name], name) for name in groups]
+    handles.append(_patch(INK, "rim tick = a bin with any grasp"))
+    _header(fig, "Which way do the jaws sit? A rose shows the symmetry",
+            _data_line(payload) + " · bar length = grasps / the fullest bin, linear · "
+            + ("folded two-finger roll: the faded half repeats it at +180°" if folded
+               else "full circle: the jaws are not symmetric"), handles, columns=3)
+    return fig
+
+
+def _width_tilt_objects(payload, cmap, reverse, scale):
+    from ..coverage import bins
+
+    block = payload["width_tilt"]
+    x_edges = edges(block["x_edges"])
+    y_edges = edges(block["y_edges"])
+    nx, ny = block["shape"]
+    objects = [row["object_id"] for row in payload["objects"]][:8]
+    grids = []
+    for name in objects:
+        rows = [row for row in payload["grasps"] if row["object_id"] == name]
+        xi = bins.bin_index(np.array([row["width"] for row in rows]), *block["x_edges"])
+        yi = bins.bin_index(np.array([row["tilt"] for row in rows]), *block["y_edges"])
+        inside = (xi >= 0) & (yi >= 0)
+        grid = np.bincount(xi[inside] * ny + yi[inside], minlength=nx * ny).reshape(nx, ny).astype(float)
+        grids.append(100.0 * grid / max(grid.sum(), 1.0))  # share of the object's own grasps: one scale for all
+    pooled = scale_counts(np.concatenate([g.ravel() for g in grids]), scale, enough=1)
+    columns = min(len(objects), 4)
+    rows_n = math.ceil(len(objects) / columns)
+    fig = _new_figure(3.4 * columns + 1.2, 3.2 * rows_n + 1.4)
+    axes = np.atleast_1d(fig.subplots(rows_n, columns, squeeze=False)).ravel()
+    gripper = payload["gripper"]
+    reach = max(90.0, min(180.0, 30.0 * math.ceil(max(_number(payload, "tilt_max_deg"), 1.0) / 30.0 + 0.001)))
+    mesh = None
+    for k, ax in enumerate(axes):
+        if k >= len(objects):
+            ax.set_visible(False)
+            continue
+        t = pooled.t[k * nx * ny:(k + 1) * nx * ny].reshape(nx, ny)
+        mesh = _heat(ax, x_edges * 1000.0, np.degrees(y_edges), t, _colormap(cmap, reverse))
+        if gripper["source"] == "limit":
+            ax.axvline(gripper["high"] * 1000, color=LIMIT_COLOR, linewidth=1.2)
+        if gripper["planner_high"] is not None:
+            ax.axvline(gripper["planner_high"] * 1000, color=LIMIT_COLOR, linewidth=1.0, linestyle=(0, (4, 3)))
+        ax.set_ylim(reach, 0)
+        ax.set_title(objects[k], fontsize=9)
+        ax.tick_params(labelsize=7)
+        ax.set_xlabel("width (mm)", fontsize=8)
+        ax.spines[["top", "right"]].set_visible(True)
+    axes[0].set_ylabel("tilt from straight down (°)")
+    _colorbar(fig, mesh, [ax for ax in axes if ax.get_visible()], pooled, "% of the object's grasps")
+    handles = [_patch("white", "no grasp"), _ramp_patch(cmap, reverse, "colour = share of that object's grasps"),
+               _line("open stop"), _line("planner span", style=(0, (4, 3)), width=1.0)]
+    _header(fig, "Per object: which widths from which tilts?",
+            _data_line(payload) + " · each panel is its own object's share, so a 1 000-grasp object and a 30-grasp one "
+            "share one colour scale · " + pooled.note, handles, columns=4)
+    return fig
+
+
+def _over_time(payload, cmap, reverse, scale):
+    labels, buckets, axis_name = time_buckets(payload["grasps"])
+    order = payload["outcomes"]["order"]
+    colours = outcome_colours(payload)
+    rows = payload["grasps"]
+    counts = {name: np.array([sum(1 for lab, row in zip(labels, rows, strict=True) if lab == b and row["outcome"] == name)
+                              for b in buckets], float) for name in order}
+    fig = _new_figure(12.0, 5.6)
+    ax = fig.subplots()
+    x = np.arange(len(buckets))
+    bottom = np.zeros(len(buckets))
+    for name in order:
+        ax.bar(x, counts[name], bottom=bottom, color=colours[name], width=0.8, linewidth=0)
+        bottom += counts[name]
+    ax.set_xticks(x, buckets, rotation=35 if len(buckets) > 8 else 0, ha="right" if len(buckets) > 8 else "center",
+                  fontsize=8)
+    ax.set_ylabel("grasps")
+    ax.set_xlabel(axis_name)
+    handles = [_patch(colours[name], name) for name in order]
+    picked, failed = counts.get("picked"), counts.get("failed")
+    if picked is not None and failed is not None:
+        closed = picked + failed
+        share = np.where(closed > 0, 100.0 * picked / np.maximum(closed, 1), np.nan)
+        twin = ax.twinx()
+        twin.plot(x, share, color=INK, marker="o", markersize=4, linewidth=1.4)
+        for xi, (s, n) in enumerate(zip(share, closed, strict=True)):
+            if np.isfinite(s):
+                twin.annotate(f"{int(n)}", (xi, s), xytext=(0, 6), textcoords="offset points", ha="center",
+                              fontsize=7, color=MUTED)
+        twin.set_ylim(0, 105)
+        twin.set_ylabel("picked share of the closed grasps (%)")
+        twin.spines["right"].set_visible(True)
+        handles.append(_line("picked share (right axis; the number = closed grasps)", color=INK, width=1.4))
+    _header(fig, "How did the grasps and their outcomes change over time?",
+            _data_line(payload) + f" · bars = grasps per {axis_name.split(',')[0]}, stacked by outcome", handles,
+            columns=4)
+    return fig
+
+
+def _growth(payload, cmap, reverse, scale):
+    growth = payload["growth"]
+    x = np.asarray(growth["grasps"])
+    series = (("position_pixels_xy", "xy pixels with a grasp (1 cm)"), ("direction_cells", "approach cells (of 288)"),
+              ("width_bins", f"width bins (of {payload['width']['edges'][2]})"),
+              ("roll_bins", f"roll bins (of {payload['orientation'][payload['orientation']['roll_shown']]['edges'][2]})"))
+    fig = _new_figure(12.0, 6.2)
+    axes = fig.subplots(2, 2).ravel()
+    for ax, (key, words) in zip(axes, series, strict=True):
+        y = np.asarray(growth[key])
+        ax.plot(x, y, color=OUTCOME_COLORS["picked"], linewidth=1.6)
+        ax.fill_between(x, 0, y, color=OUTCOME_COLORS["picked"], alpha=0.12, linewidth=0)
+        half = int(np.searchsorted(y, 0.5 * y[-1]))
+        ax.axvline(x[min(half, len(x) - 1)], color=MUTED, linewidth=0.8, linestyle=(0, (2, 2)))
+        late = y[-1] - y[int(len(y) * 0.8)] if len(y) > 4 else 0
+        ax.set_title(f"{words}: {y[-1]}; the last 20 % of grasps added {late}", fontsize=9)
+        ax.set_xlabel("grasps so far (the given order)", fontsize=8)
+        ax.set_ylim(0, max(y[-1], 1) * 1.1)
+    _header(fig, "Are new grasps still adding coverage?",
+            _data_line(payload) + " · a flat end means more of the same grasps will not fill anything new",
+            [_line("distinct cells reached", color=OUTCOME_COLORS["picked"], width=1.6),
+             _line("half of the final count reached", color=MUTED, style=(0, (2, 2)), width=0.8)])
+    return fig
+
+
 FIGURES = {"positions": _positions, "position-density": _position_density, "width": _width, "roll": _roll,
-           "pointing": _pointing, "sphere": _sphere, "width-tilt": _width_tilt, "objects": _objects}
+           "pointing": _pointing, "sphere": _sphere, "width-tilt": _width_tilt, "objects": _objects,
+           "grippers": _grippers, "success-map": _success_map, "density-outcomes": _density_outcomes,
+           "roll-rose": _roll_rose, "width-tilt-objects": _width_tilt_objects, "over-time": _over_time,
+           "growth": _growth}
 
 
 def figure(payload: Mapping[str, Any], figure_id: str, *, cmap: str = "viridis", reverse: bool = False,

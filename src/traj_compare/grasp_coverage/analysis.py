@@ -48,6 +48,8 @@ SCORE_BINS = 40
 GRASPS_MAX = 20_000  # per-grasp rows kept in the payload (evenly picked past it); every count still uses all
 PROJECTIONS = {"xy": (0, 1), "xz": (0, 2), "yz": (1, 2)}
 ARROW_M = 0.05  # the workbench / Viser arrow: this far back along the approach
+GLYPH_DEPTH_M, GLYPH_STEM_M = 0.04, 0.05  # robot_msgs viz/viser.py _gripper: finger length, the stem behind the palm
+GROWTH_POINTS = 400  # coverage growth keeps at most this many points (evenly picked, both ends kept)
 
 
 # ── the result ──────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -136,7 +138,7 @@ def analyze_grasps(
     boxes = _boxes(area)
     reference = np.asarray(reference, float) / np.linalg.norm(np.asarray(reference, float))
 
-    position = _position(values, boxes, pixel_m, group_of, groups)
+    position = _position(values, boxes, pixel_m, group_of, groups, outcome_of if has_outcomes else None)
     width, width_edges = _width(values.width, gripper, group_of, groups)
     pre = values.pre_grasp_width
     pre_grasp = (None if not np.isfinite(pre).any() else
@@ -187,6 +189,7 @@ def analyze_grasps(
         "orientation": orientation,
         "score": score,
         "objects": _object_rows(values, objects, outcome_of, order, gripper, shown_roll, shown_edges, position),
+        "growth": _growth(values, position, width_edges, shown_roll, shown_edges),
     }
     payload["numbers"] = _headline_numbers(payload, values, outcome_of, has_outcomes, gripper, boxes)
     return GraspCoverage(payload=payload, numbers={row["key"]: row["value"] for row in payload["numbers"]})
@@ -396,7 +399,8 @@ def _score(scores: np.ndarray, group_of: np.ndarray, groups: list[str]) -> dict 
     return _hist_block(scores[has], (low, high, SCORE_BINS), group_of[has], groups)
 
 
-def _position(values: GraspValues, boxes, pixel_m: float, group_of: np.ndarray, groups: list[str]) -> dict:
+def _position(values: GraspValues, boxes, pixel_m: float, group_of: np.ndarray, groups: list[str],
+              outcome_of: list[str] | None = None) -> dict:
     points = values.positions
     every = np.vstack([points] + [np.vstack(box) for box in boxes]) if boxes else points
     every = every[np.isfinite(every).all(axis=1)]
@@ -405,10 +409,17 @@ def _position(values: GraspValues, boxes, pixel_m: float, group_of: np.ndarray, 
     for face, axes in PROJECTIONS.items():
         cell, shape = bins.grid_cells(points, pixel_m, low, high, axes)
         origin = bins.grid_origin(low, pixel_m, axes)
+        cells = shape[0] * shape[1]
         block = {"origin": bins.floats(origin, 6), "shape": shape,
                  **{("samples" if key == "counts" else key): value
-                    for key, value in _grouped_cells(cell, shape[0] * shape[1], group_of, groups).items()},
-                 "area": None}
+                    for key, value in _grouped_cells(cell, cells, group_of, groups).items()},
+                 "picked": None, "closed": None, "area": None}
+        if outcome_of is not None:
+            # WHY its own two grids, not the groups: the success map (picked / closed) must not depend on group_by
+            picked = np.array([word == "picked" for word in outcome_of]) & (cell >= 0)
+            closed = np.array([word in CLOSED for word in outcome_of]) & (cell >= 0)
+            block["picked"] = bins.ints(np.bincount(cell[picked], minlength=cells))
+            block["closed"] = bins.ints(np.bincount(cell[closed], minlength=cells))
         if boxes:
             centres_u = origin[0] + (np.arange(shape[0]) + 0.5) * pixel_m
             centres_v = origin[1] + (np.arange(shape[1]) + 0.5) * pixel_m
@@ -465,6 +476,62 @@ def _object_rows(values: GraspValues, objects, outcome_of, order, gripper, shown
             "pixels_xy": int(len(np.unique(pixels[pixels >= 0]))),
         })
     return rows
+
+
+def _growth(values: GraspValues, position: dict, width_edges, shown_roll: np.ndarray, shown_edges) -> dict:
+    """Distinct xy pixels, approach cells, width bins and roll bins after the first k grasps, in the given order.
+
+    WHY (the trajectory viewer's growth curve, for grasps): a flat curve says the newest grasps add no coverage, so
+    more of the same data will not help; a rising one says the set is still filling in."""
+    xy = position["projections"]["xy"]
+    keys = {
+        "position_pixels_xy": bins.grid_cells_on(values.positions, xy["origin"], xy["shape"], position["pixel_m"],
+                                                 PROJECTIONS["xy"]),
+        "direction_cells": bins.sphere_cell(values.approach),
+        "width_bins": bins.bin_index(values.width, *width_edges),
+        "roll_bins": bins.bin_index(shown_roll, *shown_edges),
+    }
+    count = len(values)
+    picked = np.unique(np.concatenate([np.linspace(0, count - 1, min(GROWTH_POINTS, count)).round(), [0, count - 1]])
+                       .astype(np.int64))
+    out: dict[str, Any] = {"order": "as given", "grasps": bins.ints(picked + 1)}
+    for key, cell in keys.items():
+        first = np.zeros(count, bool)
+        inside = np.flatnonzero(cell >= 0)
+        _, first_at = np.unique(cell[inside], return_index=True)
+        first[inside[first_at]] = True
+        out[key] = bins.ints(np.cumsum(first)[picked])
+    return out
+
+
+def time_buckets(rows: Sequence[Mapping[str, Any]], batches: int = 20) -> tuple[list[str], list[str], str]:
+    """Each grasp row's bucket on a time axis, the buckets in order, and the axis's name: the `day` tag when every
+    grasp has one, else `batches` equal batches in the given order ("1-62", "63-124", ...)."""
+    if rows and all(row["tags"].get("day") for row in rows):
+        labels = [str(row["tags"]["day"]) for row in rows]
+        return labels, sorted(set(labels)), "day"
+    batch = max(1, math.ceil(len(rows) / batches))
+    labels = [f"{(k // batch) * batch + 1}-{min((k // batch + 1) * batch, len(rows))}" for k in range(len(rows))]
+    return labels, list(dict.fromkeys(labels)), "grasps, in the given order"
+
+
+def gripper_polylines(rows: Sequence[Mapping[str, Any]], size: float = 1.0) -> np.ndarray:
+    """robot_msgs' two-finger glyph per grasp row as ONE polyline of 7 points, (N, 7, 3) metres, in the payload frame:
+    jaw tip, palm, palm centre, the wrist end of the stem, palm centre, palm, the other jaw tip.
+
+    The jaws sit at ±width/2 along the jaw axis (tool x), the fingers run GLYPH_DEPTH_M back along the approach (tool
+    +z) to the palm, and the stem GLYPH_STEM_M further back (robot_msgs viz/viser.py `_gripper`). `size` scales the
+    finger and stem lengths, never the jaw gap. WHY one polyline: every viewer draws a grasp as one path (data-ui
+    scene3d `lines` by grasp, a Matplotlib LineCollection, Viser's segments), the Nov 19 gallery's "thin grippers"."""
+    if not rows:
+        return np.zeros((0, 7, 3))
+    p = np.array([row["position"] for row in rows], float)
+    a = np.array([row["approach"] for row in rows], float)
+    j = np.array([row["jaw"] for row in rows], float)
+    half = (np.maximum(np.array([row["width"] for row in rows], float), 0.004) / 2.0)[:, None]
+    palm = p - GLYPH_DEPTH_M * size * a
+    stem = palm - GLYPH_STEM_M * size * a
+    return np.stack([p - half * j, palm - half * j, palm, stem, palm, palm + half * j, p + half * j], axis=1)
 
 
 # ── headline numbers ────────────────────────────────────────────────────────────────────────────────────────────────

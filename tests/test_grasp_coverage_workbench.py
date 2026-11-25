@@ -215,7 +215,32 @@ const spec = JSON.parse(require('fs').readFileSync(process.argv[4], 'utf8'));
         rows: Object.fromEntries(e.coverage.rows.map((r) => [r.id, r.total])) }));
       const canvases = [...sec.querySelectorAll('canvas')].filter((c) => c.width > 0 && c.height > 0).length;
       const marks = sec.querySelectorAll('svg path, svg circle, svg rect, svg .mark-symbol path').length;
-      return { label: sec.getAttribute('aria-label'), hooks, canvases, marks };
+      const failed = /could not be drawn/i.test(sec.textContent);
+      // a Vega chart's data marks (not its axes, legends or grid): found on the real repicks, round 2 — two charts drew
+      // axes and no line, because data-ui renames an encoding's field and a transform's output kept its spaces
+      // counted: items placed at a finite position (a line point with no y is an item too), never a rule or a label
+      // (a limit line draws whatever the data do); a panel that is text alone (no outcomes in the set) counts its text
+      let data = null;
+      const host = [...sec.querySelectorAll('*')].find((e) => e.vegaView);
+      if (host) {
+        let placed = 0, texts = 0, other = 0;
+        const fin = Number.isFinite;
+        const walk = (item) => { if (!item) return;
+          const t = item.marktype, name = item.name || '';
+          if (t && t !== 'group' && /(^|_)marks$/.test(name) && !/legend|axis|ghost/.test(name)) {
+            const items = item.items || [];
+            if (t === 'text') texts += items.filter((i) => i.text).length;
+            else if (t !== 'rule') {
+              other += 1;
+              placed += items.filter((i) => (t === 'arc' ? fin(i.outerRadius) && i.outerRadius > 0
+                                                        : (fin(i.y) || fin(i.y2) || fin(i.height)) && (fin(i.x) || fin(i.x2) || fin(i.width)))).length;
+            }
+          }
+          for (const i of item.items || []) walk(i); };
+        walk(host.vegaView.scenegraph().root);
+        data = other ? placed : texts;
+      }
+      return { label: sec.getAttribute('aria-label'), hooks, canvases, marks, failed, data };
     });
   });
   let page = await open(spec.index);
@@ -289,6 +314,9 @@ def test_every_panel_draws_something(browsed):
     for tab in PAGES:
         for found in browsed["panels"][f"all:{tab}"]:
             assert found["canvases"] or found["marks"] or tab == "Grasps", (tab, found)
+            # found on the real repicks (round 2): a chart that throws still leaves an svg, so say it out loud
+            assert not found["failed"], (tab, found["label"], "data-ui says the chart could not be drawn")
+            assert found["data"] is None or found["data"] > 0, (tab, found["label"], "a chart with axes and no data marks")
             assert all(hook["problems"] == 0 for hook in found["hooks"]), (tab, found)
 
 
@@ -336,10 +364,11 @@ def test_glyph_rows_are_one_polyline_per_grasp_linked_to_it(inputs, tmp_path):
     glyphs = json.loads((tmp_path / "glyphs.json").read_text("utf-8"))["rows"]
     rows = json.loads((tmp_path / "grasps.json").read_text("utf-8"))["rows"]
     assert len(glyphs) == 7 * len(rows)
-    lines = gripper_polylines(coverage.payload["grasps"]) * 1000.0
+    # the path starts at the wrist end (the workbench's GLYPH_PATH): scene3d's per-path "now" ball lands on the wrist
+    lines = gripper_polylines(coverage.payload["grasps"])[:, [3, 2, 1, 0, 1, 5, 6]] * 1000.0
     first = [g for g in glyphs if g["grasp"] == rows[0]["id"]]
     assert [g["t"] for g in first] == list(range(7))  # the path's order
-    assert [[g["x_mm"], g["y_mm"], g["z_mm"]] for g in first] == pytest.approx(lines[0].tolist(), abs=0.01)
+    assert np.allclose([[g["x_mm"], g["y_mm"], g["z_mm"]] for g in first], lines[0], atol=0.01)
     assert {g["outcome"] for g in first} == {rows[0]["outcome"]}
 
 
