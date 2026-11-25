@@ -1,0 +1,30 @@
+{
+  "frozen": "2026-11-24, before any proposal was built",
+  "requirements": [
+    {"id": "fr1", "name": "The robot is the first thing you see", "weight": 30,
+     "why": "\"100% there should be a urdf showing\"; today's view is a grey arc in an empty 3D view.",
+     "passCondition": "On open, the URDF arm moving along the trajectory dominates the screen, framed on the arm, with where the tool goes.",
+     "anchors": {"1": "No robot, or a robot lost in a corner / badly framed.", "3": "The robot is there but shares the screen evenly with plots, or framing needs fixing by hand.", "5": "The arm, framed, is the hero; the tool's path reads at a glance."}},
+    {"id": "fr2", "name": "Joint motion legible, in degrees, few panels", "weight": 25,
+     "why": "Today: nine separate per-joint q/qd/qdd panels that don't say which is which at a glance.",
+     "passCondition": "Every joint's q (and qd/qdd where shown) is readable with its name, in degrees, against its limits, in a handful of panels.",
+     "anchors": {"1": "Many unlabeled panels, radians, no limits.", "3": "Labelled and in degrees, but spread over many panels or no limits.", "5": "A few panels, every series named, degrees, limits visible."}},
+    {"id": "fr3", "name": "A stock viewer for every JointTrajectory", "weight": 25,
+     "why": "\"this should basically be the stock trajectory rerun viewer\"; \"For all of the robotmsgs I would like to have a bunch of Rerun viewers\".",
+     "passCondition": "One function from a robot_msgs JointTrajectory + a URDF to a recording, in robot_msgs' entity layout, that works for any arm and any length.",
+     "anchors": {"1": "Hard-wired to the UR5e or this trajectory.", "3": "General, but outside robot_msgs' layout or needs per-arm tuning.", "5": "Any JointTrajectory + URDF, robot_msgs' layout, nothing per-arm."}},
+    {"id": "fr4", "name": "Built on what we already liked", "weight": 10,
+     "why": "\"Please find the previous examples we have done and base yours off of that.\"",
+     "passCondition": "It visibly grows from a previous pick (questions / evo / Solo Run Dashboard / robot_msgs' show) rather than starting over.",
+     "anchors": {"1": "Unrelated to anything before.", "3": "Borrows pieces.", "5": "A clear evolution of a named previous layout."}},
+    {"id": "fr5", "name": "Scrubbing feels right", "weight": 10,
+     "why": "The point of Rerun here is playing the motion back.",
+     "passCondition": "Moving the playhead moves the arm and a cursor in every plot together; nothing jumps or reloads.",
+     "anchors": {"1": "Plots and arm out of step, or the time panel hidden.", "3": "In step, but the plots don't show where you are.", "5": "Arm, trail and every plot's cursor move together."}}
+  ],
+  "hardGates": [
+    {"id": "g1", "name": "The URDF robot moves with the trajectory", "why": "Zach's \"100%\"."},
+    {"id": "g2", "name": "Opens with no errors in the real Rerun 0.40 web viewer", "why": "shoot.cjs with SHOOT_DEBUG, no ERROR lines."},
+    {"id": "g3", "name": "Angles in degrees", "why": "Zach's standing rule for anything he reads."}
+  ]
+}
