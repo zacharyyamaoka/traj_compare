@@ -315,6 +315,41 @@ def test_playback_is_the_comparison_viewer_over_exactly_the_ticked_runs_and_the_
 
 
 @needs_data_ui
+def test_a_cached_playback_is_rebuilt_when_the_viewer_changes(built, server, monkeypatch):
+    """WHY (2026-11-25): a playback is cached by its selection; keyed by the selection alone, a viewer upgrade (the
+    drag-to-sync and time-lane looks) never reached a selection opened before it, and the one shared assets folder was
+    only refreshed when some new selection happened to be built. The cache key and the assets folder carry the viewer."""
+
+    import traj_compare.report as report
+
+    root, sites, index = built
+    base, _ = server
+    picked = three_arm_lines(index)[:2]
+    ask = {"runs": picked, "crumbs": [], "title": "viewer upgrade"}
+
+    def assets_of(href: str) -> set[str]:
+        with urllib.request.urlopen(base + href, timeout=120) as response:
+            page = response.read().decode("utf-8")
+        return set(re.findall(r'(?:src|href)="([^"]*/)(?:plots|style)\.(?:js|css)"', page))
+
+    status, first = post(f"{base}/all/__playback", ask)
+    assert status == 200 and first["ok"], first
+    first_assets = assets_of(first["href"])
+    assert len(first_assets) == 1, first_assets
+    assert report.viewer_digest() in next(iter(first_assets)), "the shared assets folder is named by its viewer"
+
+    monkeypatch.setattr(report, "viewer_digest", lambda: "0123456789ab")  # the viewer changed
+    status, second = post(f"{base}/all/__playback", ask)
+    assert status == 200 and second["ok"], second
+    assert second["href"] != first["href"], "a cached playback outlived a viewer change"
+    (second_assets,) = assets_of(second["href"])
+    assert second_assets.endswith("assets-0123456789ab/"), second_assets
+    # the page built before the change still loads the files it was built with
+    old_folder = root / "all" / "playback" / next(iter(first_assets)).rstrip("/").split("/")[-1]
+    assert (old_folder / "plots.js").is_file()
+
+
+@needs_data_ui
 def test_without_a_server_the_page_says_what_it_needs(built, tmp_path):
     root, sites, _ = built
     index = write_runs_workbench(sites, tmp_path / "static", rerun_server=False, kit="../all/vendor/data-ui")
