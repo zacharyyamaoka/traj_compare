@@ -211,7 +211,8 @@ const spec = JSON.parse(require('fs').readFileSync(process.argv[4], 'utf8'));
     const shown = [...document.querySelectorAll('data-workbench [tab]')].find((p) => !p.hidden);
     return [...shown.querySelectorAll('.dd-panel')].map((sec) => {
       const hooks = [...sec.querySelectorAll('*')].filter((e) => e.coverage).map((e) => ({
-        type: e.coverage.type, total: e.coverage.rows.reduce((a, r) => a + r.total, 0), problems: e.coverage.problems.length }));
+        type: e.coverage.type, total: e.coverage.rows.reduce((a, r) => a + r.total, 0), problems: e.coverage.problems.length,
+        rows: Object.fromEntries(e.coverage.rows.map((r) => [r.id, r.total])) }));
       const canvases = [...sec.querySelectorAll('canvas')].filter((c) => c.width > 0 && c.height > 0).length;
       const marks = sec.querySelectorAll('svg path, svg circle, svg rect, svg .mark-symbol path').length;
       return { label: sec.getAttribute('aria-label'), hooks, canvases, marks };
@@ -301,10 +302,11 @@ def test_ticking_failed_recounts_every_tab_and_every_figure(browsed, inputs):
     low, high, _ = payload["width"]["edges"]
     failed_widths = [g.width for g, o in zip(grasps.values(), outcomes, strict=True) if o == "failed"]
     in_edges = sum(low <= w <= high for w in failed_widths)
-    width = panel(browsed, "failed:Gripper", "Jaw width against the claw")
-    assert [hook["total"] for hook in width["hooks"]] == [in_edges]
-    every = panel(browsed, "all:Gripper", "Jaw width against the claw")
-    assert [hook["total"] for hook in every["hooks"]] == [sum(payload["width"]["counts"])]
+    # the stock strips panel: its width strip is the width parts of the kept grasps, summed (data-ui §53's sum:<grid>)
+    width = panel(browsed, "failed:Gripper", "Every histogram against its range")
+    assert [hook["rows"]["sum:width"] for hook in width["hooks"]] == [in_edges]
+    every = panel(browsed, "all:Gripper", "Every histogram against its range")
+    assert [hook["rows"]["sum:width"] for hook in every["hooks"]] == [sum(payload["width"]["counts"])]
     faces = panel(browsed, "failed:Position", "The grasps from three sides")
     assert sum(hook["total"] for hook in faces["hooks"]) == 3 * failed
     pointing = panel(browsed, "failed:Orientation", "Which way it approaches")

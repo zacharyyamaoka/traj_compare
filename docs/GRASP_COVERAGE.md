@@ -140,16 +140,27 @@ and the trajectory workbench already proved the pattern. **The atomic unit is a 
 (Object, Outcome, then the tags, then width / tilt / score ranges), and every coverage figure adds up the kept grasps'
 part rows (`coverage.sum: grid`), so a tick ("failed") recounts every tab.
 
-- Files: `grasps.json` (one row per grasp: name, object, outcome, tags, mm / degree columns), `parts.json` (one row per
-  grasp × figure, sparse `at` + `samples`), `grasp_coverage.base`, `index.html`, `embed.html` (1000 × 680 host slot),
-  `vendor/data-ui/` (unless `kit=`).
-- Tabs: **Overview** (where the gripper closed, top view by outcome; jaw width against the claw; which way it
-  approaches; grasps per object), **Position** (the three faces as counts over the area; top and side scatter by
-  outcome; 3-D: a point per grasp coloured by outcome, an arrow along its approach, the area as boxes), **Gripper** (jaw
-  width and pre-grasp width against the range; width × tilt), **Orientation** (pointing disk, equal-area sphere, roll as
-  a straight line, tilt × roll), **Objects** (grasps per object by outcome), **Grasps** (the table).
-- Outcome colours (`properties.outcome.colors`, also `style.families` for the stacked bars): picked = blue, failed =
-  orange, hovered = grey, refused = light grey, unknown = muted — the Nov 19 gallery's colours Zach liked.
+- Files: `grasps.json` (one row per grasp: name, object, outcome, tags, mm / degree columns, the approach arrow's tail
+  50 mm back, and `t: 0` — data-ui's scene3d drops a row without a numeric t), `parts.json` (one row per grasp ×
+  coverage figure: a one-hot histogram or one sparse cell, `at` + `samples`), `grasp_coverage.base`, `index.html`,
+  `embed.html` (1000 × 680 host slot), `vendor/data-ui/` (unless `kit=`).
+- Tabs: **Overview** (where the gripper closed, top view by outcome; jaw width against the claw; grasps per object;
+  which way it approaches; roll), **Position** (3-D: a point per grasp and an arrow along its approach, coloured by
+  outcome, the offered areas' outer box as the workspace; top and side scatter; the three faces as counts),
+  **Gripper** (jaw width and pre-grasp opening against the range; every histogram as data-ui's stock strips; width ×
+  tilt), **Orientation** (pointing disk, equal-area sphere, roll as a straight line, tilt, tilt × roll), **Objects**
+  (grasps and outcome share per object), **Grasps** (the table).
+- The big 1-D histograms (width, pre-grasp, roll, tilt) are Vega-Lite charts over `grasps.json` on the payload's own
+  bins, stacked by outcome, the range in red (solid the open stop, dashed the planner's span), grey past it. WHY not
+  data-ui's `coverage-hist` there: its strips are 58 px tall (made for stacks of limit bars) and the width figure is
+  the one Zach singled out; the stock strips stay as one panel ("Every histogram against its range"), re-summed from
+  the parts like every coverage figure. The bars square their ends (`cornerRadiusEnd: 0`): Vega-Lite 6.5 drops a
+  binned bar's x under data-ui's theme radius.
+- Not in the workbench (yet): the area mask on the projections (a per-grasp part cannot carry the whole set's area;
+  the same gap as the trajectory workbench's reachable mask) — the area shows as the 3-D workspace box and in the PNGs.
+- Outcome colours (`grasp_coverage/colours.py`, one table for all four viewers): picked = data-ui slot 1 (blue
+  `#2a78d6`), failed = slot 2 (orange), hovered = muted grey, refused = slot 4 (amber), unknown = slot 7 (violet);
+  another word takes pink, then teal — never green or red first. Blue / orange / grey are the Nov 19 gallery's.
 - `grasp_workbench_rows(coverage, grasps)` returns (grasp rows, part rows) without writing.
 
 ## The other viewers

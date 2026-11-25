@@ -23,7 +23,6 @@ from typing import Any
 import numpy as np
 
 from ..coverage.matplotlib_view import (
-    GROUP_COLORS,
     INK,
     LIMIT_COLOR,
     MUTED,
@@ -43,13 +42,10 @@ from ..coverage.matplotlib_view import (
     scale_counts,
 )
 from .analysis import SCHEMA
+from .colours import OUTCOME_SLOTS, SLOT_HEX, group_hex, outcome_hex
 
-# WHY these: the Nov 19 gallery's outcome colours (figures_grasp.py repick_positions: blue = succeeded, orange = closed
-# then missed, grey = never closed), the ones Zach answered "super helpful" to (blue / orange is colour-blind safe), as
-# data-ui's series slots 1, 2 and muted so the workbench, these PNGs and Viser paint an outcome alike
-# (workbench.OUTCOME_SLOTS); refused = slot 4 amber (a gate said no), unknown = slot 7 violet (no status meaning)
-OUTCOME_COLORS = {"picked": "#2a78d6", "failed": "#eb6834", "hovered": "#8a8983", "refused": "#eda100",
-                  "unknown": "#6250d6"}
+# the outcome colours are colours.py's (data-ui's slots), so the workbench, these PNGs and Viser paint an outcome alike
+OUTCOME_COLORS = {name: SLOT_HEX[slot] for name, slot in OUTCOME_SLOTS.items()}
 OUTCOME_MARKERS = {"picked": "o", "failed": "o", "hovered": "x", "refused": "+", "unknown": "."}
 BEYOND = "#efeee9"  # the histogram strip past the jaw range: the claw cannot open there
 FIGURE_IDS = ("positions", "position-density", "width", "roll", "pointing", "sphere", "width-tilt", "objects")
@@ -61,17 +57,12 @@ def figure_ids(payload: Mapping[str, Any]) -> list[str]:
 
 
 def group_colours(payload: Mapping[str, Any]) -> dict[str, str]:
-    """The colour of each of `source.groups`: outcome colours when the groups are outcomes, else the palette."""
-    groups = payload["source"]["groups"]
-    if payload["source"]["group_by"] == "outcome":
-        spare = iter(GROUP_COLORS[2:])
-        return {name: OUTCOME_COLORS.get(name) or next(spare, MUTED) for name in groups}
-    return {name: GROUP_COLORS[i % len(GROUP_COLORS)] for i, name in enumerate(groups)}
+    """The colour of each of `source.groups`: outcome colours when the groups are outcomes, else the slots."""
+    return group_hex(payload["source"]["groups"], payload["source"]["group_by"])
 
 
 def outcome_colours(payload: Mapping[str, Any]) -> dict[str, str]:
-    spare = iter(GROUP_COLORS[2:])
-    return {name: OUTCOME_COLORS.get(name) or next(spare, MUTED) for name in payload["outcomes"]["order"]}
+    return outcome_hex(payload["outcomes"]["order"])
 
 
 def _data_line(payload: Mapping[str, Any]) -> str:
@@ -105,9 +96,16 @@ def _positions(payload, cmap, reverse, scale):
     fig = _new_figure(13.0, 5.8)
     top, side = fig.subplots(1, 2, gridspec_kw={"width_ratios": [1.0, 1.0]})
     area = payload["position"]["area"] or []
+    # WHY fills without outlines: a campaign offers one look area per run (174 on the repicks), and their outlines
+    # were a tangle; overlapping pale fills draw exactly their union
     for lo, hi in area:
         top.add_patch(_rectangle(lo[0], lo[1], hi[0], hi[1]))
         side.add_patch(_rectangle(lo[0], lo[2], hi[0], hi[2]))
+    if len(area) > 1:
+        low = np.min([lo for lo, _ in area], axis=0)
+        high = np.max([hi for _, hi in area], axis=0)
+        top.add_patch(_rectangle(low[0], low[1], high[0], high[1], fill=False))
+        side.add_patch(_rectangle(low[0], low[2], high[0], high[2], fill=False))
     handles = {}
     # WHY failures drawn last: a failed grasp among 800 picked ones must stay on top, where the eye finds it
     draw_order = [name for name in payload["outcomes"]["order"] if name not in ("failed",)] + \
@@ -131,19 +129,26 @@ def _positions(payload, cmap, reverse, scale):
         ax.grid(color="#efeee9", linewidth=0.6)
         ax.set_axisbelow(True)
     if area:
-        handles.append(_patch("#eef2f8", "the offered pick area", edge=LIMIT_COLOR))
+        handles.append(_patch("#e6edf7", "the offered pick area" + (f": {len(area)} look areas, overlapped"
+                                                                     if len(area) > 1 else "")))
+        if len(area) > 1:
+            handles.append(_line("their outer box", style=(0, (3, 2)), width=0.9))
     _header(fig, "Where did the gripper close, and did it work there?",
             _data_line(payload) + " · a dot per grasp at the jaws' centre"
-            + (f" · pale box = the {len(area)} offered area{'s' if len(area) != 1 else ''}" if area else ""),
+            + (f" · pale = the {len(area)} offered area{'s' if len(area) != 1 else ''}" if area else ""),
             handles, columns=2)
     return fig
 
 
-def _rectangle(x0, y0, x1, y1):
+def _rectangle(x0, y0, x1, y1, fill: bool = True):
+    """A pale area fill with no edge (fill), or the dashed red outline of the areas' outer box (not fill)."""
     from matplotlib.patches import Rectangle
 
-    return Rectangle((x0 * 1000, y0 * 1000), (x1 - x0) * 1000, (y1 - y0) * 1000, facecolor="#eef2f8",
-                     edgecolor=LIMIT_COLOR, linewidth=0.8, linestyle=(0, (3, 2)), zorder=1)
+    if fill:
+        return Rectangle((x0 * 1000, y0 * 1000), (x1 - x0) * 1000, (y1 - y0) * 1000, facecolor="#e6edf7",
+                         edgecolor="none", linewidth=0, zorder=1)
+    return Rectangle((x0 * 1000, y0 * 1000), (x1 - x0) * 1000, (y1 - y0) * 1000, fill=False, edgecolor=LIMIT_COLOR,
+                     linewidth=0.9, linestyle=(0, (3, 2)), zorder=2)
 
 
 def _marker(colour: str, marker: str, label: str):
@@ -320,6 +325,12 @@ def _pointing(payload, cmap, reverse, scale):
     if reach > 90:
         ring = np.linspace(-np.pi, np.pi, 181)
         ax.plot(ring, np.full_like(ring, 90.0), color=INK, linewidth=0.9, linestyle=(0, (3, 3)))
+    tilt_max = _number(payload, "tilt_max_deg")
+    if tilt_max < 15.0:  # the gallery's note: a set that only comes straight down is one sliver at the centre
+        ax.annotate(f"all {payload['source']['grasps']} grasps within {tilt_max:.1f}° of straight down",
+                    xy=(math.radians(45), tilt_max), xytext=(math.radians(40), 0.45 * reach), fontsize=9, color=INK,
+                    ha="left", arrowprops={"arrowstyle": "-", "color": MUTED, "linewidth": 0.8},
+                    bbox={"facecolor": "white", "edgecolor": "none", "pad": 1.5, "alpha": 0.9})
     _colorbar(fig, mesh, ax, scaled, "grasps per cell", shrink=0.8)
     handles = [_patch("white", "no grasp from there"), _ramp_patch(cmap, reverse, "colour = grasps (bar)")]
     if reach > 90:

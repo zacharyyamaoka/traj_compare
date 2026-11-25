@@ -31,16 +31,14 @@ from .. import _files
 from ..coverage import bins
 from ..coverage.workbench import _EMBED, _INDEX, DATA_UI, _page, _parts_view, _vendor, _write_json, _yaml
 from .analysis import ARROW_M, PROJECTIONS, SCHEMA, GraspValues, _named, grasp_values
+from .colours import GROUP_SLOTS, SLOT_HEX, outcome_slots
 
 DEG = 180.0 / math.pi
-# WHY these slots (data-ui tokens.css): 1 is #2a78d6 and 2 #eb6834, the Nov 19 gallery's blue (succeeded) and orange
-# (closed, then missed) that Zach called "super helpful"; hovered is muted (it never closed: the gallery's grey);
-# refused is amber (a gate said no); unknown (no outcome: a label) is violet, a hue with no status meaning
-OUTCOME_SLOTS = {"picked": 1, "failed": 2, "hovered": 0, "refused": 4, "unknown": 7}
-SPARE_SLOTS = (3, 5, 6, 8)
-GROUP_SLOTS = (1, 2, 3, 7, 5, 4, 6)
 FACES = {"xy": "from above", "xz": "from the front", "yz": "from the side"}
 PAGES = ("Overview", "Position", "Gripper", "Orientation", "Objects", "Grasps")
+HIST_KINDS = ("width", "pre_grasp_width", "tilt", "roll", "score")  # the stock strips panel, top to bottom
+LIMIT_HEX = "#b4442f"  # data-ui's --data-limit (light): a limit is a boundary, never a status
+BEYOND_HEX = "#dddcd6"  # data-ui's --data-outside: past the range
 
 
 # ── the rows ────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -119,9 +117,13 @@ def _grasp_row(payload: Mapping, values: GraspValues, k: int, grasp_id: str, pay
         "tilt_deg": round(float(values.tilt[k]) * DEG, 2),
         "azimuth_deg": round(float(values.azimuth[k]) * DEG, 2),
         "roll_deg": round(float(values.roll[k]) * DEG, 2),
+        "roll_folded_deg": round(float(np.mod(values.roll[k], math.pi)) * DEG, 2),
         "x_mm": round(float(position[0]), 2), "y_mm": round(float(position[1]), 2), "z_mm": round(float(position[2]), 2),
         "from_x_mm": round(float(tail[0]), 2), "from_y_mm": round(float(tail[1]), 2),
         "from_z_mm": round(float(tail[2]), 2),
+        # WHY a t of 0: data-ui's scene3d windows every primitive by a numeric t and drops a row without one
+        # (scene3d bind.js); a grasp set has no clock, so every grasp stands at the same instant
+        "t": 0.0,
     })
     return row
 
@@ -137,8 +139,8 @@ def _hist_part(grasp_id: str, kind: str, value: float, edges, group: str, **extr
     low, high, count = edges
     index = int(bins.bin_index(np.array([value]), low, high, count)[0])
     one = _one_hot(index, count)
-    return {"id": f"{grasp_id}/{kind}", "kind": kind, "grid": kind, "grasp": grasp_id, "lo": low, "hi": high,
-            "bins": count, "counts": one, "groups": [group], "group_counts": [one], **extra}
+    return {"id": f"{grasp_id}/{kind}", "kind": kind, "grid": kind, "grasp": grasp_id, "hist_order": HIST_KINDS.index(kind),
+            "lo": low, "hi": high, "bins": count, "counts": one, "groups": [group], "group_counts": [one], **extra}
 
 
 def _grid_part(grasp_id: str, kind: str, grid: str, cell: int, geometry: dict, **extra) -> dict | None:
@@ -248,10 +250,6 @@ def write_grasp_workbench(coverage, grasps, out_dir: Path | str, *, title: str |
     _write_json(out / "parts.json", {"id": "grasp-coverage-parts", "title": f"{title}: each grasp's share of every figure",
                                      "titleProperty": "id", "properties": _part_properties(), "rows": parts})
     areas = payload["position"]["area"] or []
-    if areas:
-        _write_json(out / "areas.json", {"id": "grasp-coverage-areas", "title": "the offered pick area", "rows": [
-            {"id": f"area {i + 1}", "x0_mm": lo[0] * 1000, "y0_mm": lo[1] * 1000, "z0_mm": lo[2] * 1000,
-             "x1_mm": hi[0] * 1000, "y1_mm": hi[1] * 1000, "z1_mm": hi[2] * 1000} for i, (lo, hi) in enumerate(areas)]})
     base = _base(payload, rows, facets=facets, areas=bool(areas))
     _files.write_text(out / "grasp_coverage.base", _HEADER + _yaml(base) + "\n")
     if kit is None:
@@ -264,11 +262,6 @@ def write_grasp_workbench(coverage, grasps, out_dir: Path | str, *, title: str |
                                                        kit=html.escape(kit.rstrip("/"))))
     _files.write_text(out / "embed.html", embed.format(title=html.escape(title), kit=html.escape(kit.rstrip("/"))))
     return out / "index.html"
-
-
-def outcome_slots(order: Sequence[str]) -> dict[str, int]:
-    spare = iter(SPARE_SLOTS)
-    return {name: OUTCOME_SLOTS[name] if name in OUTCOME_SLOTS else next(spare, 0) for name in order}
 
 
 def _grasp_properties(payload: Mapping, tag_keys: list[str]) -> dict:
@@ -287,11 +280,14 @@ def _grasp_properties(payload: Mapping, tag_keys: list[str]) -> dict:
         "azimuth_deg": {"type": "number", "label": "Leans toward", "unitText": "°", "decimals": 0},
         "roll_deg": {"type": "number", "label": "Roll", "unitText": "°", "decimals": 1,
                      "description": "the jaw axis about the approach, counter-clockwise seen from behind the gripper"},
+        "roll_folded_deg": {"type": "number", "label": "Roll, folded", "unitText": "°", "decimals": 1,
+                            "description": "roll mod 180°: a two-finger grasp and its jaws-swapped twin", "hidden": True},
     })
     for axis in "xyz":
         properties[f"{axis}_mm"] = {"type": "number", "label": axis, "unitText": "mm", "decimals": 1}
         properties[f"from_{axis}_mm"] = {"type": "number", "label": f"approach from {axis}", "unitText": "mm",
                                          "decimals": 1, "hidden": True}
+    properties["t"] = {"type": "number", "label": "t", "hidden": True}
     if payload["pre_grasp_width"] is None:
         del properties["pre_grasp_mm"]
     if payload["score"] is None:
@@ -311,7 +307,7 @@ def _part_properties() -> dict:
     for key in ("x", "y", "x_label", "y_label", "x_unit", "y_unit", "box", "zero", "u", "v", "frame", "limit_source",
                 "unit"):
         properties[key] = {"type": "text", "hidden": True}
-    for key in ("x_lo", "x_hi", "nx", "y_lo", "y_hi", "ny", "x_scale", "y_scale", "outside", "lo", "hi", "bins",
+    for key in ("x_lo", "x_hi", "nx", "y_lo", "y_hi", "ny", "x_scale", "y_scale", "outside", "lo", "hi", "bins", "hist_order",
                 "low", "high", "planner_low", "planner_high", "scale", "pixel_m", "origin_u", "origin_v", "nu", "nv"):
         properties[key] = {"type": "number", "hidden": True}
     return properties
@@ -352,8 +348,6 @@ def _base(payload: Mapping, rows: list[dict], *, facets: Sequence[str], areas: b
     else:
         family = {name: GROUP_SLOTS[i % len(GROUP_SLOTS)] for i, name in enumerate(payload["source"]["groups"])}
     datasets: dict[str, Any] = {"parts": {"data": "parts.json", "label": "Coverage parts"}}
-    if areas:
-        datasets["areas"] = {"data": "areas.json", "label": "The offered area"}
     return {
         "data": "grasps.json",
         "noun": ["grasp", "grasps"],
@@ -393,8 +387,8 @@ def _pages(payload: Mapping, areas: bool) -> list[dict]:
         _page("Gripper", [panel for panel in (
             {"view": "Jaw width against the claw", "w": 12, "h": 3},
             {"view": "Pre-grasp opening", "w": 12, "h": 3} if payload["pre_grasp_width"] is not None else None,
-            {"view": "Width × tilt", "w": 7, "h": 4},
-            {"view": "The detector's score", "w": 5, "h": 4} if payload["score"] is not None else None,
+            {"view": "Every histogram against its range", "w": 7, "h": 4},
+            {"view": "Width × tilt", "w": 5, "h": 4},
         ) if panel]),
         _page("Orientation", [
             {"view": "Which way it approaches", "w": 5, "h": 5},
@@ -415,14 +409,13 @@ def _pages(payload: Mapping, areas: bool) -> list[dict]:
 def _colour_scale(slots: Mapping[str, int]) -> dict:
     # WHY explicit hex (light theme tokens): a Vega-Lite chart picks its own category colours otherwise, and an outcome
     # must be one colour in the rail, the badges, the stacked bars and the dots
-    light = {0: "#8a8983", 1: "#2a78d6", 2: "#eb6834", 3: "#1baf7a", 4: "#eda100", 5: "#e87ba4", 6: "#008300",
-             7: "#6250d6", 8: "#e34948"}
-    return {"domain": list(slots), "range": [light[slot] for slot in slots.values()]}
+    return {"domain": list(slots), "range": [SLOT_HEX[slot] for slot in slots.values()]}
 
 
 def _views(payload: Mapping, rows: list[dict], slots: Mapping[str, int], areas: bool) -> list[dict]:
     colour = {"field": "outcome", "title": "Outcome", "scale": _colour_scale(slots), "sort": list(slots)}
-    point = {"type": "quantitative", "scale": {"zero": False}}
+    # WHY a linear scale said out loud: left to itself the chart drew y on a log axis and dropped every negative y
+    point = {"type": "quantitative", "scale": {"type": "linear", "zero": False}}
     views: list[dict] = [
         # WHY a chart first: a view drawn alone (a gallery picture, a link to one view) reads the file's own rows
         {"type": "chart", "name": "Where the gripper closed", "chart": {
@@ -444,32 +437,59 @@ def _views(payload: Mapping, rows: list[dict], slots: Mapping[str, int], areas: 
                                         "x": {"aggregate": "count", "stack": "normalize", "title": "share of its grasps"},
                                         "color": colour}}},
     ]
+    # WHY density this high: scene3d draws `density` markers per path (default 20) and one colour is one path here
     layers: list[dict[str, Any]] = [
         {"primitive": "points", "x": "x_mm", "y": "y_mm", "z": "z_mm", "color": "outcome", "density": 100000},
         {"primitive": "arrows", "from": ["from_x_mm", "from_y_mm", "from_z_mm"], "to": ["x_mm", "y_mm", "z_mm"],
          "color": "outcome", "density": 100000},
     ]
-    if areas:
-        layers.append({"primitive": "boxes", "data": "areas", "min": ["x0_mm", "y0_mm", "z0_mm"],
-                       "max": ["x1_mm", "y1_mm", "z1_mm"], "opacity": 0.08})
-    views.append({"type": "scene3d", "name": "In 3-D", "scene3d": {
-        "unit": "mm", "projection": {"dir": [-1, -1, -1], "up": [0, 0, 1]}, "show": "all", "axes": "auto",
-        "layers": layers}})
+    stage: dict[str, Any] = {"unit": "mm", "projection": {"dir": [-1, -1, -1], "up": [0, 0, 1]}, "show": "all",
+                             "axes": "auto", "layers": layers}
+    area = payload["position"]["area"]
+    if area:
+        # WHY the outer box, not a box per area: a campaign offers one look area per run (174 on the repicks); their
+        # boxes drawn one by one buried the grasps
+        low = np.min([lo for lo, _ in area], axis=0) * 1000.0
+        high = np.max([hi for _, hi in area], axis=0) * 1000.0
+        stage["workspace"] = {"box": [[round(float(v), 1) for v in low], [round(float(v), 1) for v in high]],
+                              "opacity": 0.06}
+    views.append({"type": "scene3d", "name": "In 3-D", "scene3d": stage})
     reach = max(90, min(180, 30 * math.ceil(max(_number(payload, "tilt_max_deg"), 1.0) / 30.0 + 1e-6)))
     views += [
         _parts_view("coverage-projection", "The grasps from three sides", 'kind == "projection"'),
-        _parts_view("coverage-hist", "Jaw width against the claw", 'kind == "width"'),
+        _parts_view("coverage-hist", "Every histogram against its range", " || ".join(
+            f'kind == "{kind}"' for kind in HIST_KINDS), {"columns": 1}, ["hist_order"]),
         _parts_view("coverage-plane", "Width × tilt", 'kind == "width_tilt"'),
         _parts_view("coverage-polar", "Which way it approaches", 'kind == "pointing"', {"reach": reach}),
         _parts_view("coverage-plane", "Every approach, equal area", 'kind == "sphere"'),
-        _parts_view("coverage-hist", "Roll about the approach", 'kind == "roll"'),
-        _parts_view("coverage-hist", "Tilt from straight down", 'kind == "tilt"'),
         _parts_view("coverage-plane", "Tilt × roll", 'kind == "tilt_roll"'),
     ]
+    gripper = payload["gripper"]
+    width_low, width_high, width_bins = payload["width"]["edges"]
+    width_marks = []
+    if gripper["source"] == "limit":
+        width_marks += [("band", width_low * 1000, gripper["low"] * 1000, ""),
+                        ("band", gripper["high"] * 1000, width_high * 1000, ""),
+                        ("rule", gripper["high"] * 1000, None, f"open stop {gripper['high'] * 1000:.0f} mm")]
+    if gripper["planner_high"] is not None:
+        width_marks.append(("dashed", gripper["planner_high"] * 1000, None,
+                            f"planner span {gripper['planner_high'] * 1000:.0f} mm"))
+    width_edges_mm = (width_low * 1000, width_high * 1000, width_bins)
+    views.append(_hist_chart("Jaw width against the claw", "width_mm", "jaw width the grasp closes to (mm)",
+                             width_edges_mm, colour, width_marks))
     if payload["pre_grasp_width"] is not None:
-        views.append(_parts_view("coverage-hist", "Pre-grasp opening", 'kind == "pre_grasp_width"'))
-    if payload["score"] is not None:
-        views.append(_parts_view("coverage-hist", "The detector's score", 'kind == "score"'))
+        views.append(_hist_chart("Pre-grasp opening", "pre_grasp_mm", "jaw opening before the approach (mm)",
+                                 width_edges_mm, colour, width_marks))
+    orientation = payload["orientation"]
+    shown = orientation["roll_shown"]
+    low, high, count = orientation[shown]["edges"]
+    roll_field = "roll_folded_deg" if shown == "roll_folded" else "roll_deg"
+    views.append(_hist_chart("Roll about the approach", roll_field, "roll of the jaws about the approach (°)"
+                             + (", folded: r and r + 180° are one grasp" if shown == "roll_folded" else ", full circle"),
+                             (low * DEG, high * DEG, count), colour, []))
+    low, high, count = orientation["tilt"]["edges"]
+    views.append(_hist_chart("Tilt from straight down", "tilt_deg", "tilt of the approach from straight down (°)",
+                             (low * DEG, high * DEG, count), colour, [("dashed", 90.0, None, "level")]))
     present = {key for row in rows for key in row}
     tag_keys = [key for row in payload["grasps"] for key in row["tags"]]
     order = [key for key in ("name", "object", "outcome", *tag_keys, "width_mm", "pre_grasp_mm", "tilt_deg",
@@ -477,6 +497,53 @@ def _views(payload: Mapping, rows: list[dict], slots: Mapping[str, int], areas: 
     views.append({"type": "table", "name": "Grasps", "order": list(dict.fromkeys(order)),
                   "display": {"outcome": "badge", "object": "badge"}})
     return views
+
+
+def _hist_chart(name: str, field: str, title: str, edges, colour: Mapping, marks) -> dict:
+    """A Vega-Lite histogram of a grasps.json column on the payload's own linear bins, stacked by outcome, with the
+    range drawn as `marks`: ("band", lo, hi, "") grey beyond the range, ("rule" | "dashed", at, None, label) a red limit.
+
+    WHY a chart and not data-ui's coverage-hist here: its strips are 58 px tall (built for a stack of limit bars), and
+    this is the figure Zach singled out ("I really like this how it shows the size of the grasps"); the strips stay, as
+    one panel, on the Gripper tab. WHY every fixed mark aggregates first: a mark per grasp row would draw the same line
+    a thousand times."""
+    low, high, count = edges
+    one = [{"aggregate": [{"op": "count", "as": "n"}]}]
+    # WHY round ticks: a binned axis ticks at the bin edges (-10, -2, 6, 14 ... on a 2 mm width bin)
+    span = high - low
+    step = next(step for step in (5, 10, 20, 30, 45, 60, 90, 100, 200) if span / step <= 10)
+    ticks = [round(v, 6) for v in np.arange(math.ceil(low / step) * step, high + 1e-9, step)]
+    x = {"title": title}
+    # WHY the bars first: data-ui's chart treats the first layer with an x or y as the chart itself (its legend, its
+    # hidden-series filter, its defaults); with the grey band first the bars were never drawn
+    layers: list[dict[str, Any]] = []
+    # WHY cornerRadiusEnd 0: Vega-Lite 6.5 drops x from a binned bar when a corner radius applies (data-ui's theme sets
+    # one) and the bars vanish; data-ui's own histograms square their ends for the same reason (chart index.js zeroBins)
+    layers.append({"mark": {"type": "bar", "binSpacing": 0, "clip": True, "cornerRadiusEnd": 0}, "encoding": {
+        "x": {"field": field, "bin": {"extent": [round(low, 4), round(high, 4)], "step": round((high - low) / count, 6)},
+              **x, "scale": {"domain": [round(low, 4), round(high, 4)]}, "axis": {"values": ticks}},
+        "y": {"aggregate": "count", "title": "grasps"}, "color": colour,
+        "tooltip": [{"field": field, "bin": True, "title": title}, {"aggregate": "count", "title": "grasps"},
+                    {"field": "outcome"}]}})
+    for kind, at, to, label in marks:
+        if kind == "band":  # past the range, drawn over the bars but see-through: a grasp out there still shows
+            layers.append({"mark": {"type": "rect", "color": BEYOND_HEX, "opacity": 0.55}, "transform": one,
+                           "encoding": {"x": {"datum": round(at, 3), **x}, "x2": {"datum": round(to, 3)}}})
+    for kind, at, to, label in marks:
+        if kind == "band":
+            continue
+        style = {"strokeDash": [4, 3]} if kind == "dashed" else {}
+        layers.append({"mark": {"type": "rule", "color": LIMIT_HEX, "strokeWidth": 1.5, **style}, "transform": one,
+                       "encoding": {"x": {"datum": round(at, 3), **x}}})
+        layers.append({"mark": {"type": "text", "color": LIMIT_HEX, "align": "left", "baseline": "top", "dx": 4, "y": 4,
+                                "fontSize": 11}, "transform": one,
+                       "encoding": {"x": {"datum": round(at, 3), **x}, "text": {"value": label}}})
+    off = [{"filter": f"datum['{field}'] > {round(high, 4)} || datum['{field}'] < {round(low, 4)}"}, *one,
+           {"filter": "datum.n > 0"}, {"calculate": "datum.n + ' off the chart'", "as": "label"}]
+    layers.append({"mark": {"type": "text", "color": LIMIT_HEX, "align": "right", "baseline": "top", "dx": -4, "y": 4,
+                            "fontSize": 11}, "transform": off,
+                   "encoding": {"x": {"datum": round(high, 3), **x}, "text": {"field": "label"}}})
+    return {"type": "chart", "name": name, "chart": {"layer": layers}}
 
 
 def _number(payload: Mapping, key: str, default: float = 0.0) -> float:
