@@ -210,6 +210,7 @@ DATASET_DOM = r"""
   out.post = await page.$$eval('button[data-rerun]', (nodes) => nodes.length);
   out.web = await page.$$eval('a[data-tc-rerun-web]', (nodes) => nodes.map((a) => [a.textContent, a.getAttribute('href'), a.target]));
   out.rrd = await page.$$eval('a[data-tc-rrd]', (nodes) => nodes.map((a) => [a.getAttribute('href'), a.hasAttribute('download')]));
+  out.actions = await page.$$eval('td.ds-actions', (nodes) => nodes.map((td) => td.textContent));
   out.text = await page.evaluate(() => document.body.innerText);
   await shot(page, args.name);
 """
@@ -227,6 +228,14 @@ def test_static_host_dataset_page_links_the_web_viewer_and_names_no_row_files(tm
     assert out["rrd"] and all(href.startswith("runs/") and href.endswith(".rrd") and download for href, download in out["rrd"])
     assert "rows.json" not in out["footer"] and "rows.parquet" not in out["footer"]
     assert str(tmp_path) not in out["text"]
+
+
+def test_dataset_page_without_rrd_offers_no_rerun_action(tmp_path):
+    index = _dataset(tmp_path, rows=(), rerun=False, command_root="site/comparison")
+    out = drive(tmp_path, DATASET_DOM, index=str(index), name="dataset-no-rrd")
+    assert out["post"] == 0 and out["web"] == [] and out["rrd"] == []
+    assert out["actions"] and all(text == "Open run" for text in out["actions"]), out["actions"]
+    assert "Rerun" not in out["text"]
 
 
 def test_default_dataset_page_keeps_the_rerun_button_and_the_footer(tmp_path):

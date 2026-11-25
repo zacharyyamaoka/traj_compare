@@ -1,0 +1,561 @@
+{
+ "title": "Five variants of your Rerun pick: the arm on the left, your tabs on the right",
+ "kicker": "/babble 5 · the Trajectory Tracking Agent's run p6s on workspace-dev-029 (target vs solution) · UR5e URDF · real Rerun 0.40",
+ "brief": "Your Nov 24 note: \"I wanted 5 new variants of my pick not the 5 old looks\". Your pick is R3 (the 3D arm on the left half) with your tabs on the right (q · qd · qdd · qddd · q/qd/qdd · TCP). Every variant keeps that frame and changes what's inside it: what the 3D side shows, how the tabs are organised, how the plots are drawn, how you find moments, and how a tracking run (target vs solution) appears. V1 is what's built (robot_msgs main) and stays the default until you pick. Each one is a single function, a JointTrajectory + the URDF (+ an optional target) in, an .rrd out. All five are filmed in the real viewer on the same run.",
+ "defaultId": "v2",
+ "defaultWhy": "V2 · Target vs run scores 91/100. It's V1 plus the one thing V1 can't do: show a tracking run. The arm stays plain steel, and the run's deviation from its target is drawn ×50 as a thin magenta skeleton with an arrow labelled with the true offset. An Error tab opens first, with the agent's own ruler (RMS 1.09 mm, worst 2.11 mm at 1.42 s), each joint's error in degrees, and a target-vs-run table at the playhead. Your six tabs follow, each with the target as a pale line under the run. With no target (a plan) it's V1, unchanged. Next best: V4 · By joint + events (79), whose clickable Events log is the part worth splicing in.",
+ "decisionHinge": "Whether this viewer is mostly for tracking runs or for plans. V2's lead comes from target vs solution (20 % of the score). With no target, V2 and V1 look the same. If finding moments matters more than seeing the error, V4 closes in: its Events tab lists start, via points, peak speed, closest to a limit and worst error, and clicking a row seeks there. The likely splice is V2 + V4's Events log as one more tab, + V3's limit tint as a toggle.",
+ "invariants": [
+  "Your frame in every variant: the URDF arm in 3D on the left half, always; tabs on the right half; angles in degrees.",
+  "The same run: the Trajectory Tracking Agent's saved run p6s (best of generation 0) on the UR5e tour workspace-dev-029 (3.2 s): its target, its solution from the joint encoders, and the agent's own tool-error ruler. Both tool points come from the URDF's forward kinematics.",
+  "One function per variant: save(path, traj, *, robot, tool=None, target=None, target_tool=None, extras=None). robot_msgs is not edited (today's robot= call is unchanged).",
+  "Every frame is from the real Rerun 0.40 web viewer, loaded once, with the playhead set through the viewer's own handle. Each variant was re-filmed by an independent checker, its defects fixed, and re-checked."
+ ],
+ "boundary": "Prototypes in traj_compare/docs/proposals/rerun-pick-variants-2026-11-24/v1…v5 (make.py + two .rrd each; they open in the native viewer too). Nothing is in robot_msgs beyond V1, which is main. Label placement in V2, V4 and V5 is fitted to the opening camera at 1600×1000, so orbiting can move labels onto things.",
+ "axes": [
+  {
+   "name": "Left half (3D)",
+   "values": [
+    "start/end ghosts + path (V1)",
+    "×50 deviation skeleton + error arrow (V2)",
+    "links tinted by % of limit (V3)",
+    "event keyframes that light up (V4)",
+    "tool path by speed + triad + trail (V5)"
+   ]
+  },
+  {
+   "name": "Right half (tabs)",
+   "values": [
+    "your six (V1)",
+    "Error first + your six (V2)",
+    "% of limit first + your six (V3)",
+    "Events + one tab per joint + All joints (V4)",
+    "TCP + Tool error first, then joints (V5)"
+   ]
+  },
+  {
+   "name": "Plot style",
+   "values": [
+    "full span, limit lines (V1)",
+    "target pale under the run (V2)",
+    "% axes and shaded limit zones (V3)",
+    "small multiples per joint (V4)",
+    "a following ±1 s window (V5)"
+   ]
+  },
+  {
+   "name": "Finding moments",
+   "values": [
+    "scrub (V1)",
+    "worst error named in the title (V2)",
+    "opens at the moment closest to a limit (V3)",
+    "a clickable events log (V4)",
+    "the window follows the playhead (V5)"
+   ]
+  }
+ ],
+ "variants": [
+  {
+   "id": "v1",
+   "name": "As built",
+   "accent": "#6b7280",
+   "thesis": "Your pick as it is on robot_msgs main: the arm on the left with start/end ghosts and the tool path solid up to the playhead; your six tabs on the right.",
+   "bestWhen": "One trajectory is being read joint by joint: a plan, a dataset row.",
+   "losesWhen": "The recording is a tracking run: it holds one trajectory, so the target isn't on screen and where the solution is off can't be seen.",
+   "decisions": [
+    {
+     "label": "One trajectory",
+     "value": "A recording holds one JointTrajectory; the agent's run shows the solution alone."
+    },
+    {
+     "label": "Strip titles",
+     "value": "\"travel 130° · 38° to limit\", \"peak 154°/s · 85 % of limit\": the number you'd look for."
+    },
+    {
+     "label": "Opens",
+     "value": "Paused at 0 s on the q tab; play loops."
+    }
+   ],
+   "keepParts": [
+    "start/end ghosts",
+    "strip titles with travel / to limit",
+    "the q / qd / qdd table + cards tab"
+   ],
+   "proof": [
+    "robot_msgs main (3023fce): 1232 tests; filmed 33 frames with no ERROR",
+    "the strip-range fix landed during the round: wrist_2 qd now spans -224…224, labelled"
+   ],
+   "scores": {
+    "fr1": {
+     "score": 5,
+     "evidence": "Exactly your six tabs, one click apart, each readable (tab stills).",
+     "confidence": "high"
+    },
+    "fr2": {
+     "score": 4,
+     "evidence": "Path, now, and start/end ghosts; nothing about limits or error in 3D.",
+     "confidence": "medium"
+    },
+    "fr3": {
+     "score": 1,
+     "evidence": "The run shows the solution alone; the target and the error aren't anywhere.",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 4,
+     "evidence": "Degrees, named strips, limit lines, travel/peak/% in titles; qdd strips label only '0' (Rerun labels powers of ten).",
+     "confidence": "high"
+    },
+    "fr5": {
+     "score": 3,
+     "evidence": "Arm and every cursor move together; moments are found by scrubbing.",
+     "confidence": "high"
+    },
+    "fr6": {
+     "score": 4,
+     "evidence": "It is the stock function (any JointTrajectory + URDF), but has no target argument.",
+     "confidence": "high"
+    }
+   },
+   "gateResults": {
+    "g1": {
+     "pass": true,
+     "evidence": "Arm left half, tabs right half in all 33 hero frames."
+    },
+    "g2": {
+     "pass": true,
+     "evidence": "film.cjs: every frame on its time, no ERROR or panic."
+    },
+    "g3": {
+     "pass": true,
+     "evidence": "Every strip in °, °/s, °/s², °/s³."
+    },
+    "g4": {
+     "pass": true,
+     "evidence": "It is robot_msgs main."
+    }
+   },
+   "exhibits": [
+    [
+     "tab-qd-0-t1.8.png",
+     "qd tab",
+     "Joint speeds against ±max velocity; titles carry the peak and % of limit (wrist_2 now labelled -200…200)."
+    ],
+    [
+     "tab-tcp-0-t1.8.png",
+     "TCP tab",
+     "x/y/z in mm, roll/pitch/yaw in degrees, speed and angular speed."
+    ],
+    [
+     "plan-0-t1.8.png",
+     "The plan (no run)",
+     "The dataset tour alone at 1.8 s: what Open in Rerun shows for a dataset row."
+    ]
+   ]
+  },
+  {
+   "id": "v2",
+   "name": "Target vs run",
+   "accent": "#c026d3",
+   "thesis": "The run's deviation from its target, made visible: a ×50 magenta skeleton beside the steel arm with an arrow labelled with the true offset, an Error tab first (the agent's ruler, joint error in degrees), and the target pale under the run on every one of your tabs.",
+   "bestWhen": "Reviewing a tracking run: where along the motion is the solution off, by how much, and which joint.",
+   "losesWhen": "The error is tiny everywhere: the skeleton then hides inside the steel and only the Error tab says anything. On a plan it is V1.",
+   "decisions": [
+    {
+     "label": "Deviation",
+     "value": "An FEA-style deformation in joint space: target + 50 × (run − target), drawn as a thin skeleton (two mesh overlays tinted the steel arm; the skeleton covers ≤ 2.2 % of it)."
+    },
+    {
+     "label": "No second arm",
+     "value": "The target arm is within 0.62° of the run, so it isn't drawn; the title says so. The target's tool path stays (dashed blue)."
+    },
+    {
+     "label": "Two error numbers, reconciled",
+     "value": "The 3D label reads 'TCP off 3.3 mm' (the 145 mm tool point); the Error tab shows that line pale under the agent's ruler (bold, RMS 1.09 mm)."
+    },
+    {
+     "label": "Keys in titles",
+     "value": "'bold = run, pale = target, grey = limit' replaces legends that covered the curves' ends."
+    }
+   ],
+   "keepParts": [
+    "the Error tab",
+    "the ×N skeleton + labelled arrow",
+    "target pale under every strip"
+   ],
+   "proof": [
+    "Built, checked, fixed twice and re-checked by independent checkers; filmed 33 frames, no ERROR",
+    "measured: the skeleton covers at most 2.2 % of the steel arm (was 27 % as a mesh overlay)"
+   ],
+   "scores": {
+    "fr1": {
+     "score": 5,
+     "evidence": "Error + your six, one click apart; every tab readable with its key in the title.",
+     "confidence": "high"
+    },
+    "fr2": {
+     "score": 5,
+     "evidence": "Path, now, start/end, and the deviation skeleton with 'run ×50 · TCP off 3.3 mm' readable without the plots (f-14).",
+     "confidence": "medium"
+    },
+    "fr3": {
+     "score": 5,
+     "evidence": "Target and solution together on every tab, the error over time with the agent's RMS, and the arm shows where it was off.",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 4,
+     "evidence": "V1's strips plus the target and 'run − target ≤' in titles; qdd labels only '0'.",
+     "confidence": "high"
+    },
+    "fr5": {
+     "score": 3,
+     "evidence": "In step; the worst moment is named in the Error title (max 2.11 at 1.42 s) but not one click away.",
+     "confidence": "high"
+    },
+    "fr6": {
+     "score": 4,
+     "evidence": "One function with target= (additive); N is chosen from the data; uses robot_msgs' private helpers and its own loader copy.",
+     "confidence": "medium"
+    }
+   },
+   "gateResults": {
+    "g1": {
+     "pass": true,
+     "evidence": "Arm left, tabs right in every re-filmed frame."
+    },
+    "g2": {
+     "pass": true,
+     "evidence": "Checker's re-film: every frame on its time, no ERROR or panic."
+    },
+    "g3": {
+     "pass": true,
+     "evidence": "Joint error in °, every strip and table in degrees."
+    },
+    "g4": {
+     "pass": true,
+     "evidence": "robot_msgs src unchanged; no monkeypatching."
+    }
+   },
+   "exhibits": [
+    [
+     "tab-error-0-t1.8.png",
+     "Error tab",
+     "The agent's ruler (bold) over the 145 mm-point offset (pale), each joint's error in degrees, and target vs run at the playhead."
+    ],
+    [
+     "tab-q-0-t1.8.png",
+     "q tab",
+     "The target pale under the run; titles add 'run − target ≤ …'."
+    ],
+    [
+     "plan-0-t1.8.png",
+     "The plan (no run)",
+     "With no target it degrades to one arm and your six tabs."
+    ]
+   ]
+  },
+  {
+   "id": "v3",
+   "name": "Limit-lit",
+   "accent": "#dc2626",
+   "thesis": "The arm itself tells you how hard each joint is working: every link is tinted live by its joint's worst % of limit (green, amber ≥ 80 %, red ≥ 95 %). A '% of limit' tab leads, and the recording opens on the moment closest to a limit.",
+   "bestWhen": "Checking whether a trajectory or a controller pushes the robot to its limits, and where.",
+   "losesWhen": "A time-optimal plan rides its limits most of the time, so the arm is mostly red and the colour stops discriminating. The tracking error isn't shown.",
+   "decisions": [
+    {
+     "label": "Tint",
+     "value": "Each link re-coloured over time by its joint's max of |q| to its limit, |qd|/vmax and |qdd|/amax; a legend under the arm gives each joint's number."
+    },
+    {
+     "label": "Opens at the moment",
+     "value": "Rerun has no start-time setting, so the file writes the rows from the moment onward first; it opened at 0.40 s on 7 of 7 loads (web viewer)."
+    },
+    {
+     "label": "Honest about the spike",
+     "value": "wrist_2's 145 % qdd at 0.40 s is the solution's measured acceleration (differenced encoder q; 132–141 % smoothed), a real overshoot of the gen-0 controller."
+    }
+   ],
+   "keepParts": [
+    "the link tint (as a toggle)",
+    "the % of limit lanes",
+    "shaded limit zones on the strips"
+   ],
+   "proof": [
+    "Built, checked, fixed and re-checked by independent checkers; filmed 33 frames, no ERROR",
+    "open-at-moment: 7 of 7 loads at 0.400 s (web viewer; not tested in the native viewer)"
+   ],
+   "scores": {
+    "fr1": {
+     "score": 4,
+     "evidence": "% of limit + your six; the % tab is dense (lanes + six strips), lanes keep Rerun's '/joint (…)' prefix.",
+     "confidence": "medium"
+    },
+    "fr2": {
+     "score": 4,
+     "evidence": "The tint is a load-bearing signal readable without plots (f-14), but on the plan most links are red.",
+     "confidence": "medium"
+    },
+    "fr3": {
+     "score": 2,
+     "evidence": "The target is a pale line, mostly hidden under the run (titles say so); no error number anywhere.",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 5,
+     "evidence": "% of limit with shaded zones, peak % and closest approach on every joint; degrees on the joint tabs.",
+     "confidence": "high"
+    },
+    "fr5": {
+     "score": 4,
+     "evidence": "Opens at the closest moment with a ◆; the lanes show where each joint is near a limit over the whole run.",
+     "confidence": "medium"
+    },
+    "fr6": {
+     "score": 3,
+     "evidence": "One function with target=, but the open-at trick relies on undocumented load order and reorders the file; own mesh copy.",
+     "confidence": "medium"
+    }
+   },
+   "gateResults": {
+    "g1": {
+     "pass": true,
+     "evidence": "Arm left, tabs right in every re-filmed frame."
+    },
+    "g2": {
+     "pass": true,
+     "evidence": "Checker: 9 film runs, only the viewer's own 403."
+    },
+    "g3": {
+     "pass": true,
+     "evidence": "Joint tabs in degrees; the % strips in %."
+    },
+    "g4": {
+     "pass": true,
+     "evidence": "robot_msgs src unchanged; the tint uses V3's own copy."
+    }
+   },
+   "exhibits": [
+    [
+     "opens-run.png",
+     "As it opens",
+     "Untouched load: the playhead at 0.40 s, wrist_2's link red, the ◆ on its strip at 145 % qdd (measured)."
+    ],
+    [
+     "tab-qd-0-t1.8.png",
+     "qd tab",
+     "Joint speeds with amber (80–95 %) and red (≥ 95 %) zones; titles say the target sits under the run."
+    ],
+    [
+     "plan-0-t1.8.png",
+     "The plan (no run)",
+     "The time-optimal plan at 1.8 s: mostly red, the ◆ at 0.90 s (wrist_2 at 99 % qd)."
+    ]
+   ]
+  },
+  {
+   "id": "v4",
+   "name": "By joint + events",
+   "accent": "#0d9488",
+   "thesis": "The run is indexed by its events (start, via points, peak speed, closest to a limit, worst error, end): numbered markers on the path, the arm tinted in each event's colour as the playhead passes it, a clickable Events log first, then one tab per joint with its q, qd, qdd, qddd stacked.",
+   "bestWhen": "A long run where you need to jump to what happened: the via points, the worst error, the limit overshoot.",
+   "losesWhen": "You want your per-derivative tabs one click away: they're nested under All joints. The small multiples of one joint don't line up exactly (Rerun's y-label widths).",
+   "decisions": [
+    {
+     "label": "Events from the data",
+     "value": "Via points are dips in the target's tool speed; closest-to-limit uses robot_msgs' % of limit; worst error is the agent's ruler. 7 events on the run, 6 on the plan."
+    },
+    {
+     "label": "Clickable log",
+     "value": "A TextLog row per event; clicking its time cell moves the playhead there (checked: row 4 → 1.420 s)."
+    },
+    {
+     "label": "Lit, not ghosted",
+     "value": "Inside an event's window the live arm itself takes the event's colour (a second arm at the same pose z-fought into speckle); between events it is steel."
+    },
+    {
+     "label": "Organised by joint",
+     "value": "One tab per joint stacks q, qd, qdd, qddd (+ target and run − target on a run); All joints › q is your q tab."
+    }
+   ],
+   "keepParts": [
+    "the Events tab with its clickable log",
+    "numbered event markers on the path",
+    "the arm-at-each-event table"
+   ],
+   "proof": [
+    "Built, checked, fixed twice and re-checked; filmed 33 frames, no ERROR; run file 2.77 MB (V1 2.25 MB)",
+    "clicking a log row seeks: rows 4 and 6 landed at 1.420 s and 2.280 s"
+   ],
+   "scores": {
+    "fr1": {
+     "score": 3,
+     "evidence": "Your per-derivative views are two clicks away (All joints › q); per-joint tabs are one click.",
+     "confidence": "high"
+    },
+    "fr2": {
+     "score": 5,
+     "evidence": "Path, now, numbered events and the arm lit at each event, readable without the plots.",
+     "confidence": "medium"
+    },
+    "fr3": {
+     "score": 4,
+     "evidence": "Worst-error event with the agent's number, run − target strip per joint tab, tool error with event lines.",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 4,
+     "evidence": "Degrees, limits and peaks per strip; strips of one joint drift up to ~36 px apart; qdd labels only '0'.",
+     "confidence": "high"
+    },
+    "fr5": {
+     "score": 5,
+     "evidence": "Every key moment is a numbered event; the log seeks on click; ▶ marks the latest.",
+     "confidence": "high"
+    },
+    "fr6": {
+     "score": 3,
+     "evidence": "Event detection is general (any URDF, any trajectory), but labels and the Events tab's row heights are fitted to 1600×1000, and the tint filters robot_msgs' fixed arm colour.",
+     "confidence": "medium"
+    }
+   },
+   "gateResults": {
+    "g1": {
+     "pass": true,
+     "evidence": "Arm left, tabs right in every re-filmed frame."
+    },
+    "g2": {
+     "pass": true,
+     "evidence": "Checker: every film run with an empty error list."
+    },
+    "g3": {
+     "pass": true,
+     "evidence": "Degrees in every joint strip and table."
+    },
+    "g4": {
+     "pass": true,
+     "evidence": "robot_msgs src unchanged; only imports."
+    }
+   },
+   "exhibits": [
+    [
+     "tab-wrist_2-0-t1.8.png",
+     "wrist_2 tab",
+     "One joint: q, qd, qdd, qddd stacked with limits and event lines, the target pale, run − target below."
+    ],
+    [
+     "tab-all-joints-q-0-t1.8.png",
+     "All joints › q",
+     "Your q tab, nested under All joints."
+    ],
+    [
+     "plan-0-t1.8.png",
+     "The plan (no run)",
+     "Six events from the plan alone."
+    ]
+   ]
+  },
+  {
+   "id": "v5",
+   "name": "Tool first",
+   "accent": "#65a30d",
+   "thesis": "Both halves follow the tool: the path coloured by speed with a TCP triad and a bright 0.5 s trail on the left, the TCP and Tool error tabs first on the right, and every plot a ±1 s window that follows the playhead.",
+   "bestWhen": "The task is defined in tool space (a pick, a weld, a pour): how fast the tool moves, where it's off, how it's oriented.",
+   "losesWhen": "You want to see the whole motion's plots at once: each plot shows only 2 s, and the plots no longer zoom together.",
+   "decisions": [
+    {
+     "label": "Speed colour",
+     "value": "Purple (0) → lime (1507 mm/s, the peak at 2.28 s) along the whole path; the last 0.5 s drawn thick."
+    },
+    {
+     "label": "Following window",
+     "value": "Each plot shows the playhead ±1 s, cursor centred (Rerun's cursor-relative time range)."
+    },
+    {
+     "label": "Error ×20",
+     "value": "Magenta arrows from the target's tool point, bold at the playhead and faint every 0.1 s; the target path isn't drawn because it never parts from the run by more than 3.6 mm."
+    },
+    {
+     "label": "Orientation split",
+     "value": "Roll/pitch and yaw in separate strips (yaw unwraps -173 → -828°), each labelled."
+    }
+   ],
+   "keepParts": [
+    "the speed-coloured tool path + trail",
+    "the TCP readout table",
+    "the following window (as a toggle)"
+   ],
+   "proof": [
+    "Built, checked, fixed twice and re-checked by independent checkers; filmed 33 frames, no ERROR",
+    "the playhead label never lands on the arm (checked on every sample at the opening camera)"
+   ],
+   "scores": {
+    "fr1": {
+     "score": 4,
+     "evidence": "TCP and Tool error first, then your joint tabs; each tab shows only ±1 s at a time.",
+     "confidence": "medium"
+    },
+    "fr2": {
+     "score": 5,
+     "evidence": "Path by speed, triad, trail, error arrows and a speed/error label, readable without plots (f-18).",
+     "confidence": "high"
+    },
+    "fr3": {
+     "score": 4,
+     "evidence": "Error arrows along the path and the agent's ruler in the Tool error tab; the target path is coincident, so not drawn.",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 3,
+     "evidence": "V1's strips in a 2 s window: limits drawn, but the whole-run peak isn't in view and strips don't align (independent axes).",
+     "confidence": "medium"
+    },
+    "fr5": {
+     "score": 3,
+     "evidence": "Cursor stays centred as you scrub; moments aren't marked (peak speed only in a title).",
+     "confidence": "high"
+    },
+    "fr6": {
+     "score": 3,
+     "evidence": "One function with target=, but label placement uses a pinhole model of the 1600×1000 opening camera.",
+     "confidence": "medium"
+    }
+   },
+   "gateResults": {
+    "g1": {
+     "pass": true,
+     "evidence": "Arm left, tabs right in every re-filmed frame."
+    },
+    "g2": {
+     "pass": true,
+     "evidence": "Checker: only the viewer's own 403."
+    },
+    "g3": {
+     "pass": true,
+     "evidence": "Orientation, angular speed and joint strips in degrees."
+    },
+    "g4": {
+     "pass": true,
+     "evidence": "robot_msgs src unchanged; no monkeypatching."
+    }
+   },
+   "exhibits": [
+    [
+     "tab-error-0-t1.8.png",
+     "Tool error tab",
+     "The agent's ruler in a ±1 s window, the error drawn ×20 in 3D."
+    ],
+    [
+     "tab-qd-0-t1.8.png",
+     "qd tab",
+     "Your joint tabs, in the following window."
+    ],
+    [
+     "plan-0-t1.8.png",
+     "The plan (no run)",
+     "The plan's tool path coloured by speed, no error arrows."
+    ]
+   ]
+  }
+ ]
+}

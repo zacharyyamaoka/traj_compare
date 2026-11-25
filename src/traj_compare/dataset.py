@@ -1970,6 +1970,7 @@ def write_dataset_report(
     command_root: str | None = None,
     rerun_server: bool = True,
     public_url: str | None = None,
+    rerun: bool = True,
 ) -> Path:
     """Write ``output_dir/index.html`` (many runs at a glance), ``rows.json``/``rows.parquet`` and ``runs/<slug>/``.
 
@@ -2027,11 +2028,17 @@ def write_dataset_report(
       Rerun web viewer" (app.rerun.io at the pinned SDK version, ``rerun_export.RERUN_SDK_VERSION``) and the .rrd itself,
       as the coverage workbench does. ``public_url`` (the absolute URL ``output_dir`` is served from) is the web viewer's
       base for the .rrd; without it the page's own URL is.
+    - ``rerun``: ``True`` (the default): the runs table offers each row's Rerun actions (above). ``False``, for a site
+      that ships no .rrd (its run reports built elsewhere, e.g. by ``write_comparison_report``): no Rerun action and no
+      Rerun words on the page; ``public_url`` (the .rrd's base) is then refused. WHY (TTA review, 2026-11-25): with
+      ``rerun_server=False`` and no .rrd shipped, every row's two Rerun links were 404s.
     """
 
     runs = list(runs)
     primary = dict(primary or {})
     group_by = tuple(group_by)
+    if not rerun and public_url:
+        raise ValueError("public_url is the .rrd's base; rerun=False says the site ships no .rrd")
     row_files = _row_files(rows)  # NAVIGATION.md C2: refused before anything is written, the output directory included
     if drill_down not in _DRILL_DOWNS:
         raise ValueError(f"drill_down is one of {_DRILL_DOWNS}, got {drill_down!r}")
@@ -2224,7 +2231,9 @@ def write_dataset_report(
     # WHY only when asked: a default write's payload (and so its page) is byte-for-byte today's
     if rows is not None:  # the footer names only the row files this write made (none for rows=())
         payload["row_files"] = [f"rows.{name}" for name in _ROW_FILES if name in row_files]
-    if not rerun_server:
+    if not rerun:
+        payload["rerun"] = False
+    elif not rerun_server:
         payload["rerun_server"] = False
         payload["rerun_sdk"] = rerun_export.RERUN_SDK_VERSION
     if public_url:
