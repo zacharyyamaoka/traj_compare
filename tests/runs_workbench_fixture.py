@@ -102,12 +102,13 @@ def pendulum_runs() -> list[Run]:
     return _runs(PENDULUM_TARGETS, ("pd",), PENDULUM_JOINTS, ("sim", "real"), torques=False)
 
 
-def write_sites(root: Path) -> dict[str, Path]:
-    """Both sites under ``root`` (``root/arm``, ``root/pendulum``); {deployment title: site dir}."""
+def write_sites(root: Path, *, coverage: tuple[str, ...] = ()) -> dict[str, Path]:
+    """Both sites under ``root`` (``root/arm``, ``root/pendulum``); {deployment title: site dir}. ``coverage``: the
+    deployments (ARM, PENDULUM) whose site also writes its coverage page (``write_dataset_report(coverage=True)``)."""
     arm = root / "arm"
     pendulum = root / "pendulum"
     write_dataset_report(arm_runs(), arm, title="Arm cell (sim)", target_by="target", config_by="controller",
-                         poses="dataset_fixture_fk:tool_xy", sweep=SWEEP, rows=())
+                         poses="dataset_fixture_fk:tool_xy", sweep=SWEEP, rows=(), coverage=ARM in coverage)
     write_dataset_report(pendulum_runs(), pendulum, title="Pendulum (sim + real)", target_by="target",
-                         config_by="controller", rows=())
+                         config_by="controller", rows=(), coverage=PENDULUM in coverage)
     return {ARM: arm, PENDULUM: pendulum}
