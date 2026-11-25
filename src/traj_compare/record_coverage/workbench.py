@@ -138,8 +138,7 @@ def workbench_rows(coverage, records: Sequence) -> tuple[list[dict], list[dict]]
             counts = np.bincount(index[inside], minlength=n)
             present = values[members][np.isfinite(values[members])]
             row = {"id": f"{cohort}|{keys[name]}", "kind": "hist", "grid": keys[name], "cohort": cohort, "field": name,
-                   "field_order": order, "label": f"{name} · {field['display']['unit'] or 'no unit'}",
-                   "signal": f"[{field['display']['unit'] or '–'}]", "lo": hist["edges"][0], "hi": hist["edges"][1],
+                   "field_order": order, "label": name, "signal": "records", "lo": hist["edges"][0], "hi": hist["edges"][1],
                    "bins": n, "counts": counts.tolist(), "low": hist["low"], "high": hist["high"],
                    "limit_source": "limit" if limit else "data",
                    "outside": int(((present < hist["low"]) | (present > hist["high"])).sum()) if limit else 0,
@@ -166,7 +165,7 @@ def workbench_rows(coverage, records: Sequence) -> tuple[list[dict], list[dict]]
             at = np.flatnonzero(counts)
             parts.append({
                 "id": f"{cohort}|{grid}", "kind": "pair", "grid": grid, "cohort": cohort, "title": f"{x} × {y}",
-                "x": keys[x], "y": keys[y], "x_label": x, "y_label": y,
+                "x": x, "y": y, "x_label": x, "y_label": y,
                 "x_lo": xl, "x_hi": xh, "nx": nx, "y_lo": yl, "y_hi": yh, "ny": ny,
                 "x_scale": kinds[x]["display"]["scale"], "y_scale": kinds[y]["display"]["scale"],
                 "x_unit": kinds[x]["display"]["unit"] or "", "y_unit": kinds[y]["display"]["unit"] or "",
@@ -200,7 +199,8 @@ def _record_properties(payload: Mapping, keys: Mapping[str, str]) -> dict:
         else:
             properties[key] = {"type": "text", "label": field["name"]}
     properties.update({
-        "missing": {"type": "number", "label": "Missing", "description": "fields with no value in this record"},
+        "missing": {"type": "number", "label": "Missing", "decimals": 2,
+                    "description": "fields with no value in this record"},
         "new_cells": {"type": "number", "label": "New cells",
                       "description": "cells of the space it was the first to visit, in the order analyze() was given"},
         "unique_cells": {"type": "number", "label": "Cells only it visits",
@@ -232,12 +232,17 @@ def _part_properties() -> dict:
     return properties
 
 
+GROWTH_SERIES = ("in the order given", "random order: median", "random order: p10", "random order: p90")
+
+
 def _growth_rows(payload: Mapping) -> list[dict]:
+    """Long form, one row per (series, records): one line mark with a legend entry per series."""
     growth = payload["coverage"]["growth"]
     shuffled = growth["shuffled"]
-    return [{"id": f"k{k}", "records": k, "given": _round(v), "median": _round(m), "p10": _round(lo), "p90": _round(hi)}
-            for k, v, m, lo, hi in zip(growth["records"], growth["visited_pct"], shuffled["median"], shuffled["p10"],
-                                       shuffled["p90"], strict=True)]
+    series = dict(zip(GROWTH_SERIES, (growth["visited_pct"], shuffled["median"], shuffled["p10"], shuffled["p90"]),
+                      strict=True))
+    return [{"id": f"{name}|{k}", "series": name, "records": k, "visited_pct": _round(value)}
+            for name, values in series.items() for k, value in zip(growth["records"], values, strict=True)]
 
 
 def _support_rows(payload: Mapping) -> list[dict]:
@@ -299,6 +304,10 @@ def _page(name: str, panels: list[dict]) -> dict:
     return {"name": name, "layout": {"columns": 12, "rowHeight": 96, "panels": [p for p in panels if p]}}
 
 
+def _pair_name(pair: Mapping) -> str:
+    return f"{pair['x']} × {pair['y']}"
+
+
 def _class_names(payload: Mapping) -> list[str]:
     return list(payload["classes"])
 
@@ -308,13 +317,13 @@ def _pages(payload: Mapping) -> list[dict]:
     numbers = len(payload["hist"])
     hist_h = max(3, min(9, 1 + 2 * ((numbers + 2) // 3)))
     overview = [
-        {"view": "At a glance", "w": 12, "h": 1, "style": {"title": "none"}},
+        {"view": "At a glance", "w": 12, "h": 2, "style": {"title": "none"}},
         {"view": "Every number against its range", "w": 8, "h": 5} if numbers else None,
         {"view": "Is more data still adding coverage?", "w": 4, "h": 3},
         {"view": "Missing values", "w": 4, "h": 2},
     ]
     if payload["pairs"]:
-        overview.append({"view": "Pair planes", "w": 6, "h": 4})
+        overview.append({"view": _pair_name(payload["pairs"][0]), "w": 6, "h": 4})
     for name in classes[:2]:
         overview.append({"view": f"{name} · class balance", "w": 3, "h": 4})
     pages = [
@@ -323,8 +332,8 @@ def _pages(payload: Mapping) -> list[dict]:
                            "style": {"title": "none"}} if numbers else {"view": "Missing values", "w": 12, "h": 3}]),
         _page("Classes", [{"view": f"{name} · class balance", "w": 4, "h": 4} for name in classes]
               or [{"view": "Missing values", "w": 12, "h": 3}]),
-        _page("Pairs", [{"view": "Pair planes", "w": 12, "h": 6, "style": {"title": "none"}}] if payload["pairs"]
-              else [{"view": "Missing values", "w": 12, "h": 3}]),
+        _page("Pairs", [{"view": _pair_name(pair), "w": 6, "h": 5} for pair in payload["pairs"]]
+              or [{"view": "Missing values", "w": 12, "h": 3}]),
         _page("Missing", [{"view": "Missing values", "w": 12, "h": max(3, min(8, 1 + len(payload["fields"]) // 4))}]),
         _page("Growth", [{"view": "Is more data still adding coverage?", "w": 8, "h": 4},
                          {"view": "What each record added", "w": 12, "h": 3}]),
@@ -353,9 +362,11 @@ def _views(payload: Mapping, keys: Mapping[str, str], rail: Sequence[str]) -> li
         views.append({"type": "coverage-hist", "name": "Every number against its range", "from": "parts",
                       "filters": 'kind == "hist"', "sort": [{"property": "field_order", "direction": "ASC"}],
                       "coverage": {"sum": "grid", "card": "field", "title": "label"}})
-    if payload["pairs"]:
-        views.append({"type": "coverage-plane", "name": "Pair planes", "from": "parts", "filters": 'kind == "pair"',
-                      "coverage": {"sum": "grid", "title": "title", "share": False}})
+    # WHY one view per pair, never small multiples: multiples share one y axis, and two pairs have different ranges
+    for pair in payload["pairs"]:
+        grid = f"pair:{keys[pair['x']]}|{keys[pair['y']]}"
+        views.append({"type": "coverage-plane", "name": _pair_name(pair), "from": "parts",
+                      "filters": f'kind == "pair" && grid == "{grid}"', "coverage": {"sum": "grid", "title": "title"}})
     for name, block in payload["classes"].items():
         colour = group_by if group_by and group_by != name else (split if split and split != name else None)
         encoding: dict[str, Any] = {
@@ -371,20 +382,12 @@ def _views(payload: Mapping, keys: Mapping[str, str], rail: Sequence[str]) -> li
                       "x": {"aggregate": "sum", "field": "missing", "title": "records with no value"}}}})
     ceiling = payload["coverage"]["ceiling_pct"]
     views.append({"type": "chart", "name": "Is more data still adding coverage?", "from": "growth",
-                  "chart": {"layer": [
-                      {"mark": {"type": "area", "opacity": 0.25},
-                       "encoding": {"x": {"field": "records", "type": "quantitative", "title": f"records (all {n}; the rail does not narrow this)"},
-                                    "y": {"field": "p10", "type": "quantitative", "title": "cells visited (%)"},
-                                    "y2": {"field": "p90"}, "color": {"datum": "random order, p10–p90"}}},
-                      {"mark": {"type": "line", "strokeDash": [4, 3]},
-                       "encoding": {"x": {"field": "records", "type": "quantitative"},
-                                    "y": {"field": "median", "type": "quantitative"},
-                                    "color": {"datum": "random order, median"}}},
-                      {"mark": "line",
-                       "encoding": {"x": {"field": "records", "type": "quantitative"},
-                                    "y": {"field": "given", "type": "quantitative"},
-                                    "color": {"datum": "in the order given"}}},
-                  ]},
+                  "chart": {"mark": "line", "encoding": {
+                      "x": {"field": "records", "type": "quantitative",
+                            "title": f"records added (all {n}; the rail does not narrow this one)"},
+                      "y": {"field": "visited_pct", "type": "quantitative", "title": "cells of the space visited (%)"},
+                      "color": {"field": "series", "title": None, "sort": list(GROWTH_SERIES)},
+                      "strokeDash": {"field": "series", "title": None, "sort": list(GROWTH_SERIES)}}},
                   "guides": [{"rule": {"y": ceiling}, "label": f"Chao1: more of the same reaches {ceiling:.1f} %"}]})
     views.append({"type": "chart", "name": "What each record added",
                   "chart": {"mark": "bar", "encoding": {
@@ -395,7 +398,7 @@ def _views(payload: Mapping, keys: Mapping[str, str], rail: Sequence[str]) -> li
         reference = payload["support"]["reference"]
         views.append({"type": "chart", "name": "Held out, outside the reference", "from": "support",
                       "chart": {"mark": "bar", "encoding": {
-                          "y": {"field": "field", "title": None},
+                          "y": {"field": "field", "title": None, "sort": "-x"},
                           "x": {"field": "unsupported_pct", "type": "quantitative",
                                 "title": f"% of its records in cells {reference} never visits (whole set)"},
                           "color": {"field": "level", "title": "held out"}, "yOffset": {"field": "level"}}}})
@@ -506,11 +509,10 @@ def write_workbench(coverage, records: Sequence, out_dir: Path | str, *, title: 
     _write_json(out / "parts.json", {"id": "record-coverage-parts", "title": f"{title}: each cohort's share of every figure",
                                      "titleProperty": "id", "properties": _part_properties(), "rows": parts})
     _write_json(out / "growth.json", {"id": "record-coverage-growth", "title": f"{title}: growth (whole set)",
-                                      "properties": {"records": {"type": "number", "label": "Records"},
-                                                     "given": {"type": "number", "label": "In the order given", "unitText": "%"},
-                                                     "median": {"type": "number", "label": "Random order, median", "unitText": "%"},
-                                                     "p10": {"type": "number", "label": "Random order, p10", "unitText": "%"},
-                                                     "p90": {"type": "number", "label": "Random order, p90", "unitText": "%"}},
+                                      "properties": {"series": {"type": "text", "label": "Series"},
+                                                     "records": {"type": "number", "label": "Records added"},
+                                                     "visited_pct": {"type": "number", "label": "Cells visited",
+                                                                     "unitText": "%"}},
                                       "rows": _growth_rows(payload)})
     if payload["support"]:
         _write_json(out / "support.json", {"id": "record-coverage-support", "title": f"{title}: held-out support",

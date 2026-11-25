@@ -434,3 +434,24 @@ def test_refusals_name_what_is_wrong(picks):
         analyze(picks, group_by="angle_rad")
     with pytest.raises(ValueError, match="'holdout2' is not a level of 'split'"):
         analyze(picks, split="split", reference="holdout2")
+
+
+# ── found on the real datasets (2026-11-24) ─────────────────────────────────────────────────────────────────────────
+
+
+def test_an_id_that_repeats_across_groups_is_still_text_not_a_200_level_class():
+    # arm_motion_bench's task ids repeat across robots ("conveyor-dev-000" on two arms): 100 ids over 200 records
+    rows = [{"task_id": f"task-{i % 100:03d}", "robot": "a" if i < 100 else "b"} for i in range(200)]
+    payload = analyze(rows).payload
+    kinds = {f["name"]: f["kind"] for f in payload["fields"]}
+    assert kinds == {"task_id": "text", "robot": "category"}
+    assert payload["texts"]["task_id"] == {"distinct": 100, "duplicates": 100,
+                                           "examples": ["task-000", "task-001", "task-002"]}
+
+
+def test_a_constant_whole_number_field_is_one_bin_and_no_note():
+    payload = analyze([{"n": 4, "x": float(i)} for i in range(10)]).payload
+    hist = payload["hist"]["n"]
+    assert (hist["low"], hist["high"], hist["integer"]) == (4.0, 4.0, True)
+    assert hist["edges"] == [pytest.approx(2.5), pytest.approx(5.5), 3]
+    assert payload["source"]["notes"] == []

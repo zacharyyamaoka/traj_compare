@@ -36,6 +36,7 @@ MARGIN = 0.10  # each side of a declared range, as a share of it: overshoot show
 MAX_COMPONENTS = 4  # a sequence of at most this many numbers is one column per component, else its length
 MAX_DEPTH = 4
 TEXT_DISTINCT = 24  # a str field with more distinct values than this, and more than half distinct, is an identifier
+TEXT_ALWAYS = 64  # ... and with more than this, it is one even when ids repeat (task ids shared across robots)
 MAX_INTEGER_BINS = 60
 GROWTH_POINTS = 200
 SHUFFLES = 32
@@ -248,7 +249,9 @@ def _kind(column: _Column, choices: Mapping | None) -> str:
         return "number"
     if all(isinstance(v, str) for v in present):
         distinct = len(set(present))
-        return "text" if distinct > TEXT_DISTINCT and distinct > len(present) / 2 else "category"
+        if distinct > TEXT_ALWAYS or (distinct > TEXT_DISTINCT and distinct > len(present) / 2):
+            return "text"
+        return "category"
     return "category"
 
 
@@ -416,7 +419,7 @@ def _numbers_and_categories(columns, *, ranges, choices, bins, notes):
                 if half <= 0:
                     half = max(abs(float(middle)) * 0.05, 0.5)
                 low, high, source = float(middle - half), float(middle + half), "data"
-            if high <= low:
+            if high < low or (high == low and not integer):
                 notes.append(f"{column.name}: its range [{low}, {high}] is empty; widened by 0.5 each side")
                 low, high = low - 0.5, high + 0.5
             edges, first, inside = _edges(low, high, integer, bins)
