@@ -783,19 +783,38 @@ _EMBED = """<!doctype html>
 
 
 def write_trajectory_rrd(path: Path | str, name: str, trajectory: JointTrajectory, *, tool=None,
-                         prismatic: Sequence[str] = (), application_id: str = "traj_compare_coverage") -> Path:
-    """One trajectory as an .rrd: q, qd, qdd per joint (degrees, or mm for a ``prismatic`` joint) on its own clock, the
-    same signals analyze() bins, and the tool's path (a grey line, the current point on the clock) when ``tool`` is a
-    PoseTrajectory. Needs the ``rerun`` extra (rerun-sdk, imported here only).
+                         robot: str | Path | None = None, ghosts: bool = True, prismatic: Sequence[str] = (),
+                         application_id: str = "traj_compare_coverage") -> Path:
+    """One trajectory as an .rrd, the record's Open in Rerun. Needs the ``rerun`` extra (rerun-sdk, imported here only).
 
-    WHY not robot_msgs.viz.rerun.save: it logs radians, and Zach reads angles in degrees (the display edge converts);
-    this is the dashboard-pattern round's write_rrd (2026-11-24), which Open in Rerun was proven on.
+    With ``robot`` (the deployment's URDF path): robot_msgs' stock JointTrajectory viewer, the URDF arm moving on the
+    left half (start / end ``ghosts``; ``ghosts=False`` for a web bundle of many files) and tabs of q, qd, qdd, qddd,
+    % of limit and TCP plots on the right, in degrees (robot_msgs.viz.rerun ``robot=``). ``tool`` is then the TCP's
+    PoseTrajectory in the URDF's root link frame (``header.frame_id`` empty or a URDF link).
+
+    Without it, as before: q, qd, qdd per joint (degrees, or mm for a ``prismatic`` joint) on its own clock, the same
+    signals analyze() bins, and the tool's path (a grey line, the current point on the clock) when ``tool`` is a
+    PoseTrajectory. WHY kept: the Trajectory Tracking Agent ships these files today (the dashboard-pattern round's
+    write_rrd, 2026-11-24, which Open in Rerun was proven on).
     """
     import rerun as rr
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     recording = rr.RecordingStream(application_id, recording_id=name)
+    if robot is not None:
+        # WHY robot_msgs' viewer (Zach, 2026-11-24: "this should basically be the stock trajectory rerun viewer... 100%
+        # there should be a urdf showing"): one stock viewer per data type, grown in robot_msgs, never a second one here
+        from robot_msgs.viz import rerun as viz
+
+        if prismatic:
+            raise ValueError("with robot= the URDF says which joints are prismatic; drop prismatic=")
+        recording.save(str(path), default_blueprint=viz.robot_blueprint(trajectory, name, robot=robot, tool=tool,
+                                                                         ghosts=ghosts))
+        viz.log(trajectory, name, recording=recording, robot=robot, tool=tool, ghosts=ghosts)
+        recording.flush()
+        recording.disconnect()
+        return path
     recording.save(str(path))
     t = np.asarray(trajectory.t, float)
     times = [rr.TimeColumn("t", duration=t - (t[0] if t.size else 0.0))]
