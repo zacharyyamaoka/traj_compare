@@ -301,7 +301,9 @@ def _base(payload: Mapping, keys: Mapping[str, str], rail: Sequence[str], *, tit
 
 
 def _page(name: str, panels: list[dict]) -> dict:
-    return {"name": name, "layout": {"columns": 12, "rowHeight": 96, "panels": [p for p in panels if p]}}
+    # WHY 48 px rows: the summary strip needs ~140 px; on 96 px rows it was clipped (1 row) or half empty (2 rows)
+    return {"name": name, "layout": {"columns": 12, "rowHeight": 48,
+                                     "panels": [{**p, "h": 2 * p["h"]} for p in panels if p]}}
 
 
 def _pair_name(pair: Mapping) -> str:
@@ -317,7 +319,7 @@ def _pages(payload: Mapping) -> list[dict]:
     numbers = len(payload["hist"])
     hist_h = max(3, min(9, 1 + 2 * ((numbers + 2) // 3)))
     overview = [
-        {"view": "At a glance", "w": 12, "h": 2, "style": {"title": "none"}},
+        {"view": "At a glance", "w": 12, "h": 1.5, "style": {"title": "none"}},
         {"view": "Every number against its range", "w": 8, "h": 5} if numbers else None,
         {"view": "Is more data still adding coverage?", "w": 4, "h": 3},
         {"view": "Missing values", "w": 4, "h": 2},
@@ -354,8 +356,8 @@ def _views(payload: Mapping, keys: Mapping[str, str], rail: Sequence[str]) -> li
             {"label": "Nothing missing", "note": "records with a value in every field", "filters": "missing == 0"},
             {"label": "Add a cell of their own", "note": "records that visit a cell no other record visits",
              "filters": "unique_cells > 0"},
-            {"label": "Missing per record", "note": "fields with no value, on average",
-             "value": {"property": "missing", "summary": "Average"}},
+            {"label": "Something missing", "note": "records with no value in at least one field",
+             "filters": "missing > 0"},
         ]},
     }]
     if payload["hist"]:
