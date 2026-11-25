@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 import numpy as np
 import pytest
@@ -369,6 +370,15 @@ const spec = JSON.parse(require('fs').readFileSync(process.argv[4], 'utf8'));
   const action = await page.$(`${WB} .dv-peek [data-drill-action]:has-text("Open in Rerun")`);
   if (action) { await action.click(); await page.waitForTimeout(500); }
   await page.close();
+  // deep links (CONTRACT §53's URL: the rail as search params, the page in #tab=): a host links straight to a filter
+  const selectedTab = (p) => p.evaluate(() => { const t = document.querySelector('data-workbench data-tabs [role=tab][aria-selected="true"]'); return t && t.dataset.tab; });
+  page = await open(spec.index + spec.deep);
+  out.deep = { count: await count(page), tab: await selectedTab(page),
+               ticked: await page.evaluate(() => [...document.querySelectorAll('data-workbench data-facets input:checked')].map((i) => i.dataset.value)) };
+  await page.close();
+  page = await open(spec.index + spec.several);
+  out.several = await count(page);
+  await page.close();
   page = await open(spec.embed);
   out.embed = await page.evaluate(() => {
     const slot = document.querySelector('#host-slot').getBoundingClientRect();
@@ -392,7 +402,9 @@ def browsed(site) -> dict:
     try:
         line = server.stdout.readline()
         url = line.split(" on ", 1)[1].split()[0].rstrip("/")
-        spec = {"index": f"{url}/index.html", "embed": f"{url}/embed.html", "dataset": DATASETS[1][0]}
+        spec = {"index": f"{url}/index.html", "embed": f"{url}/embed.html", "dataset": DATASETS[1][0],
+                "deep": f"?dataset={quote(DATASETS[1][0])}&split=holdout#tab=trajectories",
+                "several": f"?dataset={quote(DATASETS[0][0])},{quote(DATASETS[1][0])}"}
         (site / "spec.json").write_text(json.dumps(spec))
         (site / "driver.js").write_text(DRIVER)
         result = subprocess.run(["node", str(site / "driver.js"), str(PLAYWRIGHT), str(CHROME), str(site / "spec.json")],
@@ -434,3 +446,54 @@ def test_open_in_rerun_posts_the_rows_rrd(browsed):
 def test_embedded_it_stays_in_the_hosts_slot(browsed):
     assert browsed["embed"]["slot"] == [1000, 680]
     assert browsed["embed"]["inSlot"] and browsed["embed"]["scrollX"] <= 1
+
+
+@needs_browser
+def test_a_deep_link_opens_with_its_filter_and_tab(browsed):
+    """TTA's Deployments page links into a dataset (Zach 2026-11-24: "when you click that deployment type or a particular
+    deployment then it takes you to the next page where now you see the dataset overview, with either all or the
+    particular dataset you select"). data-ui keeps the rail in the URL (CONTRACT §53), so a link is the filter."""
+    total = sum(count for _, count in DATASETS)
+    holdout = sum(1 for k in range(DATASETS[1][1]) if k % 3 == 2)
+    assert browsed["deep"]["count"] == f"{holdout} of {total} trajectories"
+    assert browsed["deep"]["tab"] == "Trajectories"
+    assert set(browsed["deep"]["ticked"]) == {DATASETS[1][0], "holdout"}
+    assert browsed["several"] == f"{DATASETS[0][1] + DATASETS[1][1]} of {total} trajectories"
+
+
+def with_deployments(inputs):
+    _, joints, tools, tags = inputs
+    deployed = {name: {**tag, "deployment": "bench" if tag["dataset"] == "Bench reach" else "cell"} for name, tag in tags.items()}
+    return analyze(joints, tool=tools, tags=deployed, group_by="dataset", title="Made-up arm"), joints, tools
+
+
+@needs_data_ui
+def test_a_deployment_leads_the_rail_and_a_static_host_gets_rerun_links(inputs, tmp_path):
+    """Datasets compare within one deployment (Zach 2026-11-24), so a deployment tag is the rail's first group; on a static
+    host (GitHub Pages) there is no server to POST to, so the record offers the Rerun web viewer and the file instead."""
+    yaml = pytest.importorskip("yaml")
+    coverage, joints, tools = with_deployments(inputs)
+    public = "https://example.github.io/app/datasets/"
+    write_workbench(coverage, joints, tmp_path, tool=tools, kit="../kit", rrd_for=lambda name: f"rrd/{name}.rrd",
+                    public_url=public, rerun_server=False)
+    base = yaml.safe_load((tmp_path / "coverage.base").read_text("utf-8"))
+    assert [f.get("property") for f in base["facets"][:3]] == ["deployment", "dataset", "split"]
+    actions = base["drill"]["actions"]
+    assert not any("post" in action for action in actions), actions
+    web = [action for action in actions if str(action.get("href", "")).startswith("https://app.rerun.io/version/0.40.0/")]
+    assert len(web) == 1 and "{rrd_url}" in web[0]["href"], actions
+    assert any(action.get("href") == "{rrd}" for action in actions), actions
+    rows = json.loads((tmp_path / "trajectories.json").read_text("utf-8"))["rows"]
+    assert all(row["rrd_url"] == public + row["rrd"] for row in rows)
+    assert {row["deployment"] for row in rows} == {"bench", "cell"}
+    result = subprocess.run(["node", str(DATA_UI / "bin" / "data-ui.mjs"), "check", str(tmp_path / "coverage.base"), "--json"],
+                            capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0 and json.loads(result.stdout)["errors"] == 0, result.stdout[-2000:]
+
+
+@needs_data_ui
+def test_served_locally_the_record_posts_to_rerun_and_offers_the_file(site):
+    yaml = pytest.importorskip("yaml")
+    base = yaml.safe_load((site / "coverage.base").read_text("utf-8"))
+    labels = [action["label"] for action in base["drill"]["actions"]]
+    assert labels[0] == "Open in Rerun" and any(action.get("href") == "{rrd}" for action in base["drill"]["actions"])

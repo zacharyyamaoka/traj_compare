@@ -39,11 +39,13 @@ import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
+from urllib.parse import urljoin
 
 import numpy as np
 from robot_msgs.trajectory import JointTrajectory
 
 from .. import _files
+from ..rerun_export import RERUN_SDK_VERSION
 from . import analysis as cov
 
 DATA_UI = Path(os.environ.get("TRAJ_COMPARE_DATA_UI", "/home/bam/data-ui"))
@@ -318,19 +320,33 @@ def write_workbench(coverage, trajectories, out_dir: Path | str, *, tool=None, t
                     subtitle: str | None = None,
                     rrd_for: Callable[[str], str | None] | Mapping[str, str] | None = None,
                     dataset: str = "dataset", facets: Sequence[str] = ("split", "kind", "tags"),
+                    lead: Sequence[str] = ("deployment",),
                     labels: Mapping[str, str] | None = None, kit: str | None = None, vendor: str = "main",
-                    data_ui: Path | str = DATA_UI) -> Path:
+                    data_ui: Path | str = DATA_UI, public_url: str | None = None, rerun_server: bool = True) -> Path:
     """Write the workbench page into ``out_dir`` (see the module docstring) and return its ``index.html``.
 
     ``dataset`` is the tag the rail lists first (its values get the series colours); ``facets`` the tags after it, in
     order (a tag no trajectory has is left out); ``labels`` renames a tag in the rail. ``kit`` is the href (relative to
     ``out_dir``) of a data-ui kit already vendored there, so nothing is vendored; else ``vendor`` (a data-ui ref) is
     vendored into ``out_dir/vendor/data-ui`` with data-ui's own ``vendor`` command from the ``data_ui`` checkout.
+
+    ``lead`` are tags the rail lists BEFORE ``dataset`` (default a ``deployment`` tag, when the trajectories carry one:
+    datasets compare within one deployment). A record's Rerun actions: ``rerun_server`` adds "Open in Rerun", a POST to
+    ``python -m traj_compare.serve``'s ``/__rerun/open`` (leave it off on a static host, which has no server);
+    ``public_url`` (the absolute URL ``out_dir`` is served from) adds each row's ``rrd_url`` and "Open in the Rerun web
+    viewer" (app.rerun.io at the pinned SDK version; the host must send ``Access-Control-Allow-Origin``, as GitHub Pages
+    does); "Download the .rrd" is always there. Deep links need nothing here: data-ui keeps the rail in the URL
+    (``index.html?deployment=cell&dataset=A,B&split=holdout#tab=trajectories``, CONTRACT §53).
     """
     payload = _payload(coverage)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     trajectory_rows, parts = workbench_rows(payload, trajectories, tool=tool, rrd_for=rrd_for)
+    if public_url:
+        root = public_url.rstrip("/") + "/"
+        for row in trajectory_rows:
+            if row.get("rrd"):
+                row["rrd_url"] = urljoin(root, row["rrd"])
     title = title or payload.get("title") or "Trajectory coverage"
     subtitle = payload.get("subtitle", "") if subtitle is None else subtitle
     names = {**LABELS, **(labels or {})}
@@ -341,7 +357,8 @@ def write_workbench(coverage, trajectories, out_dir: Path | str, *, tool=None, t
     _write_json(out / "parts.json", {"id": "coverage-parts", "title": f"{title}: each trajectory's share of every figure",
                                      "titleProperty": "id", "properties": _part_properties(), "rows": parts})
     base = _base(payload, trajectory_rows, title=title, dataset=dataset, facets=facets, labels=names,
-                 rrd=rrd_for is not None, tool=payload["tool"] is not None)
+                 rrd=rrd_for is not None, tool=payload["tool"] is not None, lead=lead, rerun_server=rerun_server,
+                 rerun_web=bool(public_url))
     _files.write_text(out / "coverage.base", _HEADER + _yaml(base) + "\n")
     if kit is None:
         kit = _vendor(out, vendor, Path(data_ui))
@@ -386,6 +403,7 @@ def _trajectory_properties(payload: Mapping, rows: list[dict], labels: Mapping[s
         properties[key] = {"type": "text", "label": _label(key, labels)}
     properties.update({
         "rrd": {"type": "text", "label": "Rerun file"},
+        "rrd_url": {"type": "text", "label": "Rerun file (URL)", "hidden": True},
         "duration_s": {"type": "number", "label": "Duration", "unitText": "s", "decimals": 2},
         "samples": {"type": "number", "label": "Samples"},
         "new_cells": {"type": "number", "label": "New cells",
@@ -404,6 +422,8 @@ def _trajectory_properties(payload: Mapping, rows: list[dict], labels: Mapping[s
         })
     if not any("rrd" in row for row in rows):
         del properties["rrd"]
+    if not any("rrd_url" in row for row in rows):
+        del properties["rrd_url"]
     return properties
 
 
@@ -446,18 +466,19 @@ _HEADER = """# The coverage workbench: data-ui's <data-workbench> over these tra
 
 
 def _base(payload: Mapping, rows: list[dict], *, title: str, dataset: str, facets: Sequence[str],
-          labels: Mapping[str, str], rrd: bool, tool: bool) -> dict:
+          labels: Mapping[str, str], rrd: bool, tool: bool, lead: Sequence[str] = (), rerun_server: bool = True,
+          rerun_web: bool = False) -> dict:
     joints = [joint["name"] for joint in payload["joints"]]
     group_by = payload["source"]["group_by"]
     rail = []
-    for key in (dataset, *facets):
+    for key in (*[key for key in lead if key not in (dataset, *facets)], dataset, *facets):
         values = _first_seen(rows, key)
         if not values:
             continue
         facet: dict[str, Any] = {"property": key, "label": _label(key, labels)}
         if key == "split":
             values = [v for v in SPLIT_ORDER if v in values] + [v for v in values if v not in SPLIT_ORDER]
-        if key in (dataset, "split"):
+        if key in (dataset, "split", *lead):
             facet["order"] = values
         rail.append(facet)
     rail.append({"property": "name", "as": "search", "label": "Find a trajectory", "placeholder": f"e.g. {rows[0]['name']}"})
@@ -488,9 +509,18 @@ def _base(payload: Mapping, rows: list[dict], *, title: str, dataset: str, facet
     style["heatmap"] = {"colormap": "viridis", "reverse": False, "scale": "linear"}
 
     actions = []
-    if rrd:
+    if rrd and rerun_server:
         actions.append({"label": "Open in Rerun", "post": "/__rerun/open?rrd={rrd}",
                         "title": "Opens {rrd} in the native Rerun viewer (needs python -m traj_compare.serve)"})
+    if rrd and rerun_web:
+        # WHY the hosted viewer: a static host (GitHub Pages) has no server to start the native one; app.rerun.io at the
+        # SDK version that wrote the file reads it by URL (an .rrd must be opened by its own viewer version)
+        actions.append({"label": "Open in the Rerun web viewer",
+                        "href": f"https://app.rerun.io/version/{RERUN_SDK_VERSION}/index.html?url={{rrd_url}}",
+                        "title": f"Opens {{rrd}} in Rerun {RERUN_SDK_VERSION}'s web viewer (app.rerun.io)"})
+    if rrd:
+        actions.append({"label": "Download the .rrd", "href": "{rrd}",
+                        "title": f"For a Rerun {RERUN_SDK_VERSION} viewer: uvx --from rerun-sdk=={RERUN_SDK_VERSION} rerun <file>"})
     actions.append({"label": "Copy its name", "copy": "{name}", "title": "Copies {name}"})
 
     pages = _pages(joints, tool)
