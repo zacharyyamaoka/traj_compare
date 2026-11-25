@@ -482,7 +482,7 @@ def test_a_deployment_leads_the_rail_and_a_static_host_gets_rerun_links(inputs, 
     assert not any("post" in action for action in actions), actions
     web = [action for action in actions if str(action.get("href", "")).startswith("https://app.rerun.io/version/0.40.0/")]
     assert len(web) == 1 and "{rrd_url}" in web[0]["href"], actions
-    assert any(action.get("href") == "{rrd}" for action in actions), actions
+    assert any(action.get("href") == "{rrd|path}" for action in actions), actions
     rows = json.loads((tmp_path / "trajectories.json").read_text("utf-8"))["rows"]
     assert all(row["rrd_url"] == public + row["rrd"] for row in rows)
     assert {row["deployment"] for row in rows} == {"bench", "cell"}
@@ -496,7 +496,7 @@ def test_served_locally_the_record_posts_to_rerun_and_offers_the_file(site):
     yaml = pytest.importorskip("yaml")
     base = yaml.safe_load((site / "coverage.base").read_text("utf-8"))
     labels = [action["label"] for action in base["drill"]["actions"]]
-    assert labels[0] == "Open in Rerun" and any(action.get("href") == "{rrd}" for action in base["drill"]["actions"])
+    assert labels[0] == "Open in Rerun" and any(action.get("href") == "{rrd|path}" for action in base["drill"]["actions"])
 
 
 @needs_data_ui
@@ -511,7 +511,7 @@ def test_below_the_server_root_the_rerun_post_names_the_file_from_the_root(input
     actions = yaml.safe_load((tmp_path / "coverage.base").read_text("utf-8"))["drill"]["actions"]
     post = next(action["post"] for action in actions if "post" in action)
     assert post == "/__rerun/open?rrd=datasets/ur5e/{rrd}", post
-    assert any(action.get("href") == "{rrd}" for action in actions)
+    assert any(action.get("href") == "{rrd|path}" for action in actions)
 
 
 def test_a_host_with_its_own_page_can_skip_index_and_embed(inputs, tmp_path):

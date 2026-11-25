@@ -527,7 +527,8 @@ def _base(payload: Mapping, rows: list[dict], *, title: str, dataset: str, facet
                         "href": f"https://app.rerun.io/version/{RERUN_SDK_VERSION}/index.html?url={{rrd_url}}",
                         "title": f"Opens {{rrd}} in Rerun {RERUN_SDK_VERSION}'s web viewer (app.rerun.io)"})
     if rrd:
-        actions.append({"label": "Download the .rrd", "href": "{rrd}",
+        # WHY |path (data-ui 354ccdde): a plain {rrd} encodes its '/' (rrd%2Fx.rrd), a 404 on GitHub Pages
+        actions.append({"label": "Download the .rrd", "href": "{rrd|path}",
                         "title": f"For a Rerun {RERUN_SDK_VERSION} viewer: uvx --from rerun-sdk=={RERUN_SDK_VERSION} rerun <file>"})
     actions.append({"label": "Copy its name", "copy": "{name}", "title": "Copies {name}"})
 
