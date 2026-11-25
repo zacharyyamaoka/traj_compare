@@ -26,6 +26,11 @@
   const ACCENT = '#2a78d6';
   const ALLOWED = '#e3ecf7';
   const HIGHLIGHT = '#0b0b0b';
+  // WHY a hatch in MUTED for beyond the limit, a stripe for the picked row, 2 px lines (Zach, fb-7a2772f9, 2026-11-23:
+  // "the colors are hard for me to see"): every mark >= 3:1 against the figure's surface (#fcfcfb; WCAG 2.1 SC 1.4.11),
+  // every line >= 1.5 px. The flat OUTSIDE fill was 1.3:1, the picked tint 1.06:1, the hairlines 1-1.4 px
+  const HATCH = MUTED;
+  const PICKED = '#f2f6fb';
   // WHY no orange/amber/red among the group colours: amber and red mean "a problem" on this page (and red = a limit)
   const GROUP_COLOURS = ['#2a78d6', '#2f9e44', '#8e5bd1', '#17a2b8', '#6b7a8f', '#c22f6e'];
   const POWER = { q: '', qd: '/s', qdd: '/s²', qddd: '/s³' };
@@ -327,6 +332,19 @@
     g.restore();
   }
 
+  /* diagonal hatching over a box (beyond the limit): lines through pixel centres, the surface between them */
+  function hatch(g, x, y, w, h, ink) {
+    if (!(w > 0.5) || !(h > 0.5)) return;
+    g.save();
+    g.beginPath(); g.rect(x, y, w, h); g.clip();
+    g.strokeStyle = ink; g.lineWidth = 1.5;
+    g.beginPath();
+    const x0 = Math.floor(x - h), y0 = Math.round(y), hh = Math.ceil(h) + 1;
+    for (let k = x0; k < x + w + 1; k += 6) { g.moveTo(k + 0.5, y0 + hh + 0.5); g.lineTo(k + hh + 0.5, y0 + 0.5); }
+    g.stroke();
+    g.restore();
+  }
+
   /* bar heights (0..1, < 0 = none) over [lo, hi] as a step outline filled; `stack` splits each bar by group */
   function drawBars(g, sx, base, height, e, heights, fill, stack) {
     for (let i = 0; i < e.n; i++) {
@@ -426,7 +444,7 @@
     return { id, node, titleText, tools, lead, body, legend: legendBox };
   }
 
-  /* items: {kind, colour?, label, note?, problem?}; kind: fill | empty | outside | line | thin | dash | tick | frame |
+  /* items: {kind, colour?, label, note?, problem?, group?}; kind: fill | empty | outside | hatch | stripe | line | thin | dash | tick | frame |
    * ramp | cross | text */
   function setLegend(fig, items) {
     fig.legend.replaceChildren();
@@ -439,7 +457,7 @@
         else if (item.colour) swatch.style.color = item.colour;
         if (item.alpha !== undefined) swatch.style.opacity = item.alpha;
       }
-      fig.legend.append(el('span', { class: 'cov-li' + (item.problem ? ' problem' : '') }, [
+      fig.legend.append(el('span', { class: 'cov-li' + (item.problem ? ' problem' : ''), 'data-mark': item.kind, 'data-group': item.group ? '' : null }, [
         swatch, el('span', null, [item.label, item.note ? el('span', { class: 'note', text: ' ' + item.note }) : null]),
       ]));
     }
@@ -740,7 +758,7 @@
 
   function buildOverview(section) {
     const ridge = figure('ridgeline', 'How much of its limits does each joint use?',
-      'One row per joint, one column per signal. Each signal is put on its own limit: −100 % is the low limit, +100 % the high limit (for speed and acceleration, minus and plus the limit). The bars are the samples, each row scaled to its own tallest bar; the black hairline under a row spans where the data really went (its 0.1st to 99.9th percentile, so one noisy sample cannot set it). A row that fills the space between the red lines uses its whole range; a narrow ridge in the middle means the joint barely moves. Click a row to open that joint.',
+      'One row per joint, one column per signal. Each signal is put on its own limit: −100 % is the low limit, +100 % the high limit (for speed and acceleration, minus and plus the limit), so no line marks the limit: the axis labels do. The bars are the samples, each row scaled to its own tallest bar; bars past ±100 % are red, the samples beyond the limit. The black line under a row spans where the data really went (its 0.1st to 99.9th percentile, so one noisy sample cannot set it). A row that fills −100 % … +100 % uses its whole range; a narrow ridge in the middle means the joint barely moves. Click a row to open that joint.',
       'TensorBoard histograms (offset mode) / joy plots, normalized per axis like a robot limit dashboard; the Nov 19 coverage gallery "fleet ridgeline".');
     register('overview', ridge, (width) => drawRidgeline(ridge, width));
     const table = figure('summary-table', 'Each joint in numbers: range, speed and acceleration used',
@@ -758,7 +776,7 @@
     const noteW = 62;
     const gap = 14;
     const top = 22;
-    const bottom = 40;
+    const bottom = 24;
     const colW = (width - labelW - signals.length * noteW - (signals.length - 1) * gap) / signals.length;
     const height = top + joints().length * rowH + bottom;
     const { canvas, g } = canvasOf(width, height);
@@ -775,11 +793,16 @@
     g.fillStyle = INK;
     g.textBaseline = 'alphabetic';
     for (const column of columns) { g.textAlign = 'left'; g.fillText(titles[column.signal], column.box.x, 14); }
+    let anyPast = false;
+    const ridge = { columns: columns.map((c) => ({ signal: c.signal, x: c.box.x, w: colW, lo: domain.lo, hi: domain.hi })), lines: [] };
     joints().forEach((joint, r) => {
       const base = top + (r + 1) * rowH - 9;
-      if (r === state.joint) { g.fillStyle = '#f2f6fb'; g.fillRect(0, top + r * rowH, width, rowH); }
+      const picked = r === state.joint;
+      // WHY a stripe beside the tint: the tint alone is 1.06:1 (fb-7a2772f9); the ACCENT stripe is >= 3:1
+      if (picked) { g.fillStyle = PICKED; g.fillRect(0, top + r * rowH, width, rowH); g.fillStyle = ACCENT; g.fillRect(0, top + r * rowH, 3, rowH); }
       if (r > 0) hline(g, top + r * rowH, 0, width, RULE);
-      g.font = r === state.joint ? FONT_BOLD : '11.5px -apple-system, "Segoe UI", Roboto, sans-serif';
+      ridge.lines.push({ id: joint.name, y: top + r * rowH, h: rowH, base, marked: picked });
+      g.font = picked ? FONT_BOLD : '11.5px -apple-system, "Segoe UI", Roboto, sans-serif';
       g.fillStyle = INK;
       g.textAlign = 'right';
       g.textBaseline = 'middle';
@@ -791,28 +814,45 @@
         const e = edges(h.edges);
         const pe = { n: e.n, at: (i) => toPct(e.at(i), limit) };
         const bars = heights(h.counts, state.scale);
-        drawBars(g, sx, base, rowH - 14, pe, bars.t, ACCENT);
+        const own = stated(limit);
+        // WHY no limit line at ±100 % (Zach, fb-509a6fe5, 2026-11-23: "When normalized seems redundant to put the joint
+        // limit bars as its always plus minus 100?"): every axis here IS its limit, so the line said nothing the axis
+        // labels did not; what it carried, a sample past the limit, is said by the bar itself, in the limit colour
+        const xLo = own ? sx(-100) : -Infinity;
+        const xHi = own ? sx(100) : Infinity;
+        g.save();
+        g.beginPath(); g.rect(column.box.x, top + r * rowH, colW, rowH); g.clip();
+        for (let i = 0; i < pe.n; i++) {
+          if (!(h.counts[i] > 0)) continue;
+          const a = sx(pe.at(i));
+          const end = sx(pe.at(i + 1));
+          const z = a + Math.max(0.8, end - a + 0.25);
+          const tall = bars.t[i] * (rowH - 14);
+          const ia = Math.max(a, xLo);
+          const iz = Math.min(z, xHi);
+          if (tall > 0 && iz > ia) { g.fillStyle = ACCENT; g.fillRect(ia, base - tall, iz - ia, tall); }
+          // WHY at least 2 x 2 px past the limit: a lone sample past a limit must never vanish under the scale; it grows
+          // outward, never across the limit
+          const shown = Math.max(2, tall);
+          g.fillStyle = Color.LIMIT;
+          if (a < xLo - 1e-6) { const stop = Math.min(end, xLo); const w = Math.max(2, stop - a); g.fillRect(stop - w, base - shown, w, shown); anyPast = true; }
+          if (end > xHi + 1e-6) { const start = Math.max(a, xHi); g.fillRect(start, base - shown, Math.max(2, end - start), shown); anyPast = true; }
+        }
+        g.restore();
         drawCaps(g, sx, base, rowH - 14, pe, bars);
         if (anyClipped(bars)) anyCap = true;
         if (h.counts.some((v) => v > 0)) anyData = true;
-        if (stated(limit)) {
-          vline(g, sx(-100), base - rowH + 12, base + 3, Color.LIMIT, 1.2);
-          vline(g, sx(100), base - rowH + 12, base + 3, Color.LIMIT, 1.2);
-        } else {
-          vline(g, sx(-100), base - rowH + 12, base + 3, MUTED, 1, [3, 3]);
-          vline(g, sx(100), base - rowH + 12, base + 3, MUTED, 1, [3, 3]);
-        }
         if (Number.isFinite(h.p001) && Number.isFinite(h.p999)) {
           const a = sx(clamp(toPct(h.p001, limit), domain.lo, domain.hi));
           const b = sx(clamp(toPct(h.p999, limit), domain.lo, domain.hi));
-          hline(g, base + 3, a, b, INK, 1);
-          vline(g, a, base, base + 6, INK, 1);
-          vline(g, b, base, base + 6, INK, 1);
+          hline(g, base + 3, a, b, INK, 2);
+          vline(g, a, base, base + 6, INK, 2);
+          vline(g, b, base, base + 6, INK, 2);
         }
         g.font = FONT;
         g.textAlign = 'left';
         g.textBaseline = 'middle';
-        if (!stated(limit)) {
+        if (!own) {
           g.fillStyle = MUTED;
           g.fillText('no limit', column.box.x + colW + 6, base - 10);
         } else if (h.outside > 0) {
@@ -824,10 +864,12 @@
     });
     for (const column of columns) {
       const box = { x: column.box.x, y: top, w: colW, h: joints().length * rowH };
+      // WHY no caption under each column: "±100 % = the limit" is said once, in the legend (fb-509a6fe5)
       drawAxes(g, box, { lo: domain.lo, hi: domain.hi, ticks: [-100, -50, 0, 50, 100],
-        tickText: (v) => (v === -100 ? '−100 %' : v === 100 ? '+100 %' : minus(String(v))),
-        label: column.signal === 'q' ? '−100 % = low limit, +100 % = high limit' : '± 100 % = ± the limit' }, { show: false });
+        tickText: (v) => (v === -100 ? '−100 %' : v === 100 ? '+100 %' : minus(String(v))) }, { show: false });
     }
+    // where each column's axis is and each row's baseline, for the checks (tests/test_coverage_limits_readable.py)
+    canvas._ridge = ridge;
     fig.body.append(canvas);
     hover(canvas, (px, py) => {
       const r = Math.floor((py - top) / rowH);
@@ -848,13 +890,15 @@
     });
     setLegend(fig, [
       { kind: 'fill', colour: ACCENT, label: `samples (bar height: ${scaleTitle(state.scale)}, each row scaled to its own tallest bar)` },
-      { kind: 'line', colour: Color.LIMIT, label: 'the joint\'s limit (−100 % low, +100 % high)' },
+      anyPast ? { kind: 'fill', colour: Color.LIMIT, label: 'samples past the limit (beyond ±100 %)' } : null,
+      // WHY said once here, not as a line on every row (fb-509a6fe5): each axis IS its limit
+      { kind: 'text', label: 'each axis is its own limit: ±100 % = the limit (−100 % low, +100 % high; speed and acceleration: minus and plus it)' },
       joints().some((j) => payload.signals.slice(0, 3).some((s) => !stated(limitOf(j.name, s))))
-        ? { kind: 'dash', colour: MUTED, label: 'no limit stated: ±100 % = the data\'s p0.1–p99.9 widened ×1.15' } : null,
-      { kind: 'thin', colour: INK, label: 'black hairline = p0.1 – p99.9 of the data (where it really went)' },
+        ? { kind: 'text', label: '"no limit": ±100 % = the data\'s p0.1–p99.9 widened ×1.15' } : null,
+      { kind: 'line', colour: INK, label: 'black line under a row = p0.1 – p99.9 of the data (where it really went)' },
       anyCap ? CAP_LEGEND : null,
       anyBeyond ? { kind: 'text', label: '▸ x % = share of samples beyond the limit', problem: true } : null,
-      { kind: 'fill', colour: '#f2f6fb', label: 'the joint picked in the Joint control' },
+      { kind: 'stripe', colour: ACCENT, label: 'the joint picked in the Joint control' },
       anyData ? null : { kind: 'text', label: 'no samples' },
     ]);
   }
@@ -921,7 +965,7 @@
 
   function buildLimits(section) {
     const fig = figure('limit-bars', 'Where does each joint\'s data sit against its limits?',
-      'One card per joint, one row per signal: position (q), speed (qd), acceleration (qdd) and jerk (qddd), in degrees (or mm). The bars are the samples; the x axis runs 8 % past each limit so overshoot shows. Between the red lines is what the limit allows; grey is beyond it (the robot should never be there). Black ticks mark where the data really went (its 0.1st and 99.9th percentile). On the right: the share of the range used (q) or the peak reached as a share of the limit (qd, qdd, qddd), and in red how many samples went past the limit. When the dataset is split (e.g. by split), the bars are stacked in one colour per group, named in the legend.',
+      'One card per joint, one row per signal: position (q), speed (qd), acceleration (qdd) and jerk (qddd), in degrees (or mm). The bars are the samples; the x axis runs 8 % past each limit so overshoot shows. Between the red lines is what the limit allows; hatched is beyond it (the robot should never be there). Black ticks mark where the data really went (its 0.1st and 99.9th percentile). On the right: the share of the range used (q) or the peak reached as a share of the limit (qd, qdd, qddd), and in red how many samples went past the limit. When the dataset is split (e.g. by split), the bars are stacked in one colour per group, named in the legend.',
       'TFDV / Facets Overview (one row per feature, the schema range = the limit); the Nov 19 gallery "limit bars".');
     register('limits', fig, (width) => drawLimitBars(fig, width));
     section.append(fig.node);
@@ -956,9 +1000,9 @@
         const { sx } = mapper(box, x, { lo: 0, hi: 1 });
         const base = box.y + box.h;
         if (stated(limit)) {
-          g.fillStyle = rgbCss(Color.OUTSIDE);
-          g.fillRect(box.x, box.y, sx(limit.low * scale) - box.x, box.h);
-          g.fillRect(sx(limit.high * scale), box.y, box.x + box.w - sx(limit.high * scale), box.h);
+          // WHY hatched in HATCH, not filled in OUTSIDE: the fill was 1.3:1 on the figure (fb-7a2772f9)
+          hatch(g, box.x, box.y, sx(limit.low * scale) - box.x, box.h, HATCH);
+          hatch(g, sx(limit.high * scale), box.y, box.x + box.w - sx(limit.high * scale), box.h, HATCH);
         } else {
           anyUnstated = true;
         }
@@ -969,16 +1013,18 @@
         drawCaps(g, sx, base, box.h - 2, de, bars);
         if (anyClipped(bars)) anyCap = true;
         hline(g, base, box.x, box.x + box.w, AXIS);
+        // WHY 2 px (fb-7a2772f9: a line mark >= 1.5 px). In degrees the limit sits at a different place on every row, so
+        // here its line is information and stays (fb-509a6fe5 is about the normalized ridgeline only)
         if (stated(limit)) {
-          vline(g, sx(limit.low * scale), box.y - 2, base, Color.LIMIT, 1.4);
-          vline(g, sx(limit.high * scale), box.y - 2, base, Color.LIMIT, 1.4);
+          vline(g, sx(limit.low * scale), box.y - 2, base, Color.LIMIT, 2);
+          vline(g, sx(limit.high * scale), box.y - 2, base, Color.LIMIT, 2);
         }
         if (planner && stated(planner)) {
           anyPlanner = true;
-          vline(g, sx(planner.low * scale), box.y - 2, base, Color.LIMIT, 1.2, [4, 3]);
-          vline(g, sx(planner.high * scale), box.y - 2, base, Color.LIMIT, 1.2, [4, 3]);
+          vline(g, sx(planner.low * scale), box.y - 2, base, Color.LIMIT, 2, [5, 3]);
+          vline(g, sx(planner.high * scale), box.y - 2, base, Color.LIMIT, 2, [5, 3]);
         }
-        for (const value of [h.p001, h.p999]) if (Number.isFinite(value)) vline(g, sx(value * scale), box.y + 2, base + 3, INK, 1.2);
+        for (const value of [h.p001, h.p999]) if (Number.isFinite(value)) vline(g, sx(value * scale), box.y + 2, base + 3, INK, 2);
         drawAxes(g, box, { lo: x.lo, hi: x.hi }, { show: false });
         g.font = FONT_BOLD;
         g.fillStyle = INK;
@@ -1019,14 +1065,14 @@
     fig.body.append(grid);
     const items = [];
     if (stacked) {
-      for (const name of groups) items.push({ kind: 'fill', colour: groupColour(name), label: `${payload.source.group_by} = ${name}` });
+      for (const name of groups) items.push({ kind: 'fill', colour: groupColour(name), label: `${payload.source.group_by} = ${name}`, group: true });
       items.push({ kind: 'text', label: `(bars stacked by ${payload.source.group_by}; height: ${scaleTitle(state.scale)})` });
     } else {
       items.push({ kind: 'fill', colour: ACCENT, label: `samples (bar height: ${scaleTitle(state.scale)})` });
     }
     items.push({ kind: 'line', colour: Color.LIMIT, label: 'the limit' });
     if (anyPlanner) items.push({ kind: 'dash', colour: Color.LIMIT, label: 'the planner\'s limit' });
-    items.push({ kind: 'outside', label: 'beyond the limit' });
+    items.push({ kind: 'hatch', colour: HATCH, label: 'beyond the limit' });
     items.push({ kind: 'tick', colour: INK, label: 'p0.1 / p99.9 of the data' });
     if (anyCap) items.push(CAP_LEGEND);
     if (anyUnstated) items.push({ kind: 'text', label: '"no limit stated": the axis spans the data instead' });

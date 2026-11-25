@@ -79,9 +79,14 @@ main.cov-main { padding: 12px 22px 30px; }
 .cov-sw { flex: 0 0 auto; display: inline-block; width: 14px; height: 10px; border-radius: 2px; }
 .cov-sw.empty { background: #ffffff; border: 1px solid #b9b8b2; }
 .cov-sw.outside { background: rgb(221, 220, 214); }
-.cov-sw.line { height: 0; border-top: 2px solid currentColor; border-radius: 0; }
+/* a line swatch is 18 px long, as thick as the 2 px line it names (fb-7a2772f9: "the colors are hard for me to see") */
+.cov-sw.line { width: 18px; height: 0; border-top: 2px solid currentColor; border-radius: 0; }
 .cov-sw.thin { height: 0; border-top: 1px solid currentColor; border-radius: 0; }
-.cov-sw.dash { height: 0; border-top: 2px dashed currentColor; border-radius: 0; }
+.cov-sw.dash { width: 18px; height: 0; border-top: 2px dashed currentColor; border-radius: 0; }
+/* beyond the limit, hatched as the limit bars draw it; the picked row's stripe */
+.cov-sw.hatch { width: 18px; height: 12px; border-radius: 0;
+  background: repeating-linear-gradient(135deg, currentColor 0 1.5px, transparent 1.5px 4.25px); }
+.cov-sw.stripe { width: 4px; height: 14px; border-radius: 0; background: currentColor; }
 .cov-sw.tick { width: 2px; height: 12px; border-radius: 0; background: currentColor; }
 .cov-sw.frame { background: transparent; border: 1.5px solid currentColor; }
 .cov-sw.ramp { width: 42px; }

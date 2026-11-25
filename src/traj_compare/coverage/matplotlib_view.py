@@ -296,6 +296,13 @@ def _patch(color, label: str, edge: str | None = None):
     return Patch(facecolor=color, edgecolor=edge or (HAIR if color in ("white", "#ffffff") else color), label=label)
 
 
+def _hatch_patch(label: str):
+    """The beyond-the-limit band's swatch: the same MUTED hatch the band is drawn with."""
+    from matplotlib.patches import Patch
+
+    return Patch(facecolor="none", edgecolor=MUTED, hatch="////", linewidth=0, label=label)
+
+
 def _line(label: str, color: str = LIMIT_COLOR, style: str = "-", width: float = 1.4):
     from matplotlib.lines import Line2D
 
@@ -385,8 +392,9 @@ def _ridgeline(payload, cmap, reverse, scale):
     words = {"q": "q · position", "qd": "qd · speed", "qdd": "qdd · acceleration"}
     x_words = {"q": "% of the range (0 = low limit, 100 = high limit)", "qd": "% of the ± speed limit",
                "qdd": "% of the ± acceleration limit"}
-    no_limit_rows = False
+    no_limit_rows = past_rows = False
     for ax, signal in zip(axes, signals, strict=False):
+        lows, highs = ((0.0, 100.0) if signal == "q" else (-100.0, 100.0))
         for row, joint in enumerate(names):
             block = payload["hist"][joint][signal]
             limit = payload["limits"][joint][signal]
@@ -406,6 +414,19 @@ def _ridgeline(payload, cmap, reverse, scale):
                 ax.fill_between(to_pct(x[:-1]), base, base + height, step="post", linewidth=0,
                                 color=BARS if stated else MUTED, alpha=0.95 if stated else 0.55, zorder=3)
                 ax.stairs(base + height, to_pct(x), baseline=base, color="white", linewidth=0.4, zorder=3.5)
+                if stated:
+                    # WHY red past the limit instead of a limit line (Zach, fb-509a6fe5, 2026-11-23: "When normalized
+                    # seems redundant to put the joint limit bars as its always plus minus 100?"): each axis IS its
+                    # limit, so the line said nothing; a sample past it still reads as past it, at least 2 px each way
+                    pct = to_pct(x)
+                    for i in np.flatnonzero(counts > 0):
+                        for a, b in ((pct[i], min(pct[i + 1], lows)), (max(pct[i], highs), pct[i + 1])):
+                            if b > a + 1e-9 and (b <= lows + 1e-9 or a >= highs - 1e-9):
+                                width = max(b - a, 0.006 * (highs - lows))  # ~2 px at the figure's size
+                                left = b - width if b <= lows + 1e-9 else a
+                                ax.bar(left, max(height[i], 0.03), width=width, bottom=base, align="edge",
+                                       color=LIMIT_COLOR, linewidth=0, zorder=3.6)
+                                past_rows = True
                 lo, hi = to_pct([block["p001"], block["p999"]])
                 ax.plot([lo, hi], [base - 0.08] * 2, color=INK, linewidth=0.9, solid_capstyle="butt", zorder=4)
                 ax.plot([lo, lo, np.nan, hi, hi], [base - 0.14, base - 0.02, np.nan, base - 0.14, base - 0.02],
@@ -415,13 +436,8 @@ def _ridgeline(payload, cmap, reverse, scale):
                 figure_text = "no limit stated"
             ax.text(1.005, base + 0.3, figure_text, transform=ax.get_yaxis_transform(), fontsize=7.5,
                     color=MUTED if stated else LIMIT_COLOR, va="center", ha="left", clip_on=False)
-        lows, highs = ((0.0, 100.0) if signal == "q" else (-100.0, 100.0))
         span = highs - lows
         ax.set_xlim(lows - 0.1 * span, highs + 0.1 * span)
-        ax.axvspan(lows - 0.2 * span, lows, color=_rgb_hex(OUTSIDE_RGB), zorder=0, linewidth=0)
-        ax.axvspan(highs, highs + 0.2 * span, color=_rgb_hex(OUTSIDE_RGB), zorder=0, linewidth=0)
-        for value in (lows, highs):
-            ax.axvline(value, color=LIMIT_COLOR, linewidth=1.3, zorder=5)
         ax.set_title(words[signal], fontsize=10)
         ax.set_xlabel(x_words[signal], fontsize=8.5, color=MUTED)
         ax.spines["left"].set_visible(False)
@@ -430,14 +446,16 @@ def _ridgeline(payload, cmap, reverse, scale):
         ax.xaxis.set_major_formatter(lambda value, _pos, signal=signal: _percent_tick(value, signed=signal != "q"))
     axes[0].set_yticks([-row + 0.3 for row in range(len(names))], names, fontsize=8.5)
     axes[0].set_ylim(-(len(names) - 1) - 0.3, 1.0)
-    handles = [_patch(BARS, "samples (height: linear count, each row scaled to its own peak)"),
-               _line("the limit"), _patch(_rgb_hex(OUTSIDE_RGB), "beyond the limit"),
-               _line("p0.1 – p99.9 of the data (bar under each ridge)", color=INK, width=1.0)]
+    handles = [_patch(BARS, "samples (height: linear count, each row scaled to its own peak)")]
+    if past_rows:
+        handles.append(_patch(LIMIT_COLOR, "samples past the limit"))
+    handles.append(_line("p0.1 – p99.9 of the data (bar under each ridge)", color=INK, width=1.0))
     if no_limit_rows:
         handles.append(_patch(MUTED, "grey ridge = no limit stated: % of the data's own span × 1.15"))
     _header(fig, "Which joints use their whole range, and which stay in the middle?",
-            _data_line(payload) + " · right of each row: q = share of the range used (p0.1–p99.9); "
-            "qd / qdd = peak as a share of the limit", handles, columns=4)
+            _data_line(payload) + " · each axis is its own limit (the axis labels say where), so no line marks it · "
+            "right of each row: q = share of the range used (p0.1–p99.9); qd / qdd = peak as a share of the limit",
+            handles, columns=4)
     return fig
 
 
@@ -471,8 +489,10 @@ def _limit_bars(payload, cmap, reverse, scale):
                 ax.stairs(total / peak, x, fill=True, color=BARS, linewidth=0, zorder=3)
             low, high = float(limit["low"]) * scale_value, float(limit["high"]) * scale_value
             if stated:
-                ax.axvspan(x[0], low, color=_rgb_hex(OUTSIDE_RGB), zorder=0, linewidth=0)
-                ax.axvspan(high, x[-1], color=_rgb_hex(OUTSIDE_RGB), zorder=0, linewidth=0)
+                # WHY hatched, not the flat OUTSIDE grey (1.3:1 on white; fb-7a2772f9 "the colors are hard for me
+                # to see"): the hatch's MUTED ink is >= 3:1, and a bar standing in the band keeps its own contrast
+                for a, b in ((x[0], low), (high, x[-1])):
+                    ax.axvspan(a, b, facecolor="none", edgecolor=MUTED, hatch="////", linewidth=0, zorder=0)
                 for value in (low, high):
                     ax.axvline(value, color=LIMIT_COLOR, linewidth=1.4, zorder=5)
             planner = _planner(payload, joint, signal)
@@ -510,7 +530,7 @@ def _limit_bars(payload, cmap, reverse, scale):
                     enumerate(groups)]
     else:
         handles.append(_patch(BARS, "samples (linear, each panel scaled to its peak)"))
-    handles += [_line("the limit"), _patch(_rgb_hex(OUTSIDE_RGB), "beyond the limit")]
+    handles += [_line("the limit"), _hatch_patch("beyond the limit")]
     if _has_planner(payload, signals):
         handles.append(_line("planner limit", style="--", width=1.1))
     handles.append(_line("p0.1 / p99.9 of the data (short black ticks)", color=INK, width=1.3))
