@@ -299,17 +299,26 @@ def test_growth_rises_to_the_whole_set_and_matches_a_recount_of_each_prefix(cove
     # the oracle: a prefix's own analysis, on the whole set's ranges and levels, visits that many cells
     ranges = {name: (h["low"], h["high"]) for name, h in coverage.payload["hist"].items()}
     choices = {name: c["levels"] for name, c in coverage.payload["classes"].items()}
-    for k, pct in list(zip(growth["records"], growth["visited_pct"]))[::40]:
+    # WHY from 30 records: a shorter prefix has fields with no value yet (fewer cells) and few enough names that "name"
+    # reads as a category, not an identifier; from 30 on the prefix's space is the whole set's, cell for cell
+    checked = 0
+    for k, pct in list(zip(growth["records"], growth["visited_pct"]))[::20]:
+        if k < 30:
+            continue
         prefix = analyze(picks[:k], ranges=ranges, choices=choices,
                          pairs=[("angle_rad", "grip.width_mm"), ("tcp[0]", "tcp[1]")])
         assert prefix.payload["coverage"]["cells"] == cells
-        assert pct == pytest.approx(prefix.payload["coverage"]["visited_pct"])
+        assert round(pct * cells / 100) == prefix.payload["coverage"]["visited"]
+        checked += 1
+    assert checked >= 5
 
 
-def test_the_shuffled_band_brackets_its_mean(coverage):
+def test_the_shuffled_band_brackets_its_median(coverage):
+    # WHY the median, not the mean: 32 shuffles are discrete, and a mean can fall outside p10..p90 (29 equal and 3 low)
     shuffled = coverage.payload["coverage"]["growth"]["shuffled"]
-    assert all(lo <= mid <= hi for lo, mid, hi in zip(shuffled["p10"], shuffled["mean"], shuffled["p90"]))
-    assert shuffled["mean"][-1] == pytest.approx(coverage.payload["coverage"]["visited_pct"])
+    assert all(lo <= mid <= hi for lo, mid, hi in zip(shuffled["p10"], shuffled["median"], shuffled["p90"]))
+    assert shuffled["median"][-1] == pytest.approx(coverage.payload["coverage"]["visited_pct"])
+    assert shuffled["p10"][0] <= shuffled["p90"][0] < shuffled["median"][-1]
 
 
 def test_new_cells_add_up_to_the_visited_cells_and_a_copy_adds_nothing():

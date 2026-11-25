@@ -132,7 +132,7 @@ coverage          {"cells": int,                        # every cell of the spac
                                                         #   range, each category's levels, each pair's cells
                    "visited": int, "visited_pct": float,
                    "growth": {"records": [int], "visited_pct": [float],          # <= 200 points, given order
-                              "shuffled": {"mean": [...], "p10": [...], "p90": [...]}},   # 32 shuffles, seed 0
+                              "shuffled": {"median": [...], "p10": [...], "p90": [...]}},  # 32 shuffles, seed 0
                    "last_tenth_new_pct": float,         # cells first visited by the last 10 % of records / visited
                    "chao1_cells": float, "ceiling_pct": float}   # Chao1 estimate: more of the same reaches this
 records           [{"id", "index", "group": str|null, "split": str|null, "missing": int,
