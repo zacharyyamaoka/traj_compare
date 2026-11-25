@@ -189,7 +189,7 @@ def test_pairs_are_one_per_real_line_and_prediction_of_one_run_folder(built):
     by = {(p["site"], tuple(sorted(int(x) for x in p["keep"].split(","))), p["against"]): p for p in got}
     for p in want:
         mine = by[(p["site"], tuple(p["lines"]), p["against"])]
-        assert mine["ratio"] == p["ratio"] and mine["real_worse"] == int(p["ratio"] > 1)
+        assert mine["ratio"] == p["ratio"] and mine["real_worse"] == int(p["worse"])
         assert mine["apart"] == pytest.approx(max(p["ratio"], 1 / p["ratio"]), rel=1e-3)
         assert mine["deployment"] == p["deployment"] and mine["run_report"] == p["folder"]
     # every pendulum pair: real 3x sim, by the fixture's formula

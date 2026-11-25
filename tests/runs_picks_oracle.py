@@ -131,9 +131,10 @@ def pairs(rows: Sequence[dict], league: str = "tcp_rms_mm") -> list[dict]:
                 a, b = accuracy(pred, league), accuracy(real, league)
                 if not (number(a) and a > 0 and number(b) and b > 0):
                     continue
+                # WHY worse on the exact ratio: build_tabs.py decides real_worse before it rounds the ratio
                 out.append({"folder": folder, "against": pred["series"], "deployment": real["deployment"],
                             "lines": sorted([pred["line"], real["line"]]), "site": real["site"],
-                            "ratio": round(b / a, 4)})
+                            "ratio": round(b / a, 4), "worse": b / a > 1})
     return out
 
 
@@ -142,4 +143,4 @@ def pairs_answer(all_pairs: Sequence[dict], kept_rows: Sequence[dict], against: 
     folders = {row["run_report"] for row in kept_rows if row.get("run_report")}
     kept = [p for p in all_pairs if p["folder"] in folders and p["against"] == against]
     return {"n": len(kept), "median": statistics.median([p["ratio"] for p in kept]) if kept else None,
-            "worse": sum(p["ratio"] > 1 for p in kept)}
+            "worse": sum(p["worse"] for p in kept)}
