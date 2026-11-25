@@ -143,7 +143,7 @@ def test_dataset_defaults_keep_todays_commands_and_payload_keys(tmp_path):
     write_dataset_report(_runs(), out, title="ds", rows=())
     payload = dataset_payload(out / "index.html")
     assert payload["serve_command"].endswith(str(out.resolve()))
-    for key in ("rerun_server", "public_url"):
+    for key in ("rerun_server", "public_url", "rerun"):
         assert key not in payload, key
 
 
@@ -155,6 +155,23 @@ def test_rerun_server_false_and_public_url_reach_the_page(tmp_path):
     assert payload["rerun_server"] is False
     assert payload["public_url"] == "https://example.org/tta/comparison/"
     assert payload["rerun_sdk"] == "0.40.0"
+
+
+def test_rerun_false_says_the_site_ships_no_rrd(tmp_path):
+    # WHY (TTA review, 2026-11-25): a static site whose run reports are built elsewhere ships no .rrd, and
+    # rerun_server=False + public_url gave each of its 84 rows two links that 404
+    out = tmp_path / "build"
+    write_dataset_report(_runs(), out, title="ds", rows=(), rerun=False)
+    payload = dataset_payload(out / "index.html")
+    assert payload["rerun"] is False
+    for key in ("rerun_server", "rerun_sdk", "public_url"):
+        assert key not in payload, key
+
+
+def test_rerun_false_refuses_a_public_url(tmp_path):
+    with pytest.raises(ValueError, match="public_url"):
+        write_dataset_report(_runs(), tmp_path / "build", title="ds", rows=(), rerun=False,
+                             public_url="https://example.org/tta/comparison/")
 
 
 def test_rows_choice_reaches_the_page_for_its_footer(tmp_path):

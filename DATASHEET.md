@@ -44,11 +44,12 @@ Every detailed page begins with an error-statistics table, followed by
 grouped situation chips (empty situations greyed with their note), section
 chips (Joint q/qd/qdd/τ/i,
 Joint error, TCP pose, TCP error, Path progress, Camera, Videos, 3D paths), deg↔rad
-toggle (deg default), synchronized x zoom with a Reset-zoom button, and a
-shared **transport**: plot hover previews that instant in 3D; the scrubber
-under the 3D canvas (step/play buttons) drives the cursor line on every
-plot, time-truncated 3D drawing over a faint full-path ghost, the robot
-model pose, and all videos in lockstep. 3D controls per situation: a
+toggle (deg default), synchronized x zoom (Shift-drag or Ctrl/⌘+wheel) with
+a Reset-zoom button, and a shared **transport**: a drag on any plot, or the
+scrubber under the 3D canvas (step/play buttons), commits the time and drives
+the playhead on every plot, time-truncated 3D drawing over a faint full-path
+ghost, the robot model pose, and all videos in lockstep; plot hover previews
+that instant in 3D. 3D controls per situation: a
 visibility eye + a full-word multi-select (Path line / Points / Pose frames
 / Z vectors / Arrows→target / Z rotation arcs / Robot / URDF when a model is
 supplied). The model option is checked by default, inherits the situation

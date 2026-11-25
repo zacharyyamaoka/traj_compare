@@ -190,6 +190,18 @@ table.tc-metrics tr.tone-muted { color: #8a8983; }
 /* uPlot restyling to match */
 .uplot { font: 10.5px -apple-system, 'Segoe UI', Roboto, sans-serif; }
 .u-select { background: rgba(42, 120, 214, 0.1); }
+/* every plot is a scrubber (plots.js attachTimeGestures): the committed time is a solid line with a grip in the page's
+   ink, not a run colour; uPlot's dashed cursor stays the hover preview. pan-y: a finger dragging sideways moves the
+   time, one swiping up or down scrolls the page. WHY a border, not a background: the dark theme keeps a dark
+   background as it is (a video's letterbox) but inverts an ink border, so the line turns light on the dark page. */
+.tc-scrubbable { cursor: ew-resize; touch-action: pan-y; }
+.tc-playhead { position: absolute; top: 0; bottom: 0; width: 0; margin-left: -1px; border-left: 2px solid #1d1d1b;
+               pointer-events: none; z-index: 5; }
+.tc-playhead-grip { position: absolute; top: -1px; left: -7px; width: 0; height: 0;
+                    border-left: 6px solid transparent; border-right: 6px solid transparent;
+                    border-top: 8px solid #1d1d1b; }
+body.tc-scrubbing, body.tc-scrubbing * { cursor: ew-resize !important; user-select: none; }
+.tc-zoom-hint { font-size: 11px; color: #8a8983; }
 
 /* 3D viewer */
 .tc-3dwrap { display: flex; gap: 12px; align-items: stretch; }
@@ -540,6 +552,9 @@ table.tc-metrics td.wrap { white-space: normal; text-align: left; min-width: 220
   :root:not([data-theme="light"]) .chip .swatch.torque-feedback { background-image: linear-gradient(currentColor 0 2px, rgba(249, 115, 22, 0.18) 2px); }
   :root:not([data-theme="light"]) .tc-empty { color: #767571; border-color: #42413e; }
   :root:not([data-theme="light"]) .u-select { background-color: rgba(42, 120, 214, 0.1); }
+  :root:not([data-theme="light"]) .tc-playhead { border-left-color: #dededc; }
+  :root:not([data-theme="light"]) .tc-playhead-grip { border-left-color: transparent; border-right-color: transparent; border-top-color: #dededc; }
+  :root:not([data-theme="light"]) .tc-zoom-hint { color: #767571; }
   :root:not([data-theme="light"]) .tc-3dcanvasbox canvas { border-color: #32322f; background-color: #262625; }
   :root:not([data-theme="light"]) .tc-3dpanel { color: #a8a7a4; }
   :root:not([data-theme="light"]) .tc-3dpanel input[type="checkbox"] { accent-color: #2a78d6; }
@@ -702,6 +717,9 @@ table.tc-metrics td.wrap { white-space: normal; text-align: left; min-width: 220
 :root[data-theme="dark"] .chip .swatch.torque-feedback { background-image: linear-gradient(currentColor 0 2px, rgba(249, 115, 22, 0.18) 2px); }
 :root[data-theme="dark"] .tc-empty { color: #767571; border-color: #42413e; }
 :root[data-theme="dark"] .u-select { background-color: rgba(42, 120, 214, 0.1); }
+:root[data-theme="dark"] .tc-playhead { border-left-color: #dededc; }
+:root[data-theme="dark"] .tc-playhead-grip { border-left-color: transparent; border-right-color: transparent; border-top-color: #dededc; }
+:root[data-theme="dark"] .tc-zoom-hint { color: #767571; }
 :root[data-theme="dark"] .tc-3dcanvasbox canvas { border-color: #32322f; background-color: #262625; }
 :root[data-theme="dark"] .tc-3dpanel { color: #a8a7a4; }
 :root[data-theme="dark"] .tc-3dpanel input[type="checkbox"] { accent-color: #2a78d6; }

@@ -1,0 +1,35 @@
+{
+  "frozen": "2026-11-24 22:45 MST, before V2-V5 were built (V1 = robot_msgs main 248f9f1, already built)",
+  "requirements": [
+    {"id": "fr1", "name": "The right half shows whatever I ask for, one click away", "weight": 25,
+     "why": "His change to R3: \"add tabs ... so that you can switch between what information you are showing on the right hand side. One can be like q, qd, qdd, qddd, q/qd/qdd, TCP ... etc. ... we get the option to basically like show what ever particualy information we want there.\"",
+     "passCondition": "Tabs on the right half cover q, qd, qdd, qddd, q/qd/qdd and TCP (or a stated equivalent), each readable on its own, one click apart, the left half unchanged when switching.",
+     "anchors": {"1": "One fixed set of plots, or the information he named is missing.", "3": "His tabs are there but crowded, mislabelled or need scrolling to read.", "5": "His six (plus useful extras) one click apart, each tab readable at a glance, nothing he named missing."}},
+    {"id": "fr2", "name": "The arm on the left tells the story on its own", "weight": 20,
+     "why": "\"we are always showing the 3d robot\"; R3 won the first round because the arm is the hero.",
+     "passCondition": "From the left half alone you can tell where the motion goes, where it is now, and one more thing that matters (where it starts/ends, how hard it works, or how far it is off).",
+     "anchors": {"1": "An arm with no context: no path, no start/end, nothing beyond the pose.", "3": "Path and current pose, but nothing about limits, error or key moments.", "5": "Path, now, start/end and one load-bearing signal (limits, error, events) readable without the plots."}},
+    {"id": "fr3", "name": "A tracking run (target vs solution) reads at a glance", "weight": 20,
+     "why": "The viewer is the Trajectory Tracking Agent's Open in Rerun: every row there is a target and a solution.",
+     "passCondition": "On the agent's run, you can see where and how much the solution is off the target, in the arm and in the plots, with the agent's own error number.",
+     "anchors": {"1": "Only one of the two is shown; no error anywhere.", "3": "Both are in the plots, or the error is shown, but not where along the motion it happens.", "5": "Target and solution together, the error over time with the agent's number, and the arm shows where it was off."}},
+    {"id": "fr4", "name": "Joint values legible against limits, in degrees", "weight": 15,
+     "why": "Zach's standing rule (degrees) and the first round's criterion; limits are what a reviewer checks.",
+     "passCondition": "Every series is named, in degrees, its limit visible, its peak or % of limit stated.",
+     "anchors": {"1": "Radians, unnamed series, no limits.", "3": "Degrees and names, limits only on some tabs.", "5": "Degrees, every series named, limits drawn and the closest approach stated on every joint tab."}},
+    {"id": "fr5", "name": "Scrubbing keeps the two halves in step and finds the moments", "weight": 10,
+     "why": "Playing the motion back is the point of Rerun; a long run needs its moments findable.",
+     "passCondition": "The playhead moves the arm and every plot's cursor together; the interesting moments (start, end, peak, worst) can be found without hunting.",
+     "anchors": {"1": "Arm and plots out of step, or the time panel hidden.", "3": "In step, but finding a moment means scrubbing by eye.", "5": "In step, and the key moments are marked or one click away."}},
+    {"id": "fr6", "name": "Stays the one stock viewer, additive", "weight": 10,
+     "why": "\"one stock viewer per data type, grown, never a new one\"; the agent's site already calls robot= and must keep working.",
+     "passCondition": "One function from a JointTrajectory + URDF (+ an optional target) to a recording, any arm, and today's robot= call keeps its output.",
+     "anchors": {"1": "Hard-wired to the UR5e or this run, or breaks today's robot= call.", "3": "General, but needs per-arm tuning or a second function.", "5": "Any JointTrajectory + URDF, an optional target argument, today's call unchanged."}}
+  ],
+  "hardGates": [
+    {"id": "g1", "name": "His frame: the 3D URDF arm on the left half, tabs on the right half, always", "why": "\"split the page in half. we are always showing the 3d robot\"."},
+    {"id": "g2", "name": "Opens with no errors in the real Rerun 0.40 web viewer", "why": "film.cjs: no ERROR / panic lines (the viewer's own 403 on load is not the recording's)."},
+    {"id": "g3", "name": "Angles in degrees", "why": "Zach's standing rule for anything he reads."},
+    {"id": "g4", "name": "Additive: robot_msgs is not edited, and today's robot= recording is unchanged", "why": "The agent's site rebuild uses the current robot= API (the dispatcher's ask)."}
+  ]
+}

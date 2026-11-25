@@ -493,7 +493,9 @@
   // viewer (a POST); on a static host (write_dataset_report(rerun_server=False), e.g. GitHub Pages) there is nobody to
   // ask, so the row links app.rerun.io's web viewer at the SDK version that wrote the .rrd (an .rrd must be opened by its
   // own viewer version) and the .rrd itself, as the coverage workbench does (coverage/workbench.py).
+  // write_dataset_report(rerun=False): the site ships no .rrd, so a row offers none (a link would be a 404).
   function rerunActions(row) {
+    if (D.rerun === false) return '';
     if (D.rerun_server !== false) {
       return '<button class="ds-btn" data-rerun="' + rowsAll.indexOf(row) + '">Open in Rerun</button>';
     }
@@ -735,7 +737,7 @@
     var banner = $('ds-banner');
     banner.hidden = false;
     banner.innerHTML = 'Run reports are built the first time you open them. Serve this folder to open them' +
-      (D.rerun_server === false ? ':' : ', and to launch Rerun from a row:') + '<code>' +
+      (D.rerun === false || D.rerun_server === false ? ':' : ', and to launch Rerun from a row:') + '<code>' +
       esc(D.serve_command) + '</code>';
   }
   buildGlobalControls();

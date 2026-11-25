@@ -30,9 +30,12 @@ zoom and the time cursor span every tab. `breadcrumb=[(label, href), …]` adds 
 to the dataset and target.
 
 Everything is show/hide-able per section (chips), per situation (legend
-chips), with a rad/**deg (default)** angle toggle. All time plots share one
-synchronized x zoom (drag to zoom any plot, all follow; the **Reset zoom**
-button or a double-click restores the full range).
+chips), with a rad/**deg (default)** angle toggle. Every time plot is a
+scrubber: drag on any plot and the time moves on every plot (other tabs
+too), the 3D pose and the slider; hovering only previews in the 3D. All time
+plots share one synchronized x zoom (Shift-drag or Ctrl/⌘+wheel on any plot,
+all follow; the **Reset zoom** button or a double-click restores the full
+range).
 
 Factorial studies use two navigation levels: a short primary tab per
 trajectory/scenario group and a secondary selector for that group's
