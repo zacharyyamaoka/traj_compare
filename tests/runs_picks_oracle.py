@@ -31,10 +31,12 @@ def accuracy(row: dict, league: str = "tcp_rms_mm") -> float | None:
     return value if number(value) else (row.get("tool_rms") if number(row.get("tool_rms")) else None)
 
 
-def _valid(field: str, value, log: bool) -> bool:
+def _valid(field: str, value, log: bool = False) -> bool:
+    """oracle.py's ``ok``: the tool RMS must be > 0 (a log axis has no zero); a cost only finite (a log cost's MEDIAN
+    must be > 0 to be drawn, checked where it is drawn)."""
     if not number(value):
         return False
-    return value > 0 if (field == "accuracy" or log) else True
+    return value > 0 if field == "accuracy" else True
 
 
 def target_values(rows, field: str, group_of: Callable, keep=lambda r: True, log=False) -> dict:
@@ -105,7 +107,8 @@ def overview_tiles(rows: Sequence[dict], *, order: Sequence[str], deployments: S
         dep = sorted({r["deployment"] for r in rows if r["config"] == best[0]}, key=deployments.index)[0]
         y = two_stage(rows, "accuracy", lambda r: (r["deployment"], r["config"]), at_top)
         x = two_stage(rows, cost, lambda r: (r["deployment"], r["config"]), at_top, log=cost_log)
-        points = [(c, x[(d, c)][0], v) for (d, c), (v, _) in y.items() if d == dep and (d, c) in x]
+        points = [(c, x[(d, c)][0], v) for (d, c), (v, _) in y.items() if d == dep and (d, c) in x
+                  and (not cost_log or x[(d, c)][0] > 0)]
         front = pareto(points)
         accurate = min(front, key=lambda p: p[2])
         cheapest = min(front, key=lambda p: p[1])
