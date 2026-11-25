@@ -22,7 +22,16 @@ import pytest
 
 pytest.importorskip("rerun")
 
-from target_run_fixture import JOINTS, URDF, link_poses, nice, target_and_run, tcp, tool_of  # noqa: E402
+from target_run_fixture import (  # noqa: E402
+    JOINTS,
+    URDF,
+    link_poses,
+    nice,
+    target_and_run,
+    tcp,
+    tool_of,
+    well_tracked,
+)
 
 from traj_compare import Comparison, RobotDisplay, Situation, write_comparison_report  # noqa: E402
 from traj_compare.coverage.workbench import write_trajectory_rrd  # noqa: E402
@@ -67,6 +76,26 @@ def series(path: Path, entity: str) -> tuple[np.ndarray, np.ndarray]:
     found = [(at, value) for at, value in rows(path, entity, "Scalars:scalars") if at is not None and value]
     values = np.asarray([value for _, value in found], dtype=float)
     return np.asarray([at for at, _ in found]), values[:, 0] if values.shape[1] == 1 else values
+
+
+def tab_names(path: Path) -> list[str]:
+    """The embedded blueprint's tab names in order, read from its one Tabs container (container_kind 1) with Rerun's
+    reader: what the viewer shows, whichever writer made the recording."""
+    from rerun.chunk import RrdReader
+
+    reader = RrdReader(path)
+    names, contents = {}, []
+    for chunk in reader.stream(store=reader.blueprints()[0]):
+        batch = chunk.to_record_batch()
+        fields = batch.schema.names
+        key = chunk.entity_path.lstrip("/")
+        if "ContainerBlueprint:display_name" in fields:
+            names[key] = batch.column("ContainerBlueprint:display_name").to_pylist()[-1][0]
+        if ("ContainerBlueprint:container_kind" in fields
+                and batch.column("ContainerBlueprint:container_kind").to_pylist()[-1] == [1]):
+            contents.append(batch.column("ContainerBlueprint:contents").to_pylist()[-1])
+    assert len(contents) == 1, f"{path.name}: {len(contents)} Tabs containers"
+    return [names.get(child) for child in contents[0]]
 
 
 def views(node) -> list:
@@ -158,6 +187,61 @@ def test_the_magnifier_is_a_1_2_5_scale_in_joint_space_and_its_arrow_ends_on_the
     at, strips = min(((at, s) for at, s in skeletons if at is not None), key=lambda row: abs(row[0] - seconds[worst]))
     elbow = link_poses(magnified[worst:worst + 1])[0, 2, :3, 3]
     assert min(np.linalg.norm(np.asarray(strips[0]) - elbow, axis=1)) < 1e-6  # Rerun stores float32
+
+
+def factor_of(run, target) -> int:
+    """The ×N the dashboard's 3D title names."""
+    title = target_vs_run_blueprint(run, target=target, robot=URDF, tool=tool_of(run),
+                                    target_tool=tool_of(target)).root_container.contents[0].name
+    return int(re.search(r"run ×(\d+)", title).group(1))
+
+
+def next_nice(factor: int) -> int:
+    """The 1-2-5 step after ``factor`` (20 -> 50 -> 100)."""
+    lead = int(str(factor)[0])
+    return factor * (5 if lead == 2 else 2) // (2 if lead == 2 else 1)
+
+
+# WHY 35° (2026-11-25, the UR workbench check): the largest magnified joint deviation, N × max |run − target| over every
+# joint and instant. The pick round's UR5e tour reads as a deformation at ×50 with its worst joint (wrist 2, 0.62°) at
+# 31°, and must keep ×50; the UR5e sim run ctc_tuned_v2 r0 at ×2000 put its elbow 77° off and stopped reading as the arm
+MAX_MAGNIFIED_DEG = 35.0
+
+
+def test_a_well_tracked_runs_magnifier_keeps_every_joint_within_35_degrees(tmp_path):
+    """Joint errors of a few hundredths of a degree that cancel at the tool: the tool share alone asked for ×5000 and
+    swung the skeleton 179° (red on 15e9f4b); the joint cap holds it to the largest 1-2-5 step within 35°."""
+    target, run = well_tracked()
+    peak = float(np.abs(np.degrees(run.positions - target.positions)).max())
+    assert peak < 0.05  # the fixture is what it says: well tracked
+    factor = factor_of(run, target)
+    assert nice(factor) and factor > 1
+    assert factor * peak <= MAX_MAGNIFIED_DEG, f"×{factor} swings a joint {factor * peak:.1f}° off"
+    assert next_nice(factor) * peak > MAX_MAGNIFIED_DEG, f"×{factor} is not the largest step within the cap"
+    # what is drawn is what is said: the arrow ends on the ×N arm's tool point, the label names that ×N and the TRUE offset
+    path = write_target_vs_run_rrd(tmp_path / "well.rrd", run, target=target, robot=URDF, tool=tool_of(run),
+                                   target_tool=tool_of(target))
+    seconds = run.t - run.t[0]
+    magnified = target.positions + factor * (run.positions - target.positions)
+    true_off = np.linalg.norm(tcp(run.positions) - tcp(target.positions), axis=1) * 1000.0
+    origins = rows(path, "/world/run/magnifier/now", "Arrows3D:origins")
+    vectors = rows(path, "/world/run/magnifier/now", "Arrows3D:vectors")
+    labels = rows(path, "/world/run/magnifier/label", "Points3D:labels")
+    checked = 0
+    for (at, origin), (_, vector), (_, label) in zip(origins, vectors, labels, strict=True):
+        if at is None:
+            continue
+        row = int(np.argmin(np.abs(seconds - at)))
+        np.testing.assert_allclose(np.asarray(origin[0]) + np.asarray(vector[0]), tcp(magnified)[row], atol=1e-6)
+        assert label[0] == f"run ×{factor} · TCP off {true_off[row]:.1f} mm"
+        checked += 1
+    assert checked > 50
+
+
+def test_the_cap_leaves_a_run_it_does_not_bind_at_its_tool_share_factor():
+    """The closely tracked run (elbow 0.38° worst) keeps the tool share's ×50: 19°, inside the cap."""
+    target, run = target_and_run()
+    assert factor_of(run, target) == 50
 
 
 def test_the_tool_error_is_the_runs_own_ruler_when_given_else_the_tcp_offset(tmp_path):
@@ -335,3 +419,45 @@ def test_the_dataset_pages_drill_down_rrd_is_target_vs_run_when_the_site_knows_i
     recordings = sorted((folder / "rerun").glob("*.rrd"))
     assert recordings, "the drill-down writes one .rrd per pair"
     assert all("/world/run/magnifier/skeleton" in entities(path) for path in recordings)
+
+
+V2_TABS = ["Error", "q", "qd", "qdd", "qddd", "q / qd / qdd", "TCP"]
+
+
+@pytest.mark.parametrize("stored", ["q and qd", "q only"])
+def test_both_open_in_rerun_paths_show_the_same_tabs_for_a_run_stored_without_accelerations(tmp_path, stored):
+    """A sim run stores no accelerations: the drill-down differentiated it (all seven tabs) and the runs workbench did not
+    (no qdd, no qddd; found 2026-11-25 on the UR workbench). Both now fill what is missing the same way: np.gradient of
+    what the run stores, the drill-down's (rerun_target_run._joint), never a second differentiator."""
+    from robot_msgs._core import load_npz
+
+    from traj_compare import Run, write_dataset_report
+    from traj_compare.dataset import build_run_folder
+    from traj_compare.selection import Pick, build_selection_rrd
+
+    target, run = target_and_run()
+    run = run.replace(accelerations=None) if stored == "q and qd" else run.replace(velocities=None, accelerations=None)
+    out = tmp_path / "site"
+    write_dataset_report([Run(name="sim-0", title="Sim 0", reference=target, measured={"sim": run},
+                              tags={"target": "tour"})], out, title="Made-up arm", robot="target_run_fixture:robot",
+                         poses="target_run_fixture:poses", rows=())
+    (folder,) = folders(out)
+    manifest = json.loads((folder / "manifest.json").read_text())
+    stored_run = load_npz(folder / manifest["files"]["sim"])
+    assert stored_run.accelerations is None  # else this proves nothing
+    workbench, _ = build_selection_rrd([Pick(folder, "sim")], tmp_path / "workbench.rrd")
+    build_run_folder(folder)
+    (drill,) = sorted((folder / "rerun").glob("*.rrd"))
+    assert tab_names(workbench) == V2_TABS, "the runs workbench's Open in Rerun"
+    assert tab_names(drill) == V2_TABS, "the dataset drill-down's"
+    # the same numbers on both, and they are np.gradient (edge order 1) of what the run stores, in degrees
+    t = stored_run.t
+    qd = np.gradient(stored_run.positions, t, axis=0) if stored_run.velocities is None else stored_run.velocities
+    qdd = np.gradient(qd, t, axis=0)
+    for index, joint in enumerate(JOINTS):
+        for field, expected in (("velocities", qd), ("accelerations", qdd)):
+            entity = f"/{field}/{joint}/run"
+            np.testing.assert_allclose(series(workbench, entity)[1], np.degrees(expected[:, index]), atol=1e-6)
+            np.testing.assert_allclose(series(drill, entity)[1], series(workbench, entity)[1], atol=1e-6)
+        np.testing.assert_allclose(series(drill, f"/jerks/{joint}/run")[1], series(workbench, f"/jerks/{joint}/run")[1],
+                                   atol=1e-6)
