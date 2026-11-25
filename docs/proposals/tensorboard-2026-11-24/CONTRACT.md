@@ -1,3 +1,64 @@
+# traj_compare on the stock workbench: Dataset → Target → Run, 5 proposals (re-frozen 2026-11-24 evening)
+
+> **Redirected before any scoring.** The first framing (below the line, "the TensorBoard shell") was superseded the same
+> evening: the rail + tabs shell already had its own round (`../dashboard-pattern-2026-11-24/`, Zach "V3 I really like
+> this") and is stock data-ui (`<data-scope>` / `<data-workbench>`, data-ui CONTRACT §53). Zach then refined the spec
+> (Daily Note Nov 24 ~l.2045–2116). This part is what the five variants build against; `criteria.json` is re-frozen to
+> match (the old one is `criteria-shell-v1.json`).
+
+## The spec, in his words
+
+- Runs are atomic: "a trajectory is a trajectory" across datasets and models; each run tries to meet one target; each
+  target belongs to a dataset. The rail filters RUNS; Targets shows the targets left; only runs passing every filter show.
+- All deployments at the top level; deployment is a filter, not a split; the same config across deployments compares;
+  "some grouping by model type across deployments". (The earlier "only same-deployment datasets compare" is kept as a
+  WARNING shown when the filter spans deployments, never a block.)
+- The rail is TensorBoard-like and big: deployment, dataset, split, model type, config, sim/real, speed, kind, target,
+  name search (date range: no bench run carries a date yet — a named gap).
+- Tabs: Overview (the League), Targets, Runs. Speed sweeps: an Overview panel (his sentence on it was unfinished).
+- Two stages: the outer view across targets, and the target view of one target (today's look: Lines panel with a
+  checkbox per run, repeats as lines or bands, joint error and FB share charts) with **Open in Rerun** sending every
+  selected run to Rerun as lines.
+
+## Shared parts (every variant)
+
+- Rows: one row per measured line of every deployment (`data/rows-*`), built by `build_rows.py` from `data/<site>.js`
+  (extract.py) — `site`, `line` (index into that site's lines), deployment (arm_motion_bench `DEPLOYMENT_TITLES`),
+  dataset, split, speed, kind, model type (a PROPOSED mapping in `build_rows.py`, labelled in the UI), config, sim/real,
+  target, repeat, the KPIs.
+- `serve_round.py`: serves this folder at `/` and the bench's sites at `/bench/<site>/` (run reports built lazily as
+  `traj_compare.serve` does), plus `POST /__rerun/selection` `{"runs": [{"site", "line"}]}` → one `.rrd` holding the
+  target and every selected run (stock `robot_msgs.viz.rerun.save`: one plot per joint, one line per name) → the pinned
+  viewer. One recording, not several: lines share one timeline and overlay in one plot per joint.
+- `common/target.html?site=&target=[&keep=1,2,…][&embed=1]` or `?basket=site:line,…`: the target view, traj_compare's
+  look, vanilla JS + uPlot over the site's own `targets/<slug>.js`; its Open in Rerun posts the checked lines.
+
+## Directions (allocated before building; they differ on the link, the selection, the tabs, the grouping)
+
+- **V1 The rail is the selection.** Target is a rail facet; when the filter leaves exactly one target the Runs tab
+  becomes its target view (iframe, checkboxes = the filtered runs). "Selected" = passes the rail.
+- **V2 Two viewers, the filter carried.** Targets and Runs rows drill to `target.html` as its own page; the rail's kept
+  runs start checked, the rest listed unchecked; a breadcrumb returns to the workbench with the same URL filter.
+  "Selected" = the checkboxes.
+- **V3 The target is a workbench page.** Picking a target adds a 4th tab, "Target · <task>", inside the same component
+  (droppable as one piece). Selection = its checkboxes; the rail still narrows them.
+- **V4 Model × deployment first, target in a side pane.** Overview leads with a model type × deployment matrix and the
+  cross-deployment warning, then the League; a Targets row opens the target view in a resizable pane beside the tabs.
+- **V5 A selection basket across targets.** Runs rows are added to a basket carried across tabs (a pill: "Selection ·
+  N runs"); the target view groups the basket by target and Open in Rerun sends the basket — comparisons across
+  targets and deployments (same config on two robots).
+
+## Stop line and proof
+
+Every variant: the rail filters runs on the real rows, the three tabs recount, the link to the target view works with
+its carry-over, Open in Rerun posts the selection. Proved once end to end: the `.rrd` for N selected runs holds N
+lines per joint (read back), screenshot of Rerun. Not built: production wiring into `dataset.py`, date tags, data-ui
+changes (gaps are named, never patched).
+
+---
+
+# (Superseded) first framing: the TensorBoard shell
+
 # traj_compare, the TensorBoard pattern: 5 proposals (babble round, frozen 2026-11-24 before any variant was built)
 
 Zach, Nov 24 (verbatim): "Please make 5 prospoals for how you can make the trajecotyr comparison viewer more like

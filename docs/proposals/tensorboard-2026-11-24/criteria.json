@@ -1,84 +1,104 @@
 {
-  "frozen": "2026-11-24, before any variant was built (with CONTRACT.md; committed before v1..v5 existed)",
-  "requirements": [
-    {
-      "id": "fr1",
-      "name": "The left panel decides what every tab shows",
-      "weight": 25,
-      "why": "Zach, Nov 24: \"basically its like a filter side panel on the left, tabs on the top, and then various dashboards like views on each page\"; and on the coverage page: \"it lets us filter specifically and then see the analysis on all of the views. Its kinda like tensor flow\".",
-      "passCondition": "A pick in the left panel (dataset, split, speed, config, a regex) re-aggregates every tab's dashboards, a count says how much is left, and the active filter is legible from any tab.",
-      "anchors": {
-        "1": "Filters live per tab, or a tab ignores the panel.",
-        "3": "Every tab follows the panel, but the count or the active filter is hard to see from a tab, or some figure does not recount.",
-        "5": "Every figure on every tab recounts from the panel, says it is a subset (n of N), and the filter is visible on every tab."
-      }
-    },
-    {
-      "id": "fr2",
-      "name": "Organised around the target trajectory, Dataset → Target → Run",
-      "weight": 20,
-      "why": "Nov 19: \"the Target trajectory is kinda the primary thing we want to organize things around\"; levels dataset → targets (table or cards) → runs sortable by date, config, sim/real; Nov 24: \"for the single target trajectory now your atomic unit is actually runs ... we are repeating the exact same pattern again and again\".",
-      "passCondition": "From the landing, one target's runs (grouped/sortable by config, sim/real) are two clicks away; the current level is always visible; the way back is one click.",
-      "anchors": {
-        "1": "Targets are only rows in a table; runs of one target cannot be compared in the frame.",
-        "3": "The target level exists but leaves the frame (a different page/layout), or the level is hard to tell.",
-        "5": "The same frame serves Dataset and Target, the level is always shown, and a target's runs sit in the panel with colour + checkbox, sortable by config / kind."
-      }
-    },
-    {
-      "id": "fr3",
-      "name": "Which config is best, at a glance",
-      "weight": 15,
-      "why": "Nov 20: \"At the highest level we want to be comparing different pipeline configurations vs how they do on all of the targets\"; Nov 23 picked the league table.",
-      "passCondition": "The landing tab shows the config ranking, its magnitude (ratio to best) and n above the fold at 1440 x 900.",
-      "anchors": {
-        "1": "The ranking needs scrolling or reading many charts.",
-        "3": "Visible, but needs several numbers or a second tab.",
-        "5": "League above the fold: rank, value, ratio, n, sparkline per KPI, recounted by the panel."
-      }
-    },
-    {
-      "id": "fr4",
-      "name": "Compact and embeddable",
-      "weight": 15,
-      "why": "Nov 24 on the coverage round: \"Its basically the tensor flow layout but I don't like the tabs here at the top top as then its harder to put it in another app\"; \"I want the viewer to be a bit more compact ... so it can drop into anything\".",
-      "passCondition": "The tabs belong to the component (not the browser page's top bar), the panel folds, no tab is taller than ~3 screens at 1440 x 900, and the layout still works at a ~1000 px wide box.",
-      "anchors": {
-        "1": "Page-level chrome; long scroll per tab; breaks narrow.",
-        "3": "Compact tabs but page-level header, or one tab runs long.",
-        "5": "Component-scoped tabs, foldable panel, every tab within ~2 screens, usable at 1000 px."
-      }
-    },
-    {
-      "id": "fr5",
-      "name": "Selection and colour mean the same thing on every tab",
-      "weight": 10,
-      "why": "TensorBoard / W&B convention: a run's colour and visibility are global; Nov 19: \"I like the control over how the lines are showing\".",
-      "passCondition": "Hiding a config, recolouring or pinning in the panel changes every tab the same way; a config is the same colour everywhere.",
-      "anchors": {
-        "1": "Each tab has its own legend and visibility.",
-        "3": "Colours are global but visibility or pins are per tab.",
-        "5": "One selection model: colour, visibility and pins propagate to every tab and survive a reload."
-      }
-    },
-    {
-      "id": "fr6",
-      "name": "Built from stock parts; short path to production",
-      "weight": 15,
-      "why": "about-me: \"Off-the-shelf first, not productization\"; Nov 24: \"we don't need to reinvent the wheel here\"; data-ui landed <data-scope>/<data-workbench> (CONTRACT §53) for exactly this pattern the same day; traj_compare's Part E already has the tabs + league.",
-      "passCondition": "The variant reuses a stock pattern (TensorBoard conventions, data-ui scope/workbench, traj_compare's existing levels and league) and its production path is named and short.",
-      "anchors": {
-        "1": "A new bespoke shell with no stock counterpart.",
-        "3": "Bespoke shell following stock conventions, or stock parts with large gaps to fill.",
-        "5": "Stock parts end to end (or the existing traj_compare levels extended), gaps named and small."
-      }
-    }
-  ],
-  "gates": [
-    {"id": "G1", "name": "Real bench data", "condition": "Opens the UR5e site and at least one of BAM FB / pendulum from the bench's own traj_compare payloads; no invented numbers."},
-    {"id": "G2", "name": "file://, no network", "condition": "Opens from file:// with no CDN, no build step, no server."},
-    {"id": "G3", "name": "The pattern", "condition": "A left filter panel, tabs on top, dashboards per tab; the panel's edge drags (width remembered) and the panel folds."},
-    {"id": "G4", "name": "League + Coverage kept", "condition": "The League table is the Overview (or landing) and Coverage is reachable (link or tab)."},
-    {"id": "G5", "name": "Clean", "condition": "No console or page errors and no sideways scroll at 1440 x 900 on any tab."}
-  ]
+ "frozen": "2026-11-24 evening, after Zach's refined spec (Daily Note Nov 24 ~l.2045-2116) and the coverage session's answer, before any of the five workbench variants was built. Supersedes criteria-shell-v1.json (the shell round it froze was redirected before scoring).",
+ "requirements": [
+  {
+   "id": "fr1",
+   "name": "Runs are atomic: the rail filters runs, every tab follows",
+   "weight": 20,
+   "why": "\"Well really I would say we are just filtering the Runs. the runs are what are atomic here. The targets is just showing like what are the targets that remain after you filter the runs\".",
+   "passCondition": "Any rail pick (deployment, dataset, split, model type, config, sim/real, target, search) removes runs; Overview recounts; Targets lists only targets with a run left; the count says N of M runs.",
+   "anchors": {
+    "1": "Filters act on targets or per tab.",
+    "3": "Runs filter, but a tab does not recount or the count is unclear.",
+    "5": "Every tab recounts from the run filter; Targets = targets with runs left; count and pills on every tab."
+   }
+  },
+  {
+   "id": "fr2",
+   "name": "Outer view to target view: two stages, linked",
+   "weight": 20,
+   "why": "\"two stages here which are good the outer one where we are looking across all targets and the target view where we are now looking at one specific target\"; \"I particularly like filtering by a particular target ... now it's a reasonable number of runs\"; today's target view is the base.",
+   "passCondition": "From the outer view one target's view (Lines panel with per-run checkboxes, repeats lines/bands, joint error + FB share charts) is ≤ 2 clicks; what the rail kept carries over; the way back is one click and keeps the filter.",
+   "anchors": {
+    "1": "No target view, or it loses the filter and the way back.",
+    "3": "Reachable, but the filter does not carry or the way back resets it.",
+    "5": "≤ 2 clicks, filter carried into the checkboxes, back in one click with the filter intact."
+   }
+  },
+  {
+   "id": "fr3",
+   "name": "Open in Rerun sends exactly the selected runs",
+   "weight": 15,
+   "why": "\"I want to have a button on the target view to open in rerun. Now any of the selected runs show now appear as lines in the rerun viewer. That allows us to basically like do any number of possible comparisons\".",
+   "passCondition": "The button says how many runs it sends; Rerun opens one recording with one line per selected run per joint (plus the target); what 'selected' means is visible.",
+   "anchors": {
+    "1": "Only one run at a time.",
+    "3": "Sends a set, but which set is ambiguous or not counted.",
+    "5": "Exactly the visible selection, counted on the button, proved N lines for N runs."
+   }
+  },
+  {
+   "id": "fr4",
+   "name": "All deployments at the top; deployment a filter; model type across deployments",
+   "weight": 15,
+   "why": "\"you should at the top level also have all the deployments present. Filtering to just a single deployment is something you can filter for. If you use the same configuration across multiple deployments then you can compare it ... some grouping by model type across deployments\".",
+   "passCondition": "No split by deployment; deployment is a rail facet; the League can group by model type across deployments; comparing across deployments shows a warning, not a block.",
+   "anchors": {
+    "1": "Split per deployment.",
+    "3": "All deployments, but no model-type grouping or no warning.",
+    "5": "All present, model type grouping, an explained cross-deployment warning."
+   }
+  },
+  {
+   "id": "fr5",
+   "name": "Compact, droppable, honest colour",
+   "weight": 15,
+   "why": "\"compact ... so it can drop into anything\"; not \"tabs at the top top\"; headline numbers on the Overview only; one colour per dataset, explained.",
+   "passCondition": "Tabs belong to the component; rail folds; headline numbers only on Overview; every colour has a legend saying what it is.",
+   "anchors": {
+    "1": "Page chrome, unexplained colours.",
+    "3": "Component tabs but a colour or headline leaks.",
+    "5": "Component-scoped, folds, every colour explained."
+   }
+  },
+  {
+   "id": "fr6",
+   "name": "Stock parts, short path to production",
+   "weight": 15,
+   "why": "\"we don't need to reinvent the wheel\"; data-ui <data-workbench> is the stock pattern (CONTRACT §53); robot_msgs.viz.rerun is the stock Rerun look.",
+   "passCondition": "Outer view is stock <data-workbench> + a .base; target view reuses traj_compare's; Rerun uses robot_msgs.viz.rerun; gaps named.",
+   "anchors": {
+    "1": "Bespoke shell.",
+    "3": "Stock outer, large bespoke glue.",
+    "5": "Stock end to end, small named gaps."
+   }
+  }
+ ],
+ "gates": [
+  {
+   "id": "G1",
+   "name": "Real bench data",
+   "condition": "All four bench deployments (UR5e cell, UR5e alone, BAM FB, pendulum) from their own traj_compare payloads; no invented numbers (a proposed model-type mapping is labelled as such)."
+  },
+  {
+   "id": "G2",
+   "name": "One local command, no CDN",
+   "condition": "Runs from serve_round.py (data-ui ships ES modules, which Chrome refuses over file://), no network."
+  },
+  {
+   "id": "G3",
+   "name": "The pattern",
+   "condition": "Rail + Overview / Targets / Runs tabs; League table is the Overview; rail drags, width remembered, folds."
+  },
+  {
+   "id": "G4",
+   "name": "Rerun",
+   "condition": "Open in Rerun from the target view sends the selected runs (the round's endpoint) and every row drills in."
+  },
+  {
+   "id": "G5",
+   "name": "Clean",
+   "condition": "No console errors, no sideways scroll at 1440 x 900."
+  }
+ ]
 }

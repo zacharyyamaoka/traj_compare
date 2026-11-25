@@ -1,0 +1,84 @@
+{
+  "frozen": "2026-11-24, before any variant was built (with CONTRACT.md; committed before v1..v5 existed)",
+  "requirements": [
+    {
+      "id": "fr1",
+      "name": "The left panel decides what every tab shows",
+      "weight": 25,
+      "why": "Zach, Nov 24: \"basically its like a filter side panel on the left, tabs on the top, and then various dashboards like views on each page\"; and on the coverage page: \"it lets us filter specifically and then see the analysis on all of the views. Its kinda like tensor flow\".",
+      "passCondition": "A pick in the left panel (dataset, split, speed, config, a regex) re-aggregates every tab's dashboards, a count says how much is left, and the active filter is legible from any tab.",
+      "anchors": {
+        "1": "Filters live per tab, or a tab ignores the panel.",
+        "3": "Every tab follows the panel, but the count or the active filter is hard to see from a tab, or some figure does not recount.",
+        "5": "Every figure on every tab recounts from the panel, says it is a subset (n of N), and the filter is visible on every tab."
+      }
+    },
+    {
+      "id": "fr2",
+      "name": "Organised around the target trajectory, Dataset → Target → Run",
+      "weight": 20,
+      "why": "Nov 19: \"the Target trajectory is kinda the primary thing we want to organize things around\"; levels dataset → targets (table or cards) → runs sortable by date, config, sim/real; Nov 24: \"for the single target trajectory now your atomic unit is actually runs ... we are repeating the exact same pattern again and again\".",
+      "passCondition": "From the landing, one target's runs (grouped/sortable by config, sim/real) are two clicks away; the current level is always visible; the way back is one click.",
+      "anchors": {
+        "1": "Targets are only rows in a table; runs of one target cannot be compared in the frame.",
+        "3": "The target level exists but leaves the frame (a different page/layout), or the level is hard to tell.",
+        "5": "The same frame serves Dataset and Target, the level is always shown, and a target's runs sit in the panel with colour + checkbox, sortable by config / kind."
+      }
+    },
+    {
+      "id": "fr3",
+      "name": "Which config is best, at a glance",
+      "weight": 15,
+      "why": "Nov 20: \"At the highest level we want to be comparing different pipeline configurations vs how they do on all of the targets\"; Nov 23 picked the league table.",
+      "passCondition": "The landing tab shows the config ranking, its magnitude (ratio to best) and n above the fold at 1440 x 900.",
+      "anchors": {
+        "1": "The ranking needs scrolling or reading many charts.",
+        "3": "Visible, but needs several numbers or a second tab.",
+        "5": "League above the fold: rank, value, ratio, n, sparkline per KPI, recounted by the panel."
+      }
+    },
+    {
+      "id": "fr4",
+      "name": "Compact and embeddable",
+      "weight": 15,
+      "why": "Nov 24 on the coverage round: \"Its basically the tensor flow layout but I don't like the tabs here at the top top as then its harder to put it in another app\"; \"I want the viewer to be a bit more compact ... so it can drop into anything\".",
+      "passCondition": "The tabs belong to the component (not the browser page's top bar), the panel folds, no tab is taller than ~3 screens at 1440 x 900, and the layout still works at a ~1000 px wide box.",
+      "anchors": {
+        "1": "Page-level chrome; long scroll per tab; breaks narrow.",
+        "3": "Compact tabs but page-level header, or one tab runs long.",
+        "5": "Component-scoped tabs, foldable panel, every tab within ~2 screens, usable at 1000 px."
+      }
+    },
+    {
+      "id": "fr5",
+      "name": "Selection and colour mean the same thing on every tab",
+      "weight": 10,
+      "why": "TensorBoard / W&B convention: a run's colour and visibility are global; Nov 19: \"I like the control over how the lines are showing\".",
+      "passCondition": "Hiding a config, recolouring or pinning in the panel changes every tab the same way; a config is the same colour everywhere.",
+      "anchors": {
+        "1": "Each tab has its own legend and visibility.",
+        "3": "Colours are global but visibility or pins are per tab.",
+        "5": "One selection model: colour, visibility and pins propagate to every tab and survive a reload."
+      }
+    },
+    {
+      "id": "fr6",
+      "name": "Built from stock parts; short path to production",
+      "weight": 15,
+      "why": "about-me: \"Off-the-shelf first, not productization\"; Nov 24: \"we don't need to reinvent the wheel here\"; data-ui landed <data-scope>/<data-workbench> (CONTRACT §53) for exactly this pattern the same day; traj_compare's Part E already has the tabs + league.",
+      "passCondition": "The variant reuses a stock pattern (TensorBoard conventions, data-ui scope/workbench, traj_compare's existing levels and league) and its production path is named and short.",
+      "anchors": {
+        "1": "A new bespoke shell with no stock counterpart.",
+        "3": "Bespoke shell following stock conventions, or stock parts with large gaps to fill.",
+        "5": "Stock parts end to end (or the existing traj_compare levels extended), gaps named and small."
+      }
+    }
+  ],
+  "gates": [
+    {"id": "G1", "name": "Real bench data", "condition": "Opens the UR5e site and at least one of BAM FB / pendulum from the bench's own traj_compare payloads; no invented numbers."},
+    {"id": "G2", "name": "file://, no network", "condition": "Opens from file:// with no CDN, no build step, no server."},
+    {"id": "G3", "name": "The pattern", "condition": "A left filter panel, tabs on top, dashboards per tab; the panel's edge drags (width remembered) and the panel folds."},
+    {"id": "G4", "name": "League + Coverage kept", "condition": "The League table is the Overview (or landing) and Coverage is reachable (link or tab)."},
+    {"id": "G5", "name": "Clean", "condition": "No console or page errors and no sideways scroll at 1440 x 900 on any tab."}
+  ]
+}
