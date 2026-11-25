@@ -131,11 +131,13 @@ class GraspCoverageViewer:
         self.frames["sphere"] = scene.add_frame("/sphere", show_axes=False, visible=False)
         position = self.payload["position"]
         low, high = (np.asarray(corner, float) for corner in position["bounds"])
-        segments = [_box_segments(np.asarray(lo, float), np.asarray(hi, float)) for lo, hi in position["area"] or []]
-        # WHY always a node: the area is a fixed part of the view (empty when no area was offered), so a toggle or a
-        # test finds it by name
-        scene.add_line_segments("/grasps/area", np.concatenate(segments).astype(np.float32) if segments
-                                else np.zeros((0, 2, 3), np.float32), LIMIT_RGB, thickness=1.6,
+        area = position["area"] or []
+        # WHY the outer box, not a box per area: a campaign offers one look area per run (174 on the repicks), and their
+        # boxes buried the grasps (headless review 2026-11-24); the PNGs draw their union. WHY always a node: the area is
+        # a fixed part of the view (empty when no area was offered), so a toggle or a test finds it by name
+        segments = (_box_segments(np.min([lo for lo, _ in area], axis=0), np.max([hi for _, hi in area], axis=0))
+                    if area else np.zeros((0, 2, 3)))
+        scene.add_line_segments("/grasps/area", np.asarray(segments, np.float32), LIMIT_RGB, thickness=1.6,
                                 thickness_units="screen")
         scene.add_line_segments("/grasps/bounds", _box_segments(low, high), HAIR_RGB, thickness=1.0,
                                 thickness_units="screen")
@@ -205,7 +207,9 @@ class GraspCoverageViewer:
             direction = (1.0, -1.3, 0.9)
         else:
             self.bounds = ((-1.1, -1.1, -1.1), (1.1, 1.1, 1.1))
-            direction = (1.0, -1.3, -0.55)  # from a little below: approaches from above fill the lower half
+            # WHY from below: a grasp from above points its approach (+z) down, so a pick set fills the bottom cap; a
+            # camera level with the equator showed a white sphere (headless review 2026-11-24)
+            direction = (0.5, -0.7, -1.1)
         self.viewer.camera.fit_home(*self.bounds, direction=direction, aspect=0.8)
         self.viewer.camera.fit(*self.bounds, direction=direction)
         self.legend.content = self._legend_html()
@@ -217,7 +221,7 @@ class GraspCoverageViewer:
             return ('<div style="font-size:12px;line-height:1.35;padding:2px 12px 8px;color:#3a3a3e">'
                     '<div style="font-weight:600">a glyph per grasp: two jaws, the palm, the stem back along the '
                     'approach</div>' + rows +
-                    f'<div style="margin-top:3px">{_swatch("#b4442f")}red box = the offered pick area</div></div>')
+                    f'<div style="margin-top:3px">{_swatch("#b4442f")}red box = around the offered pick areas</div></div>')
         scaled = getattr(self, "sphere_scale", None)
         ticks = scaled.ticks if scaled is not None else ()
         tick_html = "".join(f'<span style="position:absolute;left:{100 * t:.1f}%;transform:translateX(-{100 * t:.0f}%);'
