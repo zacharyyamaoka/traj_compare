@@ -1,0 +1,95 @@
+{
+ "ready": "html[data-ready='1']",
+ "count": "#tc data-count",
+ "filter": [
+  {
+   "click": "#tc data-facets input[data-k=\"v:deployment:UR5e + Conveyor PnP cell\"]"
+  },
+  {
+   "wait": 2500
+  }
+ ],
+ "figure": "#tc data-dashboard[tab='Overview'] [data-tc-view]",
+ "tabs": [
+  {
+   "id": "overview",
+   "label": "Overview",
+   "sel": "#tc data-tabs [role=tab]:nth-of-type(1)"
+  },
+  {
+   "id": "targets",
+   "label": "Targets",
+   "sel": "#tc data-tabs [role=tab]:nth-of-type(2)"
+  },
+  {
+   "id": "runs",
+   "label": "Runs",
+   "sel": "#tc data-tabs [role=tab]:nth-of-type(3)"
+  }
+ ],
+ "panel": "#tc data-fold.dw-rail",
+ "resizer": "#tc .dw-rail-handle",
+ "fold": "#fold",
+ "url_query": "?dry=1",
+ "target_link": [
+  {
+   "click": "#tc data-tabs [role=tab]:nth-of-type(2)"
+  },
+  {
+   "wait": 2500
+  },
+  {
+   "click": "#tc data-dashboard[tab='Targets'] tbody tr"
+  },
+  {
+   "wait": 1200
+  },
+  {
+   "click": "#tc button[data-drill-action]:has-text('Open target view')"
+  },
+  {
+   "wait": 5000
+  }
+ ],
+ "rerun_frame": null,
+ "rerun_button": "#rerun",
+ "story": [
+  {
+   "label": "Landing",
+   "actions": []
+  },
+  {
+   "label": "One deployment",
+   "actions": [
+    {
+     "click": "#tc data-facets input[data-k=\"v:deployment:UR5e + Conveyor PnP cell\"]"
+    },
+    {
+     "wait": 2500
+    }
+   ]
+  },
+  {
+   "label": "A column ranks the League",
+   "actions": [
+    {
+     "click": "#tc .tc-heat th.tc-col:nth-of-type(3)"
+    },
+    {
+     "wait": 900
+    }
+   ]
+  },
+  {
+   "label": "A row's worst targets",
+   "actions": [
+    {
+     "click": "#tc .tc-ltable tbody tr:nth-child(1) [data-tc-worst]"
+    },
+    {
+     "wait": 1200
+    }
+   ]
+  }
+ ]
+}
