@@ -22,6 +22,8 @@ PROD = MEDIA / "v2-production-2026-11-24"
 OVER = MEDIA / "v2-overview-proposals-2026-11-24"
 TABS = MEDIA / "v2-tab-proposals-2026-11-24"
 PLAY = MEDIA / "run-view-proposals-2026-11-24"
+PICKS = MEDIA / "v2-production-picks-2026-11-25"  # the O3 + T1 defaults, checked on the real bench
+R2LIVE = MEDIA / "playback-r2-2026-11-25"  # the time lane as the viewer's default, + the workbench playback on main
 
 
 def _still(path: Path, tmp: Path, width: int = 960) -> str:
@@ -56,7 +58,10 @@ def build() -> Path:
             "t1": _still(TABS / "t1-step-2.jpg", tmp),
             "t3": _still(TABS / "t3-step-2.jpg", tmp),
             "t2": _still(TABS / "t2-step-2.jpg", tmp),
-            "r2clip": _clip(PLAY / "r2-sync-tta.mp4", tmp, crf=32),
+            "lane": _clip(R2LIVE / "tta-time-lane.mp4", tmp, crf=32),
+            "live_playback": _still(R2LIVE / "workbench-playback-main.png", tmp),
+            "live_overview": _still(PICKS / "01-overview-all.png", tmp),
+            "live_t1": _still(PICKS / "05-sim-real-bam-fb.png", tmp),
             "r2": _still(PLAY / "r2-step-2.jpg", tmp),
             "r3": _still(PLAY / "r3-step-2.jpg", tmp),
         }
@@ -93,10 +98,25 @@ code{background:var(--chip);padding:0 4px;border-radius:4px;font-size:13px}
 table{border-collapse:collapse;width:100%;font-size:14px}td,th{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
 details{margin:8px 0}summary{cursor:pointer;font-weight:600}
 </style></head><body><main>
-<h1>traj_compare: V2 is the dataset viewer; three rounds to pick from</h1>
-<p class="mute">2026-11-24 night · your feedback in Daily Note Nov 24 "# Traj compare feedback" and the three-levels clarification · built by four Claude Code lanes (Opus 5.5)</p>
+<h1>traj_compare: V2 is the dataset viewer, with the picks applied</h1>
+<p class="mute">2026-11-24 night → 11-25 · your feedback in Daily Note Nov 24 "# Traj compare feedback" and the three-levels clarification · built by four Claude Code lanes (Opus 5.5)</p>
 
-<div class="verdict"><b>V2 is landed as <code>traj_compare.write_runs_workbench</code>, with your three levels:</b> the dataset view → the target view (summary only) → playback in our viewer or Rerun. It is on <code>main</code> @ <code>00ea6c9</code> (pushed). Its Overview is still V2's until you pick one. Three galleries are waiting for your pick: <b>Overview ×5</b>, <b>new tabs ×3</b>, <b>playback viewer ×5</b>.</div>
+<div class="verdict"><b>V2 is traj_compare's dataset viewer with your three levels, and the AI picks are live as its defaults:</b> Overview O3 tiles, the "Does sim match real?" tab, and a playback viewer where dragging the time on any figure moves everything, in R2's one-timeline look. All on <code>main</code> @ <code>f412bc7</code> (pushed). Each pick can be undone with git, and every gallery stays open for a swap.</div>
+
+<h2>0 · Live now: the picks applied</h2>
+<figure><video src="{{lane}}" autoplay muted loop playsinline controls></video>
+<figcaption>The production viewer now (your workspace-dev-000): press and drag the time lane's ruler, a run's track or any chart, and every chart's one playhead, the 3D arm and each run's error-at-t follow; ◆ Worst moment jumps; the zoom bar drags a range. Measured: every playhead within 0.009 of a sample of the committed time; every chart's plot area on the ruler's exact x pixels (0 px).</figcaption></figure>
+<div class="grid">
+<figure><img src="{{live_overview}}" alt="O3 live"><figcaption><b>Overview = O3's tiles</b> on all 18,507 runs; each tile opens its page (League, Model × dataset, Speed, Trade-off, Worst targets). Every number equals the round's oracle, unfiltered and with the UR5e cell ticked.</figcaption></figure>
+<figure><img src="{{live_t1}}" alt="T1 live"><figcaption><b>"Does sim match real?"</b> with BAM FB ticked: 26 pairs, real ×2.00 the sim, worse in 24. A row opens the target view with that pair ticked; back keeps the filter.</figcaption></figure>
+</div>
+<figure><img src="{{live_playback}}" alt="workbench playback"><figcaption>Level 3 from the runs workbench, rebuilt from <code>main</code>: the same 3 ticked runs as section 1, now in the time-lane look. Building this exposed a cache bug, fixed in <code>f412bc7</code>: a playback was cached by its runs alone, so one opened last night kept yesterday's viewer. It now carries the viewer version in its cache key and its assets folder.</figcaption></figure>
+<div class="card"><ul>
+<li><b>Drag-to-sync + two viewer bugs</b> (the 3D parked at the end on a tab's first open; the answer box naming a hidden run): <code>e7e6c57</code>. Undo: <code>git revert e7e6c57 31500e4</code>.</li>
+<li><b>Overview O3 + "Does sim match real?"</b> as <code>write_runs_workbench</code>'s defaults: <code>4484abf</code>. Swap without git: <code>overview="league" | "matrix" | "speed" | "tradeoff" | "v2"</code>, <code>sim_vs_real=False</code>. Undo: <code>git revert --no-edit a77ffac^..c0081aa</code>.</li>
+<li><b>R2 one timeline</b> as the comparison viewer's default look: <code>d1a2e45</code> (it changes NAVIGATION.md Part B: the stage's slider moved into the lane). Undo: <code>git revert a878cf8 d1a2e45 415f4af</code>.</li>
+<li><b>Playback cache keyed by viewer:</b> <code>f412bc7</code>. Undo: <code>git revert f412bc7 c4f841f</code>.</li>
+</ul></div>
 
 <h2>1 · V2, landed: dataset → target → playback</h2>
 <figure><video src="{{journey}}" autoplay muted loop playsinline controls></video>
@@ -134,22 +154,21 @@ details{margin:8px 0}summary{cursor:pointer;font-weight:600}
 {{g_tabs}}
 
 <h2>4 · Playback viewer: 5 proposals, every one drags time across every figure</h2>
-<figure><video src="{{r2clip}}" autoplay muted loop playsinline controls></video>
-<figcaption>R2 on your workspace-dev-000 (Target, p5s-pass3, p6s): drag the time on any chart and every chart's playhead, the 3D pose and the slider follow. Measured on all five: every playhead within 0.2 ms of the committed time (one sample = 10 ms), on other tabs too; x-zoom still works by its own gesture.</figcaption></figure>
+<p class="mute">In every one of the five, dragging the time on any chart moves every chart's playhead, the 3D pose and the slider (measured within 0.2 ms of the committed time, one sample = 10 ms, on other tabs too); x-zoom keeps its own gesture. Section 0's clip shows the applied pick.</p>
 <div class="grid">
 <figure><img src="{{r2}}" alt="R2"><figcaption><b>R2 One timeline for the page</b><span class="score">AI 80</span> one playhead line through every chart, plus a time lane with one track per run (its worst moment, where its error rises). It moves the stage's slider into the lane, which changes NAVIGATION.md Part B.</figcaption></figure>
 <figure><img src="{{r3}}" alt="R3"><figcaption><b>R3 Summary and playback, one page</b><span class="score">AI 78</span> the target view's run list folded in with live values at the playhead, repeats as lines or bands. If it wins, level 2 merges into level 3.</figcaption></figure>
 </div>
-<p><span class="pick">AI pick: R2 and R3 are co-leaders (80 vs 78).</span> Moving 10 weight points from "drag syncs" to "scales to many runs" puts R3 ahead. Others: R5 moments first (75: opens at the worst moment, ghost arms, value tables), R4 Rerun parity (74), R1 today's page where a drag on any chart scrubs (69, the minimal change). Fixtures: your workspace-dev-000 and BAM FB with 9 of 17 lines.</p>
-<p><b>Two bugs in today's production viewer</b>, found on the way: opening a tab for the first time parks the 3D at the end. With a subset of runs kept, the answer box can name a run that isn't shown. Both are fixed in the variant copies, not yet in <code>src/</code>.</p>
+<p><span class="pick">AI pick: R2 and R3 are co-leaders (80 vs 78); R2 is applied (section 0).</span> Moving 10 weight points from "drag syncs" to "scales to many runs" puts R3 ahead. Others: R5 moments first (75: opens at the worst moment, ghost arms, value tables), R4 Rerun parity (74), R1 today's page where a drag on any chart scrubs (69, the minimal change). Fixtures: your workspace-dev-000 and BAM FB with 9 of 17 lines.</p>
+<p><b>Two bugs in the production viewer</b>, found on the way (the 3D parked at the end on a tab's first open; with a subset of runs, the answer box named a run that isn't shown): both fixed in <code>src/</code> with drag-to-sync (<code>e7e6c57</code>).</p>
 {{g_play}}
 
 <h2>Decision surface</h2>
 <table>
-<tr><th>Done and proved</th><td>V2 landed on main (<code>00ea6c9</code>, pushed) with the browser journey and the .rrd read back. The three rounds (<code>49ef321</code>, <code>b78e632</code>, <code>7284113</code> + <code>5ce1dc3</code>, pushed) each passed their headless checks and <code>gallery.py check --strict</code>.</td></tr>
-<tr><th>Decided for you</th><td>Your three levels are the spec. Level 2 stays V2's summary target view; level 3 is our comparison viewer or Rerun. Run KPIs are the bench's own run tags; traj_compare's own tool RMS is a separate column. Undo for the landing: <code>git revert 00ea6c9</code> (a merge; use <code>-m 1</code>).</td></tr>
-<tr><th>Needs you</th><td>Three picks (or splices): an Overview, which new tab(s), and a playback look. My defaults if you say nothing: O3 tiles + O1's League under; T1; R2, then a second round between R2 and R3 on many runs.</td></tr>
-<tr><th>Left / next</th><td>Splice the picks into <code>write_runs_workbench</code> and the comparison viewer. Fix the two playback bugs in <code>src/</code>. Playback in config colours. Data-ui asks (drill events, POST body, conditional notes, fold at any width, filtered legends, a stock two-stage median).</td></tr>
+<tr><th>Done and proved</th><td>V2 landed (<code>8b97871</code>..<code>8399d09</code>) with the browser journey and the .rrd read back. The three rounds (<code>49ef321</code>, <code>b78e632</code>, <code>7284113</code> + <code>5ce1dc3</code>) each passed their headless checks and <code>gallery.py check --strict</code>. The four picks above landed with their tests, red first; I re-ran each lane's tests and the server suites one file per process (all green) and re-drove the three-level journey on <code>main</code>. All pushed; <code>main</code> @ <code>f412bc7</code>.</td></tr>
+<tr><th>Decided for you</th><td>Your three levels are the spec: level 2 stays V2's summary target view; level 3 is our comparison viewer or Rerun. The AI pick of each round is applied (section 0, each with its undo). Run KPIs are the bench's own run tags; where a run has none, the Overview and T1 use traj_compare's own tool RMS, counted under each figure (<code>accuracy_fallback=False</code> turns it off). Undo for V2 itself: <code>git revert 8399d09 13e21ea 8b97871</code>.</td></tr>
+<tr><th>Needs you</th><td>Nothing blocks. To swap a pick, say which: the galleries below each variant stay live.</td></tr>
+<tr><th>Left / next</th><td>The time lane at phone width (~330 px tall) works but isn't polished. Playback in config colours. One target per playback. Old cached playbacks stay on disk until the next sweep. Data-ui asks (drill events, POST body, conditional notes, fold at any width, filtered legends, a stock two-stage median). TTA picks up drag-to-sync and the time lane at its next build.</td></tr>
 <tr><th>Deliberately not done</th><td>No data-ui edits (gaps named with exact asks). TTA's uncommitted <code>tools/build_dropins.py</code> edit: not from this session; left for TTA's dispatcher.</td></tr>
 </table>
 </main></body></html>
