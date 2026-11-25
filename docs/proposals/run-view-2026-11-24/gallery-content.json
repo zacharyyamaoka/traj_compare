@@ -1,0 +1,133 @@
+{
+  "title": "The playback viewer: five ways to drag time across every figure",
+  "kicker": "traj_compare · run-view round · babble 5 · 2026-11-24",
+  "brief": "Level 3 of dataset → target → playback: one target, the runs ticked in the target view (2 to ~40), compared through time. Zach: \"as you drag the time on any of the figures it syncs across all of the other ones\" — keep the 3D stage + question tabs, be the peer of Rerun, and become the stable sub-assembly the dataset viewer imports.",
+  "defaultId": "r2",
+  "defaultWhy": "R2 One timeline for the page leads at 80/100, two points over R3 Summary and playback (78): the only variant where the sync is one visible line through every figure, and its per-run tracks carry each run's error, worst moment and the moment its error rises. It pays with a contract change (the stage's slider moves into the lane), ~180–300 px of height and a new ~1,100-line module. Fragile: within three points, so R2 and R3 are co-leaders.",
+  "decisionHinge": "Scale versus the frozen stage. R2 wins on drag-to-sync (fr1) and moments (fr3); R3 wins on 17-run legibility (fr2: grouped run list, bands, live 'at t' values) and keeps the stage's slider. Move 5 points of weight from fr1 to fr2 and they tie at 79; move 10 and R3 leads, 80 to 78. If the target view stays its own level, R2's tracks are the better playback; if Zach wants summary and playback on one page, R3. Splice either onto R1's gesture (126 lines) — every variant already stands on it.",
+  "invariants": [
+    "The frozen structure (NAVIGATION.md Part B): 3D stage beside the question tabs, exact titles; titles name signal, joint, sign convention and unit; degrees; joints one per row.",
+    "Drag the time on any chart: every chart (another tab too), the 3D pose and the slider follow live; x zoom survives by another gesture.",
+    "The selection arrives in the URL (keep=) and toggling a run writes it back; ‹ Target view and Open the same in Rerun carry it.",
+    "Real data only: TTA's workspace-dev-000 (Target + p5s-pass3 + p6s) and the bench's BAM FB target (17 lines, 8 configs, 9 kept).",
+    "Production untouched: each variant carries its own copies of the assets it changes (from src/traj_compare/assets @ 38b5967)."
+  ],
+  "boundary": "Live prototypes on real data, served by serve.py on 127.0.0.1:8853; every sync number below is read back from what the page draws (check.cjs, headless Chrome 1440 × 900). Open the same in Rerun writes a real recording (run dry in the checks). Not spliced into traj_compare; dark theme and phone layouts not polished.",
+  "axes": [
+    {"name": "Time control", "values": ["drag any chart (R1)", "one line + docked time lane (R2)", "drag charts + brush the summary strip (R3)", "Rerun's time panel and gestures (R4)", "moments: open at the worst, jump, snap (R5)"]},
+    {"name": "Run selection", "values": ["today's chips (R1)", "one track per run in the lane (R2)", "the target view's run list (R3)", "Rerun's blueprint tree (R4)", "rows of each chart's readout (R5)"]},
+    {"name": "Figure layout", "values": ["today's stage + tabs grid (R1)", "charts stacked on one x (R2)", "run list · stage · tabs + summary strip (R3)", "the questions blueprint (R4)", "a readout table under every chart (R5)"]}
+  ],
+  "variants": [
+    {
+      "id": "r1",
+      "name": "Every figure is a scrubber",
+      "accent": "#52514e",
+      "thesis": "Keep today's run report and change one gesture: press and drag on any chart commits the time, live, everywhere.",
+      "bestWhen": "2–5 runs (TTA's three): nothing to relearn, and the splice is 126 lines of plots.js.",
+      "losesWhen": "The selection is large: at 9 of 17 runs the situation and Δ chips push the first chart 745 px down, ten arms overlap in the 3D, and nothing summarises repeats.",
+      "decisions": [
+        {"label": "Gesture", "value": "Plain drag on a chart = commit the time (snapped to the plot grid); hover stays the preview (dashed cursor vs solid playhead)."},
+        {"label": "Zoom", "value": "Moves off the plain drag: Shift-drag box, wheel around the pointer, double-click / Reset zoom."},
+        {"label": "Fix", "value": "A chart built on its tab's first show no longer parks the 3D at the end (a production bug, measured)."}
+      ],
+      "keepParts": ["drag-to-commit gesture + playhead (attachTimeGestures)", "keep= / t= in the URL", "the tab-switch hover fix"],
+      "scores": {
+        "fr1": {"score": 4, "evidence": "Any chart, live: mid-drag and after release every chart, the slider and the 3D read back within 0.0002 s (one sample = 0.01 s), on the joints tab too, both fixtures. Affordance is only the ew-resize cursor + tooltip.", "confidence": "high"},
+        "fr2": {"score": 2, "evidence": "bam_fb (9 of 17): situation + Δ chips take ~400 px; check.cjs had to scroll 745 px to reach the first chart; every repeat drawn as its own line.", "confidence": "high"},
+        "fr3": {"score": 3, "evidence": "Today's 'Go to t = worst' button; values at the playhead need hovering one chart at a time.", "confidence": "high"},
+        "fr4": {"score": 3, "evidence": "Back link carries keep=; Open the same in Rerun writes exactly the shown runs at t on the open tab (dry). Layout is today's report, close to but not Rerun's.", "confidence": "high"},
+        "fr5": {"score": 4, "evidence": "Today's structure, untouched; long run names in the 3D rows ellipsize (title carries them) as in production.", "confidence": "medium"},
+        "fr6": {"score": 5, "evidence": "plots.js 126 changed lines, viewer3d.js 18 (readback only), style.css 11; no contract change.", "confidence": "high"}
+      }
+    },
+    {
+      "id": "r2",
+      "name": "One timeline for the page",
+      "accent": "#1f6feb",
+      "thesis": "A video-editor page: one docked time lane under the tabs, and one playhead line through every chart, because every chart and the lane share the same x pixels.",
+      "bestWhen": "The question is when, across many runs and charts: the per-run bands line up (all three record repeats peak at 1.70–1.71 s on j1, jtc_baseline at 0.31 s) and one line reads every chart at once.",
+      "losesWhen": "Vertical room matters: the lane takes ~180 px (3 runs) to ~300 px (17), so 2–3 charts fit at 1440 × 900 until it is folded or dragged smaller; a new ~1,100-line module and the stage loses its slider.",
+      "decisions": [
+        {"label": "One time control", "value": "The stage's slider is gone; the lane's ruler is the page's slider (scrub on it, its grip or any track)."},
+        {"label": "Runs are tracks", "value": "One track per run, grouped and foldable by config: eye, Δ, error at t, its error band and its moments (◆ worst, ▲ error rises)."},
+        {"label": "Shared x", "value": "Fixed y-axis width + padding: every chart's plot area is the ruler's; zoom is a separate bar (drag a range, pan, wheel)."}
+      ],
+      "keepParts": ["shared x geometry (fixed axis width + padding)", "run tracks with error bands and moments", "the one line + zoom bar"],
+      "scores": {
+        "fr1": {"score": 5, "evidence": "One 2 px line spans the charts column into the lane; every chart reads within 0.00008 s of t mid-drag, after release and on the joints tab (both fixtures); the lane is the slider and says so.", "confidence": "high"},
+        "fr2": {"score": 4, "evidence": "17 tracks grouped by config, unkept configs folded; first chart on the first screen (no scroll). The charts themselves still draw every repeat as a line.", "confidence": "medium"},
+        "fr3": {"score": 5, "evidence": "Every track marks its worst moment and where its error rises; ‹ ◆ Worst moment › jumps; each track shows its error at t.", "confidence": "high"},
+        "fr4": {"score": 3, "evidence": "Back + Rerun carry the selection, time and tab; the lane resembles Rerun's streams time panel, the rest is today's layout.", "confidence": "medium"},
+        "fr5": {"score": 3, "evidence": "Stage beside the tabs, exact titles, every boundary drags/folds and is remembered — but the stage's own scrubber (Part B) moves into the lane: a contract change.", "confidence": "medium"},
+        "fr6": {"score": 2, "evidence": "timeline.js 1,086 new lines + plots.js 143 + style.css 206; the Part B stage contract changes.", "confidence": "high"}
+      }
+    },
+    {
+      "id": "r3",
+      "name": "Summary and playback, one page",
+      "accent": "#2f9e44",
+      "thesis": "Fold the target view's summary (run list, repeats as lines or bands, the verdict) into the playback viewer, so picking runs, reading repeatability and playing an instant happen on one page.",
+      "bestWhen": "Many runs of a few configs (the bench's 17 in 8): tell repeatability from config effect, then play the moment that matters; the run list answers 'which run is bad right now' while you drag.",
+      "losesWhen": "2–3 runs (TTA): the run list and verdict take width R1 gives to the 3D and charts; with six tabs the stage drops to ~290 px. Bands pay off only where repeats scatter.",
+      "decisions": [
+        {"label": "Run list", "value": "Far left, grouped by config (group checkbox, n shown / n), mean joint RMS and a live 'at t' value per run."},
+        {"label": "Summary strip", "value": "Per config largest joint error, Auto/Lines/Bands; it is the time navigator: brush = zoom, drag its playhead, click to go."},
+        {"label": "Bands in charts", "value": "Joint-error charts summarise a config's repeats as median + middle half past N lines; other tabs keep lines."}
+      ],
+      "keepParts": ["run list with live 'at t' values", "summary strip as zoom navigator", "band slots in makeChart (spec.bands)"],
+      "scores": {
+        "fr1": {"score": 4, "evidence": "Any chart, live (within 0.00014 s everywhere, both fixtures, other tab too); the run list's 'at t' column moves with it; strip playhead also drags. Chart affordance is R1's cursor.", "confidence": "high"},
+        "fr2": {"score": 5, "evidence": "17 runs grouped by config with group toggles; Auto switches a config to median + band past 5 lines; first chart visible (check scrolled 23 px); 'at t' bolds the worst shown run.", "confidence": "high"},
+        "fr3": {"score": 4, "evidence": "Live 'at t' values for every run in the list; the strip shows where along the motion to look; no list of moments.", "confidence": "medium"},
+        "fr4": {"score": 3, "evidence": "Back + Rerun carry the selection; Rerun has no run list or strip, and the merged page would change what 'back' means (target level folds in).", "confidence": "medium"},
+        "fr5": {"score": 4, "evidence": "Stage + tabs kept with exact titles; the list drags/folds and is remembered; names ellipsize with the whole name in title; the 3D gets narrow.", "confidence": "medium"},
+        "fr6": {"score": 2, "evidence": "plots.js 1,000 changed lines (≈600 one contained block) + style.css 155; merging the target level is a Part A change.", "confidence": "high"}
+      }
+    },
+    {
+      "id": "r4",
+      "name": "Rerun parity",
+      "accent": "#8e5bd1",
+      "thesis": "Lay the HTML out as the questions blueprint traj_compare already writes for Rerun — blueprint panel, view title bars, Rerun's time panel and gestures — so HTML and Rerun read as one viewer, with one deliberate difference: a plain drag moves the time.",
+      "bestWhen": "The reader uses Rerun too: same tab names, 2 : 5 layout, title bars, time panel and right-click / Ctrl+scroll / double-click; Open the same in Rerun lands on the same picture (proved against the real Rerun 0.40 viewer).",
+      "losesWhen": "A first-time reader expects a plain drag to pan (Rerun habit) or zoom (uPlot habit); values at the playhead show only on hover; the tab bar wraps at 17 runs with the panel open; a ~1,350-line frame.",
+      "decisions": [
+        {"label": "Selection", "value": "Rerun's blueprint panel: world/<run>/ entities grouped by config, eyes = the run's on/off everywhere, Alt+click solo."},
+        {"label": "Time", "value": "Rerun's time panel (timeline t, play, speed, loop, the draggable time cursor); right-click moves time as in Rerun, plain drag added."},
+        {"label": "Primary action", "value": "Open the same in Rerun, filled blue, with the line of what it opens: runs, tab and time."}
+      ],
+      "keepParts": ["blueprint RUNS tree (groups, eyes, solo)", "Rerun's gestures as a second set", "the '?' help beside Rerun's"],
+      "scores": {
+        "fr1": {"score": 4, "evidence": "Plain drag scrubs every chart, the time panel cursor and the 3D within 0.00005 s, both fixtures, other tab too; the time panel says 'drag on any chart to move the time everywhere'. Two gesture habits (Rerun's right-click) coexist.", "confidence": "high"},
+        "fr2": {"score": 3, "evidence": "Blueprint tree groups the 17 by config with counts and eyes; first chart on the first screen (no scroll); charts still draw every repeat as a line; tab bar wraps.", "confidence": "medium"},
+        "fr3": {"score": 3, "evidence": "Today's Go to worst; values at the playhead only on hover or while dragging; no events view (Rerun's track tab has one).", "confidence": "high"},
+        "fr4": {"score": 5, "evidence": "extra-beside-rerun.png: this page over the real Rerun 0.40 viewer, same runs, tab and t = 3.51 s; gestures quoted from Rerun's own help; Open the same in Rerun is primary and says what it carries.", "confidence": "high"},
+        "fr5": {"score": 5, "evidence": "The questions layout itself (stage 2 : tabs 5), exact titles, one view per joint row with signal/joint/sign/unit titles; every boundary drags and is remembered; views fold.", "confidence": "medium"},
+        "fr6": {"score": 2, "evidence": "rerun-frame.js + .css 1,349 new lines + plots.js 267; replaces the page chrome.", "confidence": "high"}
+      }
+    },
+    {
+      "id": "r5",
+      "name": "Moments first",
+      "accent": "#c22f6e",
+      "thesis": "Organise the page around moments: open at the worst one, list the moments worth seeing, and at the playhead show every shown run at once — one arm per run in 3D and a readout table under every chart.",
+      "bestWhen": "Reviewing what went wrong: the peaks in order, one keypress apart ([ / ]), with every run's number at each one and no hovering.",
+      "losesWhen": "Dense small multiples (the timing tab's six cards a row): nine readout rows under each become a wall of numbers and names shrink to 'reco…im'; at 17 runs the ghost arms overlap into one shadow.",
+      "decisions": [
+        {"label": "Opens at the worst moment", "value": "The worst shown run's largest |joint error| (tta: 3.51 s, p6s, wrist_1), unless ?t= is given."},
+        {"label": "Moments + snap", "value": "Worst / error rises / limits / motion end per run, sorted by time; the drag snaps to a moment within 6 px (Alt drags free)."},
+        {"label": "Readouts", "value": "Under every chart: each shown run's value and Δ = target − run at t, sorted by |Δ|; its checkbox toggles the run everywhere."}
+      ],
+      "keepParts": ["readout under a chart (attachReadout)", "moments + snap + [ / ]", "ghost arms with a focus run"],
+      "scores": {
+        "fr1": {"score": 4, "evidence": "Any chart, live, snapping shown: every chart, slider, 3D and readouts within 0.00017 s, both fixtures, other tab too; hover no longer moves the 3D (one instant on the page). Snap can surprise; Alt frees it.", "confidence": "high"},
+        "fr2": {"score": 3, "evidence": "Runs picker one line ('9 of 17 shown'); readouts under each chart grow with runs (first chart 70 px down on bam_fb); no repeat summary.", "confidence": "medium"},
+        "fr3": {"score": 5, "evidence": "Opens at the worst moment; moments list with [ / ]; every run's value and Δ at t under every chart; ticks on each chart's top edge.", "confidence": "high"},
+        "fr4": {"score": 3, "evidence": "Back + Rerun carry the selection, tab and time; the moments list and readouts have no Rerun counterpart.", "confidence": "medium"},
+        "fr5": {"score": 4, "evidence": "Stage + tabs kept; the moments list folds and its height drags (remembered); readout names ellipsize with title; narrow cards get crowded.", "confidence": "medium"},
+        "fr6": {"score": 3, "evidence": "plots.js 882 changed lines (one self-contained block), viewer3d.js 138, style.css 145; no contract change.", "confidence": "high"}
+      }
+    }
+  ]
+}

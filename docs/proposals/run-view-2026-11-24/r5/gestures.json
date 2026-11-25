@@ -1,0 +1,8 @@
+{
+  "scrub": { "modifiers": [] },
+  "snaps": true,
+  "zoom": { "kind": "wheel", "at": 0.5, "ticks": 4 },
+  "reset": { "click": "[data-rv5-reset-zoom]" },
+  "toggle": "[data-rv-run=\"{name}\"]",
+  "tab": "[data-tc-tab=\"{id}\"]"
+}

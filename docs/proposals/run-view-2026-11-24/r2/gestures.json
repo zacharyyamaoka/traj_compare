@@ -1,0 +1,7 @@
+{
+  "scrub": { "modifiers": [] },
+  "zoom": { "kind": "drag", "selector": "[data-rv-range]", "from": 0.3, "to": 0.6 },
+  "reset": { "click": "[data-rv-zoom-reset]" },
+  "toggle": "[data-rv-run=\"{name}\"]",
+  "tab": "[data-tc-tab=\"{id}\"]"
+}

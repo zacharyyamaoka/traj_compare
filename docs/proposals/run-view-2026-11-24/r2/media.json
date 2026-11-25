@@ -1,0 +1,17 @@
+[
+  {
+    "file": "shots/r2/extra-lane-17.png",
+    "label": "All 17 bam_fb runs in the lane, grouped by config",
+    "caption": "Each run's band is its largest joint error over time on one shared scale, with ◆ worst moment and ▲ where its error first passes half its peak. The playhead at 1.71 s runs through every track. The three record repeats peak there together (4.2–4.4° on j1). The others peak elsewhere: jtc_baseline at 0.31 s, the model-FF configs and hold_friction near 2.83–2.87 s, both on j2. The error at the playhead sits beside each name. The lane is dragged tall (it remembers); 17 of 17 runs shown."
+  },
+  {
+    "file": "shots/r2/extra-zoomed-line.png",
+    "label": "Zoomed to 1.15–2.35 s: one line through every joint chart",
+    "caption": "Which joint has the error, zoomed from the zoom bar around the worst moment. j1, j2, c1 and w1 stack full width on the same x pixels, and the ONE playhead line at 1.71 s crosses all of them and lands on the ruler's grip. The lane is folded to its transport and ruler, so five charts fit on the screen."
+  },
+  {
+    "file": "shots/r2/extra-hover-preview.png",
+    "label": "Hovering a run's track previews that instant",
+    "caption": "The solid line is the committed time (3.51 s, p6s's worst moment). Hovering p6s's track at 1.83 s draws a dashed preview line through every chart and the lane and poses the 3D there, while the committed time stays where it was."
+  }
+]

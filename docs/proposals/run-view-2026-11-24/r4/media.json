@@ -1,0 +1,17 @@
+[
+  {
+    "file": "shots/r4/extra-beside-rerun.png",
+    "label": "This page over the real Rerun 0.40 viewer, same runs, tab and time",
+    "caption": "Top: R4 on tta (p5s-pass3 + p6s) at t = 3.51 s on “Did it track the target?”. Bottom: the real Rerun 0.40 web viewer showing the recording “Open the same in Rerun” writes for exactly that, with its blueprint panel opened. Both have SOURCES, the blueprint tree, the 3D view titled “3D: every run's robot and tool point path” beside the same tab bar at 2 : 5, “Scorecard: …” and the two charts as views with ? · eye · maximize title bars, Rerun's time cursor on every chart at +3.51 s, and the time panel with play, loop, t, 1.00x, +3.510s, STREAMS and the ruler. The differences: here the RUNS eyes are the selection, and the charts carry +0.5 s ticks."
+  },
+  {
+    "file": "shots/r4/extra-help.png",
+    "label": "A chart's “?”: this page's gestures beside Rerun 0.40's",
+    "caption": "The rows are Rerun's own time-series help, quoted from its popup. Blue marks where this page differs: a plain drag moves the time (Rerun pans), pan moves to the middle button and Shift + scroll, Zoom Y-axis is not built, Ctrl + drag also zooms to a selection, and the Runs eye hides a run in every view. Everything else is “same”: right-click, right-drag, Ctrl + scroll, Ctrl + Shift + scroll, Shift + scroll and double-click."
+  },
+  {
+    "file": "shots/r4/extra-time-panel.png",
+    "label": "Time panel and zoom to selection, beside real Rerun",
+    "caption": "Top: 2.0–3.0 s was dragged on the time scale. It becomes a blue time selection and the loop button turns on, as in Rerun. A right-drag is held on the first chart: the blue band is Rerun's zoom to selection, and Rerun's hover tooltip lists +2.52 s and each run's value. The time cursor stays at 3.51 s on the charts and in the time panel. Bottom: the real Rerun after the same drag on its time scale: selection band, loop on, Start / Stop / Length."
+  }
+]

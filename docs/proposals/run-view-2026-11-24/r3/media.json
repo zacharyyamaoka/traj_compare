@@ -1,0 +1,17 @@
+[
+  {
+    "file": "shots/r3/extra-17-lines.png",
+    "label": "All 17 runs, Repeats = Lines",
+    "caption": "Every bench line of the target (8 configs, repeats r0–r2) on the joint-error tab, zoomed to 1.3–2.5 s by brushing the summary strip (its window is outlined, the rest shaded). 17 lines per chart; the run list's \"at 1.71 s\" column names the worst run at the playhead (record · r1, bold)."
+  },
+  {
+    "file": "shots/r3/extra-17-bands.png",
+    "label": "The same moment and window, Repeats = Bands",
+    "caption": "Each config with 2+ shown runs becomes its median line, a middle-half band and a min–max band (legend under the strip; banded runs show a small band as their swatch). On this bench the sim repeats nearly coincide, so the bands are thin: that is the data's repeatability, now readable as 8 traces instead of 17."
+  },
+  {
+    "file": "shots/r3/extra-9-bands.png",
+    "label": "The 9 runs the target view sent, Bands, first tab",
+    "caption": "What arrives from the target view (keep= of 9): the verdict beside the strip ranks the 5 shown configs (×-the-best), the answer card names the worst and best of the SHOWN runs, and the first chart sits on the first screen with the statistics table below it."
+  }
+]

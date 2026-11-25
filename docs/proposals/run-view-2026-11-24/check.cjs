@@ -262,6 +262,7 @@ async function film(browser, fx) {
   fs.rmSync(dir, { recursive: true, force: true });
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, recordVideo: { dir, size: { width: 1440, height: 900 } } });
   const page = await context.newPage();
+  const filmStart = Date.now();  // the recording starts with the page: the drag's offset into it trims the load away
   const query = new URLSearchParams({ fixture: fx.name, keep: fx.keep, dry: '1' });
   await page.goto(`http://127.0.0.1:${port}/${v}/index.html?${query.toString().replace(/%2C/g, ',')}`);
   await ready(page);
@@ -283,6 +284,7 @@ async function film(browser, fx) {
   let y = pick.box.top + pick.box.height * 0.55;
   if (g.selector) { const lane = await page.evaluate((s) => document.querySelector(s).getBoundingClientRect().toJSON(), g.selector); y = lane.top + lane.height * (g.yFrac ?? 0.5); }
   const x0 = pick.box.left + pick.box.width * 0.12, x1 = pick.box.left + pick.box.width * 0.85;
+  const dragStart = Date.now();
   await page.mouse.move(x0 - 60, y + 30, { steps: 8 });
   await page.waitForTimeout(400);
   await page.mouse.move(x0, y, { steps: 6 });
@@ -295,10 +297,18 @@ async function film(browser, fx) {
   await page.waitForTimeout(700);
   await openTab(page, fx.otherTab);
   await page.waitForTimeout(1400);
+  const filmEnd = Date.now();
   await context.close();
   const webm = fs.readdirSync(dir).filter((f) => f.endsWith('.webm')).map((f) => path.join(dir, f))[0];
   const mp4 = path.join(out, `sync-${fx.name}.mp4`);
-  execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', webm, '-vf', 'scale=1440:-2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '28', '-movflags', '+faststart', '-an', mp4]);
+  // WHY trimmed and maybe sped up: the recording starts at page creation, so it holds the fixture's load (13.6 MB for
+  // bam_fb), and the headless software renderer draws ten arms slowly; the film keeps the interaction only, at most
+  // ~18 s. The speed-up is recorded (film.json) and said in the gallery caption.
+  const from = Math.max(0, (dragStart - filmStart) / 1000 - 0.6);
+  const length = (filmEnd - dragStart) / 1000 + 0.6;
+  const speed = Math.max(1, length / 18);
+  execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-ss', from.toFixed(2), '-i', webm, '-vf', `setpts=PTS/${speed.toFixed(3)},scale=1440:-2`, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '28', '-movflags', '+faststart', '-an', mp4]);
+  fs.writeFileSync(path.join(out, `sync-${fx.name}.film.json`), JSON.stringify({ trimmedFrom: from, interactionSeconds: length, speed }));
   fs.rmSync(dir, { recursive: true, force: true });
   return mp4;
 }

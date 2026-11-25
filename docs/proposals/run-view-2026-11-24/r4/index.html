@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Playback viewer · R4 Rerun parity</title>
+<link rel="stylesheet" href="/assets/uplot.min.css">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="../common/runview.css">
+<link rel="stylesheet" href="rerun-frame.css">
+</head>
+<body data-rv-variant="r4" class="r4">
+<!-- R4 "Rerun parity": the page laid out AS the Rerun blueprint traj_compare writes (rerun_export's `questions`
+     layout): a blueprint panel on the left (the runs' entity paths, each eye = shown in every view), the 3D view beside
+     the question tabs at Rerun's 2 : 5, every chart a Rerun view with its own title bar, one per row, and Rerun's time
+     panel docked at the bottom. "Open the same in Rerun" is the primary action and opens exactly this.
+     ?fixture=tta|bam_fb [&keep=<names or bench lines>] [&back=<target view url>] [&t=<s>] [#tab=<id>] [&dry=1] -->
+<header class="tc rv-head" id="rv-head"></header>
+<div class="r4-app" id="r4-app">
+  <aside class="r4-bp" id="r4-bp" aria-label="Blueprint panel: the recording, its runs and its views"></aside>
+  <div class="r4-split r4-split-bp" id="r4-split-bp" role="separator" aria-orientation="vertical"></div>
+  <div class="r4-viewport" id="r4-viewport">
+    <nav class="tc-tabs" id="tc-tabs"></nav>
+    <nav class="tc-subtabs" id="tc-subtabs"></nav>
+    <main class="tc" id="tc-main"></main>
+  </div>
+</div>
+<section class="r4-time" id="r4-time" aria-label="Time panel"></section>
+<footer class="tc" id="rv-foot"></footer>
+<script src="/assets/uplot.iife.min.js"></script>
+<script src="/assets/three.min.js"></script>
+<script src="/assets/viewhelper.js"></script>
+<script src="viewer3d.js"></script>
+<script src="plots.js"></script>
+<script src="rerun-frame.js"></script>
+<script src="../common/runview.js"></script>
+</body>
+</html>
