@@ -4,8 +4,9 @@ build_real.py writes the two sites (our repicks, GraspNet-1Billion) under report
 serves that folder with traj_compare.serve on a free port (its pid recorded and stopped), and one headless Chrome (Node
 Playwright, recordVideo, a fresh context) walks the repicks page as a reader would:
 
-Overview (all 1 233 grasps) → tick Outcome "failed" (every figure recounts to the 43) → Position (the 3-D view, dragged
-to orbit) → Orientation → untick → the GraspNet page's Orientation (the same views on a 6-DOF label set).
+Overview (all 1 233 grasps: dots, a density heatmap, thin grippers) → tick Outcome "failed" (every figure keeps only the
+43 failures) → Grippers (their thin grippers in 3-D, dragged to orbit) → untick (all 1 233) → Over time → the GraspNet
+page's Orientation (the same views on a 6-DOF label set). Round 2, 2026-11-24.
 
 Then a second context (no video) shoots the stills the report shows. The cursor dot and the glide / drag helpers are
 the trajectory report's (docs/coverage_2026-11-23/record_hero.py), imported. Writes ``<media>/hero.mp4`` (H.264, 1200
@@ -64,36 +65,40 @@ const count = (page) => page.evaluate(() => document.querySelector('data-workben
     page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
     await page.goto(base + '/repicks/site/index.html'); await ready(page); await page.waitForTimeout(900);
     mark('landing', { count: await count(page) });
-    await page.waitForTimeout(1200);
-    await tick(page, 'failed', 2000);
-    mark('failed', { count: await count(page) });
-    await tab(page, 'Position', 300);
-    await page.waitForSelector(`${WB} .dd-panel[aria-label="In 3-D"] canvas`, { timeout: 15000 }); await page.waitForTimeout(900);
-    const scene = await centre(page, `${WB} .dd-panel[aria-label="In 3-D"] canvas`);
-    await glide(page, scene.x - 60, scene.y + 30, 300);
-    await drag(page, 240, -40, 1300);
-    await page.waitForTimeout(600);
-    mark('position');
-    await tab(page, 'Orientation', 1700);
-    mark('orientation');
+    await page.waitForTimeout(1300);
+    // WHY the failures first: orbiting all 1 233 thin grippers costs ~15 s a step under software WebGL; the 43 failures
+    // orbit smoothly and are the story ("showing where the failures where and not")
     await tick(page, 'failed', 1500);
+    mark('failed', { count: await count(page) });
+    await tab(page, 'Grippers', 300);
+    await page.waitForSelector(`${WB} .dd-panel[aria-label="Thin grippers in 3-D"] canvas`, { timeout: 15000 });
+    await page.waitForTimeout(800);
+    const scene = await centre(page, `${WB} .dd-panel[aria-label="Thin grippers in 3-D"] canvas`);
+    await glide(page, scene.x - 80, scene.y + 40, 300);
+    await drag(page, 220, -30, 1300);
+    await page.waitForTimeout(500);
+    mark('grippers');
+    await tick(page, 'failed', 1600);
     mark('all', { count: await count(page) });
+    await tab(page, 'Over time', 1900);
+    mark('over_time');
     await page.goto(base + '/graspnet/site/index.html#tab=orientation'); await ready(page); await page.waitForTimeout(2300);
     mark('graspnet', { count: await count(page) });
     mark('end');
     const video = page.video();
     await context.close();
     const stills = {};
-    const shoot = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    // WHY tall: the workbench scrolls inside its own frame, so a still shows a whole tab only when the window fits it
+    const shoot = await browser.newContext({ viewport: { width: 1440, height: 1900 } });
     const still = await shoot.newPage();
     still.on('pageerror', (error) => errors.push(String(error)));
     const take = async (name) => { const path = `${dir}/still-${name}.png`; await still.screenshot({ path }); stills[name] = path; };
-    for (const [site, tabs] of [['repicks', ['Overview', 'Position', 'Gripper', 'Orientation', 'Objects', 'Grasps']],
-                                ['graspnet', ['Overview', 'Gripper', 'Orientation']]]) {
+    for (const [site, tabs] of [['repicks', ['Overview', 'Grippers', 'Position', 'Gripper', 'Orientation', 'Objects', 'Over time', 'Grasps']],
+                                ['graspnet', ['Overview', 'Grippers', 'Gripper', 'Orientation']]]) {
       await still.goto(`${base}/${site}/site/index.html`); await ready(still); await still.waitForTimeout(900);
       for (const name of tabs) {
         await still.click(`${WB} data-tabs [role=tab][data-tab="${name}"]`); await still.waitForTimeout(1500);
-        await take(`${site}-${name.toLowerCase()}`);
+        await take(`${site}-${name.toLowerCase().replace(' ', '-')}`);
       }
     }
     await still.goto(`${base}/repicks/site/index.html`); await ready(still); await still.waitForTimeout(900);

@@ -26,6 +26,7 @@ OUT = PACKAGE / "reports" / "media" / "grasp-coverage-2026-11-24.html"
 # the W&B runs of record (build_real.py --wandb, 2026-11-24 20:12; their summaries checked equal to the payloads' numbers)
 WANDB = {"repicks": "https://forge.coreweave.com/wandb/zach-yamaoka-independent/grasp-coverage/runs/q3uhtlnv",
          "graspnet": "https://forge.coreweave.com/wandb/zach-yamaoka-independent/grasp-coverage/runs/svn5kl2w"}
+LIVE = "https://grasp-viewer.zach-yamaoka.workers.dev"  # deploy/grasp-viewer (npm run deploy)
 MISSING: list[str] = []
 
 STYLE = """
@@ -48,11 +49,23 @@ blockquote{margin:8px 0;padding:6px 14px;border-left:3px solid var(--line);color
 """
 
 
+def _trim(picture: Image.Image, margin: int = 24) -> Image.Image:
+    """Drop the empty rows under the last thing drawn. WHY: the workbench stills are shot 1 900 px tall so a long tab
+    fits, and a short tab leaves a tall grey tail (the page's background, one flat colour per row)."""
+    import numpy as np
+
+    rows = np.asarray(picture.convert("L"), float)[:, picture.width // 5:]
+    busy = np.flatnonzero(rows.std(axis=1) > 2.0)
+    if not len(busy):
+        return picture
+    return picture.crop((0, 0, picture.width, min(picture.height, int(busy[-1]) + margin)))
+
+
 def image(path: Path, width: int = 1100, quality: int = 58) -> str:
     if not path.is_file():
         MISSING.append(str(path.relative_to(SITES)))
         return ""
-    picture = Image.open(path).convert("RGB")
+    picture = _trim(Image.open(path).convert("RGB"))
     if picture.width > width:
         picture = picture.resize((width, round(picture.height * width / picture.width)), Image.LANCZOS)
     buffer = io.BytesIO()
@@ -84,9 +97,11 @@ def hero(timeline: dict) -> str:
     still_uri = "data:image/jpeg;base64," + base64.b64encode(poster.read_bytes()).decode() if poster.is_file() else ""
     fallback = ("data:image/gif;base64," + base64.b64encode(gif.read_bytes()).decode()) if gif.is_file() else ""
     marks = {mark["name"]: mark for mark in timeline.get("marks", [])}
-    steps = [("landing", "the repicks' Overview: all grasps"), ("failed", "Outcome ‘failed’ ticked: every figure recounts"),
-             ("position", "Position: the 3-D view, orbited"), ("orientation", "Orientation"),
-             ("all", "‘failed’ unticked"), ("graspnet", "GraspNet-1Billion's Orientation: the same views on 6-DOF labels")]
+    steps = [("landing", "the repicks' Overview: dots, a density heatmap, thin grippers"),
+             ("failed", "Outcome ‘failed’ ticked: every figure keeps only the failures"),
+             ("grippers", "Grippers: the failures' thin grippers in 3-D, orbited"), ("all", "‘failed’ unticked"),
+             ("over_time", "Over time: per day, coverage growth"),
+             ("graspnet", "GraspNet-1Billion's Orientation: a full sphere of approaches")]
     timeline_text = " · ".join(f"{marks[name]['video_s']:.1f} s {words}" + (f" ({marks[name]['count']})"
                                                                              if marks[name].get("count") else "")
                                for name, words in steps if name in marks)
@@ -147,7 +162,14 @@ def body() -> str:
                            for e in repicks["numbers"])
     return f"""
 <h1>Grasp coverage: a stock viewer, robot_msgs grasps in, four viewers out</h1>
-<p class=muted>traj_compare · 2026-11-24 · contract <code>docs/GRASP_COVERAGE.md</code> · on <code>main</code></p>
+<p class=muted>traj_compare · 2026-11-24 · contract <code>docs/GRASP_COVERAGE.md</code> · on <code>main</code> · live:
+<a href="{LIVE}">{LIVE.split("//")[1]}</a></p>
+<div class=verdict><b>Round 2 (your “slim … no thin grippers … no heat maps”):</b> the viewer is deployed as its own site,
+the <a href="{LIVE}">Grasp dataset viewer</a> (a card per dataset, each opening its workbench), and the workbench grew
+from 6 tabs to 8: a <b>Grippers</b> tab of thin wireframe grippers (3-D, from above, from the side; every failure drawn),
+heatmaps up front (density from above, picked share per 1 cm spot, density per outcome, width per object, width × tilt per
+object), a roll rose, approach directions as points on a 3-D sphere, an <b>Over time</b> tab (per day, coverage growth)
+and every grasp as a line. Seven new PNGs match.</div>
 <div class=verdict><b>Built and proven on real grasps.</b> Put in a list of robot_msgs <code>GraspPose</code>, an outcome per
 grasp and the gripper's jaw range; <code>traj_compare.grasp_coverage.analyze_grasps()</code> makes one payload, and our
 data-ui page, Matplotlib, Viser and W&amp;B all read it. On our {r['grasps']['value']:,.0f} real repick grasps
@@ -190,6 +212,14 @@ GraspNet: {build['graspnet']['per_object']} valid labels per object picked evenl
 claw's range ({gripper['high'] * 1000:.1f} mm open stop, {gripper['planner_high'] * 1000:.0f} mm planner span).</p>
 <table><tr><th>Object (repicks)</th><th>Grasps</th><th>Outcomes</th><th>Picked of closed</th></tr>{object_rows}</table>
 
+<h2>Round 2 · thin grippers, heatmaps, more kinds of view</h2>
+{still('repicks-grippers', 'Grippers: robot_msgs’ two-finger glyph per grasp as thin lines, coloured by outcome — the wrist ball on top, the jaws at the closing width. From above, each top-down grasp is a short line along its jaw axis, so you read roll at every spot.')}
+{still('repicks-position', 'Position: 3-D, top and side, picked share per 1 cm spot (yellow = always picked; the purple failures sit around the main cluster), the density heatmap, density per outcome, and the three faces.')}
+<div class="grid g2">{still('repicks-over-time', 'Over time: grasps per day by outcome, picked share per day (Nov 16 and Nov 23 dip), coverage growth (xy pixels still rising; approach cells flat at 4), grasps per day per object.', 900)}
+{still('repicks-grasps', 'Grasps: every grasp as a line across x, y, z, width, tilt and roll (each axis its own range), coloured by outcome; the table under it.', 900)}
+{still('graspnet-grippers', 'GraspNet-1Billion’s thin grippers, coloured by object (a label set has no outcomes); tick one object in the rail to see it alone.', 900)}
+{still('graspnet-orientation', 'GraspNet’s Orientation: the approach directions as a 3-D hedgehog sphere beside the disk and the equal-area map; its rose fills half the circle (its labels hold rolls 0–180°).', 900)}</div>
+
 <h2>1 · Our page: the data-ui workbench</h2>
 <p>The rail filters <b>grasps</b> (Object, Outcome, Day, Failed at, then width / tilt ranges); every coverage figure re-sums the
 kept grasps' part rows, so ticking “failed” recounts every tab. Same stock component as the trajectory workbench, so it
@@ -212,7 +242,14 @@ drops into any app (the 1000 × 680 embed below).</p>
 {png('graspnet', 'width', 'GraspNet width.png: 22 % of its labels are wider than our open stop.')}
 {png('repicks', 'sphere', 'sphere.png: the equal-area approach map.')}
 {png('repicks', 'position-density', 'position-density.png: grasps per 1 cm pixel, three faces, grey outside the offered area.')}</div>
-<p class=muted>Also written: width-tilt.png. Each takes <code>cmap</code> (BAM Reach's five), <code>reverse</code> and <code>scale</code> (linear default).</p>
+<h3>Round 2 figures</h3>
+<div class="grid g2">{png('repicks', 'grippers', 'grippers.png: thin grippers per object in 3-D, then all of them from above and the side.')}
+{png('repicks', 'success-map', 'success-map.png: picked share per 1 cm pixel beside how many closed there (its sample size).')}
+{png('repicks', 'roll-rose', 'roll-rose.png: the rose, to see the symmetry; rim ticks mark every bin with a grasp.')}
+{png('repicks', 'growth', 'growth.png: distinct cells reached as grasps are added (pixels, approach cells, widths, rolls).')}
+{png('repicks', 'over-time', 'over-time.png: grasps per day by outcome, picked share per day on the right axis.')}
+{png('repicks', 'density-outcomes', 'density-outcomes.png: one density map per outcome on one colour scale.')}</div>
+<p class=muted>Also written: width-tilt.png, width-tilt-objects.png. Each takes <code>cmap</code> (BAM Reach's five), <code>reverse</code> and <code>scale</code> (linear default).</p>
 
 <h2>3 · Viser</h2>
 <div class="grid g3">{still('viser-grasps', 'robot_msgs’ two-finger glyph per grasp, coloured by outcome, inside the look areas’ outer box.', 700)}
@@ -229,16 +266,30 @@ the 174 area boxes burying the grasps and a sphere camera that hid the visited c
 
 <h2>Proof</h2>
 <ul>
-<li>Acceptance tests written before the code (<code>c1a23d8</code>): 54 pass — the angles come back from grasps built from known
+<li>Acceptance tests written before the code (<code>c1a23d8</code>, round 2 <code>bcc2670</code>): 65 pass — the angles come back from grasps built from known
 tilt / roll, every count re-derived by hand, the workbench parts add back to the payload exactly, data-ui's checker passes the
-<code>.base</code> with 0 errors and 0 warnings, and headless Chrome ticks “failed” and reads each figure's recount.</li>
+<code>.base</code> with 0 errors and 0 warnings, and headless Chrome ticks “failed” and reads each figure's recount;
+round 2 added two gates found on the real data (no panel may say “could not be drawn”; every chart must place data marks),
+each mutation-tested red.</li>
 <li>The trajectory coverage suite stays green beside it (137 together); the trajectory payload is byte-identical after the
 binning moved to <code>coverage/bins.py</code>.</li>
 <li>Real data through all four viewers: the stills and clip above are the real pages; W&amp;B read back from the server.</li>
 </ul>
 
+<h2>Deployed</h2>
+<p><a href="{LIVE}">{LIVE}</a> — a static-assets Cloudflare Worker on workers.dev (no custom domain), built by
+<code>docs/grasp_viewer/build_site.py</code> with a privacy scan (no home or archive path, email or token may ship), checked
+live in headless Chrome on all 8 tabs of both datasets (no errors, no panel that failed to draw). Redeploy:
+<code>npm --prefix /home/bam/traj_compare/deploy/grasp-viewer run deploy</code>; rollback:
+<code>wrangler rollback --name grasp-viewer &lt;version&gt;</code> (<code>wrangler deployments list --name grasp-viewer</code>).</p>
+
 <h2>Decided for you (each one undoable)</h2>
 <ul>
+<li><b>Deployed on workers.dev, public</b>, with our real repick data (positions, outcomes, run numbers, days; no paths,
+names or emails — the build's privacy scan fails otherwise). No custom domain attached. Undo: <code>wrangler delete --name
+grasp-viewer</code> takes it down.</li>
+<li><b>Thin grippers thinned</b>: every failure, hover and refusal is drawn; picked and unlabelled grasps at most 300 per
+object (the Nov 19 gallery: past ~150 they hide the object). One constant, <code>GLYPHS_PER_OBJECT</code>.</li>
 <li><b>Lives in traj_compare</b> as <code>traj_compare.grasp_coverage</code>, beside <code>coverage</code>: it shares the binning, the
 colour rule and the workbench writer. Undo: move the package out (it imports only <code>coverage.bins</code>,
 <code>coverage.matplotlib_view</code>, <code>coverage.viser_view</code>, <code>coverage.workbench</code>).</li>
@@ -261,6 +312,9 @@ cannot hold the whole set's area); the area shows in the 3-D view and the PNGs.<
 <li>GraspClutter6D is not in: the Nov 19 cache holds only per-object counts, and its labels are 200 compressed archives on
 /archive (a ~4.5 min pass); GraspNet-1Billion stands in as the 6-DOF set.</li>
 <li>The scatter's axes are not forced to equal scale (Vega-Lite has no aspect lock); the 3-D view and the projections are.</li>
+<li>data-ui quirks worked around here, worth a data-ui fix: a chart renames an encoding's field to word characters but not a
+transform's output; a colour from a transform-made field throws; scene3d has no switch for its per-path “now” ball (our
+gripper path starts at the wrist so the ball is the wrist).</li>
 <li>Beside this, a peer session landed <i>record coverage</i> (the generic ML dataclass viewer) in the same repo today; it
 also reads the repicks, as records. The two are separate by design (your three viewers).</li>
 </ul>
