@@ -11,8 +11,10 @@ rerun one."):
 
 1. ``index.html``: the dataset workbench. data-ui's ``<data-workbench src="runs.base">`` over ``runs.json``, one row per
    measured line (a run, to Zach) of every site. The rail filters runs across every deployment (deployment is a facet,
-   never a split); tabs Overview · Targets · Runs; a Targets or Runs row's "Open target view" opens level 2 in the same
-   tab with the rail's runs of that target ticked (``keep=``) and this page's URL, filter and tab included (``back=``).
+   never a split); tabs Overview · Targets · Runs (since 2026-11-25 the Overview is six headline tiles, each opening
+   its own page, and "Does sim match real?" follows Runs: runs_overview.py); a Targets or Runs row's "Open target view"
+   opens level 2 in the same tab with the rail's runs of that target ticked (``keep=``) and this page's URL, filter and
+   tab included (``back=``).
 2. ``target.html?site=<key>&target=<slug>&keep=<lines>&back=<url>``: one target's runs as summary data (a run list with
    checkboxes, the verdict, repeats as lines or bands, joint error per joint), from ``sites/<key>.js`` and the site's own
    ``targets/<slug>.js``. Its two buttons play the ticked runs back:
@@ -26,8 +28,12 @@ Written into ``out_dir``:
     runs.json       one row per line: deployment, dataset, the rail's run tags, model type (with ``model_type=``), config,
                     sim / real, speed, target, the KPIs (run tags; worst-joint RMS °, tool RMS mm, feedback share), links
     targets.json    one row per target (the Targets tab), linked one-way from the runs, so it lists only targets with a run
-    runs.base       the rail, the pages (Overview · Targets · Runs, plus ``pages=``), the views, the drill actions
-    index.html      the workbench and its host glue (assets/runs_host.js)
+    pairs.json      "Does sim match real?": one row per real line and each prediction of it in its run folder (only when
+                    the runs hold such a pair; runs_overview.py)
+    runs.base       the rail, the pages (the Overview and its tiles' pages, Targets, Runs, "Does sim match real?", plus
+                    ``pages=``), the views, the drill actions
+    index.html      the workbench, its host views' config and its host glue (assets/runs_host.js)
+    runs_views.js   the host views (assets/runs_views.js + .css): the Overview's tiles and pages, the sim-vs-real answer
     target.html     the target view (assets/runs_target.js, .css; uPlot), every file inlined
     sites/<key>.js  per site, what the target view reads: its lines' numbers and its targets' time axes
     vendor/data-ui/ data-ui ``main`` vendored by its own ``data-ui vendor`` (unless ``kit=`` names one to reuse)
