@@ -1,0 +1,7 @@
+{
+  "scrub": { "modifiers": [] },
+  "zoom": { "kind": "drag", "modifiers": ["Shift"], "from": 0.3, "to": 0.6 },
+  "reset": { "dblclick": "chart" },
+  "toggle": "[data-rv-run=\"{name}\"]",
+  "tab": "[data-tc-tab=\"{id}\"]"
+}

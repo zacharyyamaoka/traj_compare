@@ -1,0 +1,85 @@
+{
+  "frozen": "2026-11-24, before R2-R5 were built (R1 = the harness baseline)",
+  "requirements": [
+    {
+      "id": "fr1",
+      "name": "Drag the time on any figure, everything follows",
+      "weight": 30,
+      "why": "Zach named it as the important thing: dragging time on any figure syncs across all the others. It is the viewer's core loop.",
+      "passCondition": "A drag on any chart commits the time live; every shown chart (and another tab when opened), the 3D pose and the slider read back within one sample; discoverable without instructions.",
+      "anchors": {
+        "1": "Only one slider commits time; charts preview at best.",
+        "3": "Charts commit time, but only some figures follow, or not live, or it needs a mode or a hidden gesture.",
+        "5": "Any figure, live while dragging, every figure + 3D + slider within one sample, in every tab, with an obvious affordance."
+      }
+    },
+    {
+      "id": "fr2",
+      "name": "Compare 2 to 40 runs and keep it legible",
+      "weight": 20,
+      "why": "The dataset viewer will import this viewer and hand it a bunch of runs (keep=); the bam_fb target alone has 17 lines in 8 configs.",
+      "passCondition": "keep= honoured; toggling a run is one click and updates every figure; at 17 runs the first chart is visible without scrolling past controls and colours stay readable.",
+      "anchors": {
+        "1": "Runs beyond a handful bury the charts or collide visually; toggling is hard to find.",
+        "3": "Works at 17 runs but the controls or legend eat the first screen, or repeats pile into spaghetti.",
+        "5": "17 runs read as clearly as 3: grouped, toggled in one click, charts on the first screen, repeats summarised when many."
+      }
+    },
+    {
+      "id": "fr3",
+      "name": "Get to the moment that matters",
+      "weight": 15,
+      "why": "The first question on the page is 'when was it worst?'; finding and reading that instant across runs is the review's payoff.",
+      "passCondition": "The worst moment (and other notable moments) is reachable in one action and the value of every shown run at the playhead is readable.",
+      "anchors": {
+        "1": "The reader hunts for the moment by eye and reads values by hovering one chart at a time.",
+        "3": "A jump to the worst moment exists; values at the playhead need hovering.",
+        "5": "Moments are listed or marked and jumped to in one action; every run's value at the playhead is shown."
+      }
+    },
+    {
+      "id": "fr4",
+      "name": "Same thing as Rerun, and a way back",
+      "weight": 10,
+      "why": "HTML and Rerun are peers ('either our custom one or the rerun one'); the target view is where the reader came from.",
+      "passCondition": "Open the same in Rerun carries the shown runs, the open tab and the time; the back link returns to the target view with the selection; tab names and layout match Rerun's.",
+      "anchors": {
+        "1": "No way across; different names or layout from Rerun.",
+        "3": "Both links work; the layouts differ enough that switching needs re-orientation.",
+        "5": "Both links carry selection (and time/tab for Rerun); the HTML and Rerun read as the same viewer."
+      }
+    },
+    {
+      "id": "fr5",
+      "name": "Keeps the frozen structure and Zach's UI rules",
+      "weight": 15,
+      "why": "NAVIGATION.md Part B is frozen (stage + question tabs, same in Rerun); his standing UI rules apply to every surface.",
+      "passCondition": "Stage beside the question tabs with exact titles; titles name signal/joint/sign/unit; degrees; joints one per row; boundaries drag and are remembered; panels fold; plain words; no silent truncation.",
+      "anchors": {
+        "1": "Breaks the frozen structure or several rules.",
+        "3": "Keeps the structure; one or two rules slip (a fixed boundary, a cryptic label, a clipped name).",
+        "5": "Structure intact and every rule visibly kept."
+      }
+    },
+    {
+      "id": "fr6",
+      "name": "Cheap and safe to splice into traj_compare",
+      "weight": 10,
+      "why": "The pick gets spliced into production plots.js, which the dataset viewer, TTA and the bench all render with.",
+      "passCondition": "The change to plots.js / viewer3d.js / style.css is small, local and needs no contract change.",
+      "anchors": {
+        "1": "A rewrite of the page assembly or a new contract.",
+        "3": "A few hundred lines touching layout and the chart builder; a contract addition.",
+        "5": "A contained addition (gesture + playhead) on today's assembly; no contract change."
+      }
+    }
+  ],
+  "hardGates": [
+    { "id": "g1", "name": "Real data only", "why": "Both fixtures are real runs (TTA's workspace-dev-000; the bench's BAM FB target); nothing synthetic." },
+    { "id": "g2", "name": "Drag-to-sync proven on both fixtures", "why": "check.json: mid-drag, after release and on another tab, every shown chart + slider + 3D within one sample." },
+    { "id": "g3", "name": "x zoom still works", "why": "check.json: the variant's zoom gesture narrows every chart alike and resets." },
+    { "id": "g4", "name": "keep= honoured and a toggle updates every figure", "why": "check.json: shown = keep; a toggled-off run leaves every chart and the 3D." },
+    { "id": "g5", "name": "Back to the target view and Open the same in Rerun", "why": "check.json: back href carries keep=; the recording holds exactly the shown runs at the playhead time." },
+    { "id": "g6", "name": "Production untouched", "why": "No edit under src/traj_compare; each variant carries its own copies." }
+  ]
+}
