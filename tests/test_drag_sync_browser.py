@@ -10,7 +10,8 @@ torque breakdown) at 1440 x 900. Everything is read back from what is DRAWN, nev
 
 - a chart's committed time is its ``[data-tc-playhead]`` mark (exactly one per chart card): the mark's centre x on
   the chart's plotting area (uPlot's ``.u-over``), mapped through that chart's own x scale;
-- the stage slider is ``input.tc-scrub``'s value;
+- the page's slider is the time lane's ruler ``[data-tc-ruler]`` (its ``aria-valuenow``): the stage's own slider moved
+  into the lane with the one-timeline look (Zach's pick round, 2026-11-24; tests/test_time_lane_browser.py);
 - the 3D pose is the sample each robot model is standing at: its link meshes' positions matched against the payload's
   ``robot_track`` (a test-only copy of the report hands the viewer's private three.js scene to the page, as
   tests/test_viewer3d_span.py does).
@@ -19,8 +20,8 @@ Gestures checked: a plain press-and-drag on a chart commits the time live (mid-d
 of the tab and of another tab once it is shown; a first open of a tab keeps the 3D at the committed time (bug (a) of
 the round: the new charts' cursor sync parked the 3D at the end); hovering still previews in the 3D only, and leaving
 puts it back; Shift-drag and Ctrl+wheel zoom x on every chart without moving the time; a plain wheel leaves the zoom
-alone (it scrolls the page); Reset zoom and a double-click restore the full range; the slider moves every playhead; a
-touch drag scrubs. And bug (b): the "Did it track the target?" answer and the joint ranking never name a run that is
+alone (it scrolls the page); the lane's Full range (Reset zoom before the lane) and a double-click restore the full
+range; a press on the lane's ruler moves every playhead; a touch drag scrubs. And bug (b): the "Did it track the target?" answer and the joint ranking never name a run that is
 not shown (a situation chip off, or ``#run=`` focusing one run).
 
 Needs Chrome and Node Playwright (``TRAJ_COMPARE_PLAYWRIGHT``, default the aruco-studio checkout's); skipped
@@ -79,7 +80,7 @@ function readback() {
              // uPlot's cursor: its dots read the values at this sample (null while hidden)
              cursorT: c.u.cursor.idx == null || c.u.cursor.left < 0 ? null : grid[c.u.cursor.idx] };
   });
-  const sliders = [...document.querySelectorAll('input.tc-scrub')].filter(shown).map((s) => parseFloat(s.value));
+  const sliders = [...document.querySelectorAll('[data-tc-ruler]')].filter(shown).map((s) => parseFloat(s.getAttribute('aria-valuenow')));
   // each robot model: the payload sample its link meshes stand at
   const robots = [];
   const scene = window.__scenes && window.__scenes[0];
@@ -235,10 +236,8 @@ async function main(browser, out, errors) {
     return { expect: { from: p0, to: p1 }, before, after };
   });
   await step(out, 'resetChip', async () => {
-    await page.evaluate(() => {
-      const chip = [...document.querySelectorAll('button.chip')].find((b) => b.textContent.trim() === 'Reset zoom');
-      chip.click();
-    });
+    await page.click('[data-tc-zoom-reset]', { timeout: 3000 });  // the lane's Full range (the Reset zoom chip moved there)
+    await away(page);
     return await settle(page, 400);
   });
   await step(out, 'plainWheel', async () => {
@@ -271,30 +270,32 @@ async function main(browser, out, errors) {
     return await settle(page, 400);
   });
 
-  // 5. the stage slider moves every playhead
+  // 5. a press on the lane's ruler (the page's slider) moves every playhead
   await step(out, 'slider', async () => {
-    const time = await page.evaluate(() => {
-      const slider = [...document.querySelectorAll('input.tc-scrub')].find((s) => s.getBoundingClientRect().width > 0);
-      const value = parseFloat(slider.min) + 0.37 * (parseFloat(slider.max) - parseFloat(slider.min));
-      slider.value = value;
-      slider.dispatchEvent(new Event('input', { bubbles: true }));
-      return parseFloat(slider.value);
-    });
-    return { time, after: await settle(page, 300) };
+    const { time, pointer } = await pressRuler(page, 0.37);
+    return { time, pointer, after: await settle(page, 300) };
   });
   await context.close();
 }
 
-// bug (a) on its own: a time committed with today's stage slider, then a tab opened for the first time
+// a press on the lane's ruler at ``frac`` of its width (full range): the time it then reads, and the pointer's time
+async function pressRuler(page, frac) {
+  const r = await page.evaluate(() => {
+    const ruler = document.querySelector('[data-tc-ruler]'), b = ruler.getBoundingClientRect();
+    return { x: b.x, y: b.y, w: b.width, h: b.height, min: parseFloat(ruler.getAttribute('aria-valuemin')),
+             max: parseFloat(ruler.getAttribute('aria-valuemax')) };
+  });
+  await page.mouse.click(r.x + frac * r.w, r.y + r.h / 2);
+  await away(page);
+  const time = await page.evaluate(() => parseFloat(document.querySelector('[data-tc-ruler]').getAttribute('aria-valuenow')));
+  return { time, pointer: { t: r.min + frac * (r.max - r.min), tol: (r.max - r.min) / r.w } };
+}
+
+// bug (a) on its own: a time committed with the lane's ruler, then a tab opened for the first time
 async function firstOpen(browser, out, errors) {
   const { context, page } = await open(browser, 'file://' + REPORT, errors);
   await step(out, 'firstOpen', async () => {
-    const time = await page.evaluate(() => {
-      const slider = [...document.querySelectorAll('input.tc-scrub')].find((s) => s.getBoundingClientRect().width > 0);
-      slider.value = parseFloat(slider.min) + 0.41 * (parseFloat(slider.max) - parseFloat(slider.min));
-      slider.dispatchEvent(new Event('input', { bubbles: true }));
-      return parseFloat(slider.value);
-    });
+    const { time } = await pressRuler(page, 0.41);
     const before = await settle(page, 200);
     await clickTab(page, 'timing');
     return { time, before, opened: await settle(page, 500) };
@@ -432,9 +433,9 @@ def _assert_everything_at(readback: dict, time: float, where: str, *, pose: bool
                 f"{where}: {chart['title']!r} has uPlot's cursor (its value dots) at {chart['cursorT']} s, the time is "
                 f"{time:.4f} s"
             )
-    assert readback["sliders"], f"{where}: no stage slider input.tc-scrub shown"
+    assert readback["sliders"], f"{where}: no time ruler [data-tc-ruler] shown"
     for value in readback["sliders"]:
-        assert _close(value, time, dt), f"{where}: the stage slider reads {value}, the time is {time:.4f} s"
+        assert _close(value, time, dt), f"{where}: the lane's ruler reads {value}, the time is {time:.4f} s"
     if pose:
         assert readback["robotTracks"] > 0, "the fixture draws no robot model"
         assert len(readback["robots"]) == readback["robotTracks"], (
@@ -579,9 +580,12 @@ def test_a_double_click_restores_the_full_range(measured):
         assert _close(chart_min, reset["tMin"], 1e-6) and _close(chart_max, reset["tMax"], 1e-6), (chart_min, chart_max)
 
 
-def test_the_stage_slider_moves_every_playhead(measured):
+def test_a_press_on_the_lane_ruler_moves_every_playhead(measured):
     slider = _step(measured, "slider")
-    _assert_everything_at(slider["after"], slider["time"], "after the slider", dots=True)
+    assert _close(slider["time"], slider["pointer"]["t"], _pointer_tolerance(slider["pointer"], slider["after"]["dt"])), (
+        f"a press on the ruler at {slider['pointer']['t']:.4f} s committed {slider['time']} s"
+    )
+    _assert_everything_at(slider["after"], slider["time"], "after the ruler", dots=True)
 
 
 def test_a_touch_drag_on_a_chart_scrubs(measured):
