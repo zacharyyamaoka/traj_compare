@@ -1,0 +1,52 @@
+# robot-sdk declaration: the shared types this package's public API takes (consumes) and gives (produces),
+# each with the symbols that are the contract. Checked against the code by robot_sdk's
+# `python -m tools.sdk_graph check` (docs/graph-schema.md in github.com/zacharyyamaoka/robot_sdk).
+schema = "robot-sdk-declaration/1"
+role = "viewer"
+layer = "viewers"
+one_line = "A/B trajectory comparison and coverage viewers, one static report.html"
+
+[[consumes]]
+type = "robot_msgs.compare.Tolerances"
+symbols = [
+  "traj_compare.model.Comparison.tolerances",
+]
+
+[[consumes]]
+type = "robot_msgs.manipulation.GraspPose"
+symbols = [
+  "traj_compare.grasp_coverage.analysis.grasp_values",
+]
+
+[[consumes]]
+type = "robot_msgs.trajectory.JointLimits"
+symbols = [
+  "traj_compare.coverage.analysis.analyze",
+]
+
+[[consumes]]
+type = "robot_msgs.trajectory.JointTrajectory"
+symbols = [
+  "traj_compare.dataset.Run.reference",
+  "traj_compare.dataset.Run.measured",
+  "traj_compare.data_ui.write_tables",
+]
+
+[[produces]]
+type = "robot_msgs.trajectory.JointTrajectory"
+symbols = [
+  "traj_compare.dataset.Run.series",
+  "traj_compare.data_ui.links_from_robot",
+]
+
+[[consumes]]
+type = "robot_msgs.trajectory.PoseTrajectory"
+symbols = [
+  "traj_compare.data_ui.write_tables",
+]
+
+[[produces]]
+type = "robot_msgs.trajectory.PoseTrajectory"
+symbols = [
+  "traj_compare.data_ui.links_from_robot",
+]
