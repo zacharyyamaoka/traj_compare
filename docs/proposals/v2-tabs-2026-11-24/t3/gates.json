@@ -1,0 +1,25 @@
+{
+ "tab": "Which config wins head to head?",
+ "tabSlug": "which-config-wins-head-to-head",
+ "scenarioParam": "speed=1",
+ "rerun_button": "#rerun",
+ "story": [
+  {"label": "Every run", "read": "unfiltered",
+   "caption": "The fourth tab over all 18,507 runs, A = ctc_tuned (the tune you have) against B = ctc_tuned_v2 (the candidate): per target, the median tool RMS of each config's runs; a tie is within 5 %. One sentence first, then per dataset, every target, against speed, and where B regressed.",
+   "actions": [{"click": "#tc data-tabs [role=tab]:nth-of-type(4)", "wait": 6000}]},
+  {"label": "One pick: 1.0 × speed", "read": "scenario",
+   "caption": "One rail pick, Speed = 1.0 × (the League's speed): 158 targets left, and B's 43 % gain shrinks to 2 %: at full speed the candidate mostly ties.",
+   "actions": [{"click": "#tc data-facets input[data-k='v:speed:1']", "wait": 5000}]},
+  {"label": "Another candidate",
+   "caption": "The page's own control: B = ctc_model_err (the tune run against a wrong model) on the same targets; the sentence and every figure follow.",
+   "actions": [{"select": ["#tc data-dashboard[tab='Which config wins head to head?'] select[data-k='sel:config_b']", "ctc_model_err"], "wait": 4000}]},
+  {"label": "Where B regressed most",
+   "caption": "The regressions table, worst first; a click opens the stock drill pane with Open target view.",
+   "actions": [{"select": ["#tc data-dashboard[tab='Which config wins head to head?'] select[data-k='sel:config_b']", "ctc_tuned_v2"], "wait": 3500},
+               {"eval": "document.querySelector(\"#tc data-dashboard[tab='Which config wins head to head?'] tbody tr\").scrollIntoView({block: 'center'})", "wait": 800},
+               {"click": "#tc data-dashboard[tab='Which config wins head to head?'] tbody tr", "wait": 1500}]},
+  {"label": "Its target view, A and B", "drill": true,
+   "caption": "Open target view: keep= A's and B's runs of that target (nothing else checked), back= this tab with the filter; Open in Rerun sends exactly those.",
+   "actions": [{"click": "#tc button[data-drill-action]:has-text('Open target view')", "wait": 1000}]}
+ ]
+}

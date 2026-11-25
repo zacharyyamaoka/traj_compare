@@ -1,0 +1,25 @@
+{
+ "tab": "Does sim match real?",
+ "tabSlug": "does-sim-match-real",
+ "scenarioParam": "deployment=",
+ "rerun_button": "#rerun",
+ "story": [
+  {"label": "Every run", "read": "unfiltered",
+   "caption": "The fourth tab over all 18,507 runs: 1,752 run folders hold a real line and its sim twin's prediction of the same motion (the pendulum's 1,726 and the arm's 26). One sentence first, then per config, every pair, the gap against speed, and the pairs that disagree most.",
+   "actions": [{"click": "#tc data-tabs [role=tab]:nth-of-type(4)", "wait": 5000}]},
+  {"label": "Against the rehearsal",
+   "caption": "The page's own control, Real against: the pendulum's 1,204 dress rehearsals (the twin running the exact real plan) instead of the sim twin; every figure follows.",
+   "actions": [{"click": "#tc data-dashboard[tab='Does sim match real?'] input[data-k='sel:against:rehearsal']", "wait": 3500}]},
+  {"label": "One pick: BAM FB", "read": "scenario",
+   "caption": "Back to the sim twin, and one rail pick, Deployment = BAM FB (the arm): 26 pairs, and the answer changes: real is about twice the prediction on the arm.",
+   "actions": [{"click": "#tc data-dashboard[tab='Does sim match real?'] input[data-k='sel:against:sim twin']", "wait": 2500},
+               {"click": "#tc data-facets input[data-k='v:deployment:BAM FB']", "wait": 4500}]},
+  {"label": "The pair that disagrees most",
+   "caption": "The table sorts the pairs by how far apart real and predicted are; a click opens the stock drill pane with Open target view.",
+   "actions": [{"eval": "document.querySelector(\"#tc data-dashboard[tab='Does sim match real?'] tbody tr\").scrollIntoView({block: 'center'})", "wait": 800},
+               {"click": "#tc data-dashboard[tab='Does sim match real?'] tbody tr", "wait": 1500}]},
+  {"label": "Its target view, the two lines", "drill": true,
+   "caption": "Open target view: V2's target view with keep= exactly the pair's two lines (the twin's prediction and the real run) and back= this tab with the filter; Open in Rerun sends those two.",
+   "actions": [{"click": "#tc button[data-drill-action]:has-text('Open target view')", "wait": 1000}]}
+ ]
+}

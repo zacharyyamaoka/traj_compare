@@ -1,0 +1,92 @@
+{
+ "frozen": "2026-11-24 night, after reading V2 (../tensorboard-2026-11-24/) and the real rows, before any of the three tabs was built. Weights and anchors are the AI's reading of Zach's ask; revise them freely.",
+ "requirements": [
+  {
+   "id": "fr1",
+   "name": "Answers a question the three tabs cannot",
+   "weight": 25,
+   "why": "\"Are there any more tabs we want to add to that outer view? we have overview, targets and runs.\" A fourth tab earns its place only if it answers a decision Overview (the League, Speed sweeps), Targets and Runs leave open. A sibling lane is redesigning Overview, so a tab that re-draws the League is wasted.",
+   "passCondition": "The tab's question is one Zach acts on (ship a config, trust or fix the twin, collect data or retune in a region) and no other tab shows its answer without manual cross-referencing.",
+   "anchors": {
+    "1": "Re-draws what the League, Targets or Runs already show.",
+    "3": "A new angle, but the next move it points to is vague.",
+    "5": "A decision no other tab answers, and the tab names the next move (which config, which targets, which region)."
+   }
+  },
+  {
+   "id": "fr2",
+   "name": "One calm answer first, detail on demand",
+   "weight": 20,
+   "why": "Zach's UI rule: \"one calm answer first, detail on demand\"; tabs titled as questions (\"Where?\" -> \"Where is the error?\" is better); plain-word labels, angles in degrees, amber/red only for problems.",
+   "passCondition": "The first panel states the answer in one sentence with its numbers and n; the detail (distribution, per config, the worst cases) sits under it; labels are plain words; no colour signals a problem that is not one.",
+   "anchors": {
+    "1": "A wall of charts; the reader must work out the answer.",
+    "3": "The answer is there but not first, or jargon / unexplained colour.",
+    "5": "One sentence answers it at a glance; every figure under it says what it aggregates; colours explained."
+   }
+  },
+  {
+   "id": "fr3",
+   "name": "Every number from the real rows, recounts with the rail",
+   "weight": 20,
+   "why": "Runs are atomic and the rail filters runs; every tab shows what is left. A tab whose numbers ignore the rail breaks the workbench's one promise.",
+   "passCondition": "From all 18,507 runs to one rail pick, the tab's headline and figures change, and both states equal an independent oracle computed in Python from the same rows (check.json).",
+   "anchors": {
+    "1": "Fixed numbers, or numbers nobody can trace to rows.",
+    "3": "Recounts, but some figure ignores a facet, or no oracle.",
+    "5": "Recounts on every facet that can matter, before/after equal to the oracle, the rule named on each figure."
+   }
+  },
+  {
+   "id": "fr4",
+   "name": "Drills to the target view with the runs it is about",
+   "weight": 15,
+   "why": "V2's link: a row drills to the target view with keep= (the runs, checked) and back= (the workbench URL with its filter); Open in Rerun there sends the checked runs.",
+   "passCondition": "A row or point of the tab opens common/target.html with keep= exactly the runs that row is about and back= this workbench URL with its filter and tab.",
+   "anchors": {
+    "1": "No drill, or the target view opens with the wrong runs.",
+    "3": "Drills, but keeps every run of the target, or loses the way back.",
+    "5": "keep= is exactly the row's runs (a pair, an A/B match-up, the runs through a cell), back= returns to this tab with the filter."
+   }
+  },
+  {
+   "id": "fr5",
+   "name": "Stock parts, small named gaps",
+   "weight": 20,
+   "why": "\"we don't need to reinvent the wheel\": data-ui's <data-workbench> + .base views and traj_compare's coverage grids; a missing feature is a named gap with the exact ask, never a patch to data-ui or traj_compare/src.",
+   "passCondition": "The tab is a .base page of stock views where data-ui can draw it; host JS only where it cannot, each such place named in NOTES.md with the ask.",
+   "anchors": {
+    "1": "A bespoke renderer.",
+    "3": "Stock views, but a large host layer or an unnamed workaround.",
+    "5": "Stock views end to end; derived rows built by a script; every gap named with its ask."
+   }
+  }
+ ],
+ "gates": [
+  {
+   "id": "G1",
+   "name": "Real data, labelled",
+   "condition": "Every row comes from the bench payloads (V2's rows, data/<site>.js, the bench's targets/<slug>.js and references); derived rows are built by build_tabs.py from those; nothing is invented, and anything proposed is labelled."
+  },
+  {
+   "id": "G2",
+   "name": "V2 plus one tab, one local command",
+   "condition": "Overview, Targets and Runs are V2's unchanged; the new tab is the fourth; served by serve.py on 127.0.0.1:8852, no CDN."
+  },
+  {
+   "id": "G3",
+   "name": "Recount proved",
+   "condition": "check.json holds the tab's numbers unfiltered and after the scenario's one rail pick, they differ, and each equals the Python oracle."
+  },
+  {
+   "id": "G4",
+   "name": "Drill works",
+   "condition": "A row of the new tab opens the target view with keep= and back=; the target view is ready with that selection."
+  },
+  {
+   "id": "G5",
+   "name": "Clean",
+   "condition": "No console errors, no sideways scroll at 1440 x 900; the rail drags, is remembered and folds, as in V2."
+  }
+ ]
+}

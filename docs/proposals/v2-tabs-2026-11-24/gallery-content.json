@@ -1,0 +1,202 @@
+{
+ "title": "V2's workbench: three proposals for a fourth tab",
+ "kicker": "/babble 3 · traj_compare · 2026-11-24",
+ "brief": "Zach: \"Are there any more tabs we want to add to that outer view? we have overview, targets and runs. Make 3 proposals for 3 different tabs we could add.\" Each proposal is V2 \"Two viewers, the filter carried\" unchanged plus ONE tab titled as a question, over the same 18,507 real runs of all four deployments, recounting with the rail, drilling to V2's target view with keep= and back=.",
+ "defaultId": "t1",
+ "defaultWhy": "T1 Does sim match real?, 95/100: a question no other tab answers (the League mixes sim and real), one sentence that recounts exactly with the rail (oracle-equal both states), a drill that keeps exactly the pair's two lines, and nothing but stock views on a .base page. T3 (87) is the closest; T2 (85) has the most novel picture but the most host code.",
+ "decisionHinge": "Where the next months of runs happen. T1 can only speak where real runs exist (the pendulum's 1,726 pairs and the arm's 26; the UR5e cell has none): if the work stays on the sim UR5e cell, T1's question score drops from 4 to 2, it falls to 85, and T3 (87) leads with T2 tied at 85. Moving 10 points from 'stock parts' to 'answers a new question' lifts T2 to 89 against T1's 93. The three are not exclusive: T3's A/B page control and T2's cell → targets list splice onto any of them.",
+ "invariants": [
+  "V2's Overview · Targets · Runs unchanged (its .base, index.html, host-common.js); the new tab is the fourth.",
+  "Real runs of all four bench deployments: UR5e + Conveyor PnP cell 5,750 · UR5e 3 · BAM FB 4,972 · 1-DOF pendulum 7,782 (18,507).",
+  "Every number of the new tab is computed from those rows (Vega-Lite in the page, or the host for T2) and recounts with the rail; build_tabs.py's Python oracle counts the same rule.",
+  "A row drills to V2's target view (common/target.html) with keep= the runs it is about and back= the tab with its filter."
+ ],
+ "boundary": "Live prototypes on the real bench rows, one local server (serve.py on 8852). Derived rows (pairs, match-ups, per-cell error) are built by build_tabs.py from V2's rows and the bench's own series. Not wired into traj_compare's dataset.py; data-ui gaps are named, never patched.",
+ "axes": [
+  {
+   "name": "The question's object",
+   "values": [
+    "a run, predicted against measured (T1)",
+    "a place in each joint's range and speed (T2)",
+    "a decision between two configs (T3)"
+   ]
+  },
+  {
+   "name": "The row the tab reads",
+   "values": [
+    "a sim ↔ real pair of lines (T1)",
+    "a cell of a joint's position × speed plane (T2)",
+    "a target × A × B match-up (T3)"
+   ]
+  },
+  {
+   "name": "How stock",
+   "values": [
+    "a .base page of Vega-Lite views over a linked dataset (T1)",
+    "a host page feeding the stock coverage-plane and table (T2)",
+    "a .base page with a two-select page control (T3)"
+   ]
+  }
+ ],
+ "variants": [
+  {
+   "id": "t1",
+   "name": "Does sim match real?",
+   "accent": "#0f9d8a",
+   "thesis": "Pair every real run with its prediction of the same commanded motion (the sim twin, or the pendulum's rehearsal) and say in one sentence how far off the prediction is, per config, against speed, and where it is most wrong.",
+   "bestWhen": "You are deciding whether to trust the twin before a real run, or which config and speed the twin predicts worst.",
+   "losesWhen": "The deployment has no real runs (the UR5e cell has none), or the arm's 26 pairs are too few to read a trend.",
+   "decisions": [
+    {
+     "label": "A pair",
+     "value": "One run folder holding a real line and its sim (or rehearsal) line: the same motion, predicted and measured. Nothing paired by guess."
+    },
+    {
+     "label": "Page control",
+     "value": "Real against: sim twin · rehearsal · Any (the stock page select, §53)."
+    },
+    {
+     "label": "Rail",
+     "value": "A one-way link from the runs by run folder: a pair shows while either of its runs passes."
+    }
+   ],
+   "keepParts": [
+    "pairs dataset (run folder → real + prediction)",
+    "one-sentence answer over a derived dataset"
+   ],
+   "scores": {
+    "fr1": {
+     "score": 4,
+     "evidence": "No other tab pairs a real run with its prediction (the League mixes sim and real). It names the next move (×2.00 on the arm, worst configs fullarm_jtc model-FF+LA ×2.93, datasheet limits ×2.31). But it can only speak where real runs exist: 1,726 pendulum pairs, 26 on the arm, none on the UR5e cell.",
+     "confidence": "medium"
+    },
+    "fr2": {
+     "score": 5,
+     "evidence": "One sentence first ('the tool error is 1.21× what the sim twin predicted … real was worse in 1,381 (79 %)'), one line per deployment under it; every figure grey with its rule in the title; the y = x line labelled.",
+     "confidence": "high"
+    },
+    "fr3": {
+     "score": 5,
+     "evidence": "check.json: unfiltered n 1,752 / median 1.212 / worse 1,381 and BAM FB n 26 / 1.9955 / 24, page = oracle in both; every figure is Vega over the linked pairs.",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 5,
+     "evidence": "A row → Open target view: keep=0,1 (the pair's two lines), 2 of 2 checked, back keeps the tab and the filter; Open in Rerun → n=2.",
+     "confidence": "high"
+    },
+    "fr5": {
+     "score": 5,
+     "evidence": "A .base page of stock views over a script-built dataset; host = V2's drill plus a row map (30 lines). Gaps named: the sentence is a text mark in fixed pixel rows, a line's point overlay is drawn from every row.",
+     "confidence": "high"
+    }
+   }
+  },
+  {
+   "id": "t2",
+   "name": "Where in the workspace is it worst?",
+   "accent": "#8250df",
+   "thesis": "Place the tracking error where it was made: every joint's position × speed plane on the bench's own coverage cells, coloured by the error in each cell over the runs the rail keeps; the answer names the worst cell and a click lists the targets through any cell.",
+   "bestWhen": "You are retuning or choosing where to collect trajectories: it shows the band at velocity reversal (speed ≈ 0) and the collision corner of the wrist, and which targets to open.",
+   "losesWhen": "You want a scalar verdict (T3, the League), or the filter spans robots (one colour scale over different robots compares numbers, not motions); 18.6 MB the first time the tab opens.",
+   "decisions": [
+    {
+     "label": "Space",
+     "value": "Joint space, per joint, position × speed (the Coverage page's cells); no tool xyz (no tool position per sample is stored)."
+    },
+    {
+     "label": "Colour",
+     "value": "Per cell: median over targets of the median over its kept runs of the RMS error IN the cell; one scale, histogram-equalized, real degrees on the bar."
+    },
+    {
+     "label": "Drill",
+     "value": "Cell → the targets through it, worst first → V2's Open target view."
+    }
+   ],
+   "keepParts": [
+    "per-cell error parts",
+    "cell → targets → target view"
+   ],
+   "scores": {
+    "fr1": {
+     "score": 5,
+     "evidence": "No tab places the error in a joint's range and speed; it shows the speed ≈ 0 band (reversals) on every UR5e joint and that the worst ctc_tuned cell is the wrist in the collision datasets (16 targets, 49.5°, median cell 0.0011°): retune at reversal, or exclude the collisions.",
+     "confidence": "medium"
+    },
+    "fr2": {
+     "score": 4,
+     "evidence": "The answer sentence is first and names joint, position, speed, error and the datasets; but six to nineteen planes and an equalized colour scale ask more of the reader than a sentence and three charts.",
+     "confidence": "medium"
+    },
+    "fr3": {
+     "score": 5,
+     "evidence": "check.json: 19 planes / 9,423 cells / worst BAM FB c1 cell 807 50.10° unfiltered, 6 / 4,073 / UR5e wrist_3 cell 750 49.51° after Config = ctc_tuned; page = oracle in both (the host recomputes from the kept runs on every rail change).",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 4,
+     "evidence": "Cell → list → Open target view: keep= the rail's 3 runs of that target, 3 checked, back keeps tab and filter; one step more than T1/T3, and the target view does not jump to the instants in that cell.",
+     "confidence": "high"
+    },
+    "fr5": {
+     "score": 3,
+     "evidence": "The figure and the list are stock (coverage-plane, table), but the page is ~300 lines of host: the per-cell median, two nested scopes whose events it must stop, the cell found from the view's read-only hook. Gaps named with asks.",
+     "confidence": "high"
+    }
+   }
+  },
+  {
+   "id": "t3",
+   "name": "Which config wins head to head?",
+   "accent": "#1f6feb",
+   "thesis": "The decision before shipping a config: pick A (what you run) and B (the candidate); on every target both ran, B against A as wins, ties within 5 % and losses, per dataset and speed, with the targets where B regressed by name.",
+   "bestWhen": "You are about to replace a config and need to know where the new one is worse, not only its median.",
+   "losesWhen": "The two configs share few targets (BAM FB's real configs ran 1–14 each); and the 15.9 MB of match-ups load with the runs, before the tab is opened.",
+   "decisions": [
+    {
+     "label": "A match-up",
+     "value": "Target × sim/real × A × B where both ran; each side = median tool RMS over its runs of that target (the League's first stage)."
+    },
+    {
+     "label": "Page control",
+     "value": "A · current and B · candidate, two stock dropdowns; each lists only configs that ran with the other pick."
+    },
+    {
+     "label": "Rail",
+     "value": "Four one-way links (target, sim/real, config → A, config → B): a match-up shows only when both configs pass the rail."
+    }
+   ],
+   "keepParts": [
+    "A/B page control over match-ups",
+    "biggest regression / gain by name"
+   ],
+   "scores": {
+    "fr1": {
+     "score": 4,
+     "evidence": "Wins, losses and regressions by target are not in the League (it ranks medians); at 1.0 × it turns v2's 43 % gain into 2 % (35 wins, 5 losses, 118 ties), which changes a shipping call. Overlaps the League's ratio column in part.",
+     "confidence": "high"
+    },
+    "fr2": {
+     "score": 5,
+     "evidence": "One sentence ('B ctc_tuned_v2 beats A ctc_tuned on 376 of 502 … median B ÷ A = 0.57'), the biggest regression and gain by name under it; verdict colours blue/grey/purple with a legend, no amber or red.",
+     "confidence": "high"
+    },
+    "fr3": {
+     "score": 4,
+     "evidence": "check.json: 502 → 158 targets after Speed = 1.0 ×, wins/losses/ties and median = oracle in both. But the per-target medians are built offline (the rail picks which match-ups, not which repeats), and ticking ONE config in the rail empties the tab.",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 5,
+     "evidence": "A regressed row → Open target view: keep= A's and B's 6 runs (6 of 9 lines checked), back keeps the tab and the filter; Open in Rerun → n=6.",
+     "confidence": "high"
+    },
+    "fr5": {
+     "score": 4,
+     "evidence": "A .base page of stock views and a stock page control; host adds a retry around the dashboard's public drill() (data-ui throws on the first click on a match-up row) and the spec carries two workarounds (a calculate so argmax rows carry the name; argmax on another field to dodge a stale median).",
+     "confidence": "high"
+    }
+   }
+  }
+ ]
+}

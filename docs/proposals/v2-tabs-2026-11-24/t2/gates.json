@@ -1,0 +1,24 @@
+{
+ "tab": "Where in the workspace is it worst?",
+ "tabSlug": "where-in-the-workspace-is-it-worst",
+ "scenarioParam": "config=ctc_tuned",
+ "rerun_button": "#rerun",
+ "story": [
+  {"label": "Every run", "read": "unfiltered",
+   "caption": "The fourth tab over all 18,507 runs: every joint's position × speed plane on the bench's own coverage cells, coloured by the tracking error made in each cell, one colour scale. The answer names the worst cell; the list beside it holds the targets through it.",
+   "actions": [{"click": "#tc data-tabs [role=tab]:nth-of-type(4)", "waitFor": "document.querySelector('.t2') && document.querySelector('.t2').dataset.ready === '1'", "wait": 1500}]},
+  {"label": "One pick: ctc_tuned", "read": "scenario",
+   "caption": "One rail pick, Config = ctc_tuned: the six UR5e joints are left, and the worst cell moves to the wrist in the collision dataset.",
+   "actions": [{"click": "#tc data-facets input[data-k='v:config:ctc_tuned']", "wait": 1200},
+               {"waitFor": "document.querySelector('.t2') && document.querySelector('.t2').dataset.ready === '1'", "wait": 1500}]},
+  {"label": "Another cell",
+   "caption": "A click on a cell (here the worst cell of another joint) lists the targets through it, worst first; the cell is outlined.",
+   "actions": [{"cellEval": "window.T2_STATE.others[0]", "wait": 2000}]},
+  {"label": "A target through it",
+   "caption": "A row of the list opens the stock drill pane with Open target view.",
+   "actions": [{"click": "#t2-list tbody tr", "wait": 1500}]},
+  {"label": "Its target view", "drill": true,
+   "caption": "Open target view: keep= the runs of that target the rail keeps (ctc_tuned's), back= this tab with the filter.",
+   "actions": [{"click": "#tc button[data-drill-action]:has-text('Open target view')", "wait": 1000}]}
+ ]
+}
