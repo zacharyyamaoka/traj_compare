@@ -26,8 +26,6 @@ classifiers = [
 ]
 dependencies = [
   "numpy>=1.26",
-  # record_coverage reads each field's declared Value range through dataclass_values.meta (robot_msgs' own base layer).
-  "dataclass-values>=0.1.0",
   # WHY robot_msgs: every error signal and error statistic comes from robot_msgs.compare, so the
   # report and the library can never disagree (one source of truth). numpy is its only runtime dependency.
   "robot-msgs>=0.3.0",

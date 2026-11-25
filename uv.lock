@@ -1868,7 +1868,6 @@ name = "traj-compare"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "dataclass-values" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "robot-msgs" },
@@ -1900,7 +1899,6 @@ wandb = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dataclass-values", specifier = ">=0.1.0" },
     { name = "matplotlib", marker = "extra == 'plot'", specifier = ">=3.8" },
     { name = "mcap", marker = "extra == 'export'", specifier = ">=1.2" },
     { name = "numpy", specifier = ">=1.26" },
