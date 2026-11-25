@@ -102,7 +102,9 @@ grasps            [{"name", "object_id", "outcome", "group", "tags", "position":
 position          {"pixel_m", "bounds": [[xmin, ymin, zmin], [xmax, ymax, zmax]],
                    "area": [[[x0, y0, z0], [x1, y1, z1]], ...] | null,
                    "projections": {"xy" | "xz" | "yz": {"origin": [u0, v0], "shape": [nu, nv], "samples": flat,
-                                   "groups": {group: flat}, "area": flat [0|1] | null}}}
+                                   "groups": {group: flat}, "area": flat [0|1] | null,
+                                   "picked": flat | null, "closed": flat | null}}}   # per pixel, with outcomes only:
+                  # the success map is picked / closed (independent of group_by)
                   # a pixel is in the area when its centre is inside a box's face (u, v) rectangle
 width             {"edges": [lo, hi, 72], "counts", "groups", "p001", "p999", "min", "max",
                    "span_pct",       # (p999 - p001) / (high - low) * 100: the share of the jaw range used
@@ -123,6 +125,9 @@ orientation       {"reference": [x, y, z],
 score             {"edges": [min, max, 40], "counts", "groups"} | null    # the detector's own score, when any has one
 objects           [{"object_id", "grasps", "outcomes": {outcome: n}, "picked_pct": float | null,
                     "width_span_pct", "directions_visited_pct", "roll_visited_pct", "pixels_xy"}]  # most grasps first
+growth            {"order": "as given", "grasps": [k ...], "position_pixels_xy": [...], "direction_cells": [...],
+                   "width_bins": [...], "roll_bins": [...]}   # distinct cells reached after the first k grasps
+                  # (<= 400 points, both ends kept); each series ends on the payload's own count
 numbers           [{"key", "label", "value": float, "unit"}]    # all finite; W&B logs exactly these
 ```
 
@@ -176,6 +181,35 @@ part rows (`coverage.sum: grid`), so a tick ("failed") recounts every tab.
   approach sphere coloured by count (colormap dropdown + Reverse). Prints `READY <url>`.
 - **W&B** `log_grasp_coverage(run, payload, *, prefix="grasp_coverage/") -> dict`: `run.summary[prefix + key]` for every
   `numbers` entry and `run.config[prefix + "title"]`. Scalars only (Zach 2026-11-21).
+
+## Round 2 (2026-11-24): thin grippers, heatmaps, more kinds of view
+
+Zach, the same day: *"The visuzliations are looking very slim though I don't see thin grippers I don't see any heat
+maps, etc. etc. Please add more different types of visulziations"*.
+
+- **The thin gripper, one shape for every viewer:** `analysis.gripper_polylines(rows, size=1.0) -> (N, 7, 3)` — robot_msgs'
+  two-finger glyph as one path (jaw tip, palm, palm centre, wrist end, palm centre, palm, jaw tip; fingers
+  `GLYPH_DEPTH_M` = 40 mm back along the approach, the stem `GLYPH_STEM_M` = 50 mm further). The workbench draws it as
+  `glyphs.json` (7 rows per grasp, linked to its grasp, starting at the wrist end so scene3d's per-path "now" ball is the
+  wrist); every failure, hover and refusal is drawn and the plain grasps (picked / unlabelled) are thinned to 300 per
+  object (the Nov 19 gallery: past ~150 they hide the object); a set without outcomes colours them by object.
+- **Workbench tabs (8):** Overview (dots, a density heatmap and thin grippers from above; width; the pointing disk; grasps
+  per object; roll as a line and as a rose; picked share per spot) · **Grippers** (3-D, from above, from the side) ·
+  Position (3-D, scatter, picked share per spot, density, density per outcome, the three faces) · Gripper (width,
+  pre-grasp, width per object, width × tilt, width × tilt per object, the stock strips) · Orientation (pointing disk,
+  approach directions as points on a 3-D sphere, the equal-area map, roll, rose, tilt, tilt × roll) · Objects (counts,
+  outcome share, where each object was grasped, width × tilt per object) · **Over time** (grasps and picked share per day
+  — the `day` tag, else 20 batches in order — grasps per day per object, coverage growth computed from the rows the rail
+  keeps) · Grasps (every grasp as a line across its numbers, the table).
+- **More PNGs:** `grippers.png`, `success-map.png` (only when some grasp closed), `density-outcomes.png`, `roll-rose.png`,
+  `width-tilt-objects.png`, `over-time.png`, `growth.png`.
+- **data-ui findings** (worked around here, worth a data-ui fix): a chart renames an encoding's field to `\w` characters
+  but not a transform's output, so a transform field with a space draws nothing (use word-only names, readable words as
+  values); a nominal colour from a transform-made field throws "reading 'colors'" unless the colour scale is explicit;
+  scene3d has no switch for its per-path "now" ball; a chart with no x / y gets default axes unless it is layered (the
+  rose is a one-layer `layer:`); a theme corner radius drops a binned bar's x in Vega-Lite 6.5 (`cornerRadiusEnd: 0`).
+- **Gates added from the real data:** no panel may say "could not be drawn", and every Vega chart must place at least one
+  data mark at a finite position (axes, rules and labels do not count); both mutation-tested red.
 
 ## Deployed: the grasp dataset viewer
 
