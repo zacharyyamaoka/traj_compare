@@ -89,7 +89,17 @@ back to `../../index.html#/target/<target slug>`.
 Both viewers pin a **stage** beside the tabs: the 3D view (robot + paths, the transport/scrubber under it) over the
 camera overlay / videos when present. Rerun: as today's `questions` layout. HTML: the `viewer3d`, `camera` and `videos`
 sections move into a left stage pane `[data-tc-stage]` that drags (`[data-tc-stage-resize]`, width remembered), folds
-(`[data-tc-stage-fold]`), and stacks above the tabs below 900 px. The shared time cursor and x zoom still span every tab.
+(`[data-tc-stage-fold]`), and stacks above the tabs below 900 px. The shared time and x zoom still span every tab.
+
+**Drag the time on any figure (2026-11-25).** Zach, Daily Note 2026-11-24: "as you drag the time on any of the figures
+it syncs across all of the other ones". HTML: every plot is a scrubber. A plain press-and-drag on any plot (mouse, pen,
+or a finger dragging sideways) commits the time at every move, snapped to the plot grid; every plot's playhead
+`[data-tc-playhead]` (a solid line with a grip: the committed time, other tabs included), the 3D pose and path, the
+videos and the stage slider follow while it moves. Hovering a plot without a press only previews that instant in the 3D
+(uPlot's dashed cursor), and leaving the plot puts the 3D back on the committed time. x zoom moved off the plain drag:
+Shift-drag (uPlot's box) or Ctrl/⌘+wheel (a trackpad pinch) zooms every plot alike without moving the time; a plain
+wheel scrolls the page; **Reset zoom** or a double-click restores the full range. Opening a tab never moves the 3D.
+Rerun keeps its own time panel and gestures (`rerun_export` is unchanged). Tests: `tests/test_drag_sync_browser.py`.
 
 ### The tabs (`traj_compare.tabs.TABS`, in this order)
 

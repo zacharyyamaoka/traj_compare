@@ -75,7 +75,9 @@ function readback() {
       if (markShown && box.width > 0) markT = scale.min + (mb.x + mb.width / 2 - box.x) / box.width * (scale.max - scale.min);
     }
     return { title: c.spec.title, shown: shown(over) && c.card.offsetParent !== null, w: box.width, min: scale.min, max: scale.max,
-             marks: marks.length, markShown: markShown, markT: markT };
+             marks: marks.length, markShown: markShown, markT: markT,
+             // uPlot's cursor: its dots read the values at this sample (null while hidden)
+             cursorT: c.u.cursor.idx == null || c.u.cursor.left < 0 ? null : grid[c.u.cursor.idx] };
   });
   const sliders = [...document.querySelectorAll('input.tc-scrub')].filter(shown).map((s) => parseFloat(s.value));
   // each robot model: the payload sample its link meshes stand at
@@ -91,14 +93,16 @@ function readback() {
         if (taken.has(sit.name)) continue;
         const track = sit.robot_track;
         if (!track.p.length || track.p[0].length !== meshes.length) continue;
+        // a still arm matches every sample of its dwell: of the matching samples, the one nearest the page's time
+        const near = p.transport.eff();
         let hit = -1;
-        for (let i = 0; i < track.p.length && hit < 0; i++) {
+        for (let i = 0; i < track.p.length; i++) {
           let ok = true;
           for (let k = 0; k < meshes.length && ok; k++) {
             const q = track.p[i][k], m = meshes[k].position;
             ok = Math.abs(m.x - q[0]) < 1e-6 && Math.abs(m.y - q[1]) < 1e-6 && Math.abs(m.z - q[2]) < 1e-6;
           }
-          if (ok) hit = i;
+          if (ok && (hit < 0 || Math.abs(track.t[i] - near) < Math.abs(track.t[hit] - near))) hit = i;
         }
         if (hit >= 0) {
           taken.add(sit.name);
@@ -408,9 +412,10 @@ def _close(value: float | None, expected: float, tolerance: float) -> bool:
     return value is not None and abs(value - expected) <= tolerance + 1e-9
 
 
-def _assert_everything_at(readback: dict, time: float, where: str, *, pose: bool = True) -> None:
+def _assert_everything_at(readback: dict, time: float, where: str, *, pose: bool = True, dots: bool = False) -> None:
     """The committed time, every shown chart's playhead, the stage slider and (``pose``) every arm read back ``time``,
-    within one display sample (plus the one pixel a mark can round to)."""
+    within one display sample (plus the one pixel a mark can round to). ``dots``: no pointer is on a plot, so uPlot's
+    cursor (its dots read the values) sits on ``time`` too, not on a stale pixel or the run's last sample."""
 
     dt = readback["dt"]
     assert time is not None, f"{where}: no time was committed"
@@ -422,6 +427,11 @@ def _assert_everything_at(readback: dict, time: float, where: str, *, pose: bool
         assert _close(chart["markT"], time, dt + 1.5 * pixel), (
             f"{where}: {chart['title']!r} playhead at {chart['markT']} s, the time is {time:.4f} s"
         )
+        if dots:
+            assert _close(chart["cursorT"], time, dt + 1.5 * pixel), (
+                f"{where}: {chart['title']!r} has uPlot's cursor (its value dots) at {chart['cursorT']} s, the time is "
+                f"{time:.4f} s"
+            )
     assert readback["sliders"], f"{where}: no stage slider input.tc-scrub shown"
     for value in readback["sliders"]:
         assert _close(value, time, dt), f"{where}: the stage slider reads {value}, the time is {time:.4f} s"
@@ -458,7 +468,7 @@ def test_a_plain_drag_on_a_chart_commits_the_time_live_on_every_chart_the_slider
 
 def test_the_pointer_leaving_after_a_drag_keeps_the_committed_time(measured):
     drag = _step(measured, "drag")
-    _assert_everything_at(drag["gone"], drag["released"]["t"], "after the drag, pointer gone")
+    _assert_everything_at(drag["gone"], drag["released"]["t"], "after the drag, pointer gone", dots=True)
     assert drag["gone"]["hover"] is None, "the hover preview outlived the pointer"
 
 
@@ -474,7 +484,7 @@ def test_a_tab_opened_for_the_first_time_keeps_the_3d_at_the_slider_time(measure
         assert _close(robot["t"], step["time"], max(opened["dt"], robot["spacing"])), (
             f"after opening a tab the {robot['name']} arm stands at {robot['t']} s, the slider says {step['time']:.3f} s"
         )
-    _assert_everything_at(opened, step["time"], "timing tab, first open")
+    _assert_everything_at(opened, step["time"], "timing tab, first open", dots=True)
 
 
 def test_a_tab_opened_for_the_first_time_after_a_drag_shows_the_dragged_time(measured):
@@ -482,7 +492,7 @@ def test_a_tab_opened_for_the_first_time_after_a_drag_shows_the_dragged_time(mea
     opened = _step(measured, "openJoints")
     assert opened["activeTab"] == "joints"
     assert opened["hover"] is None, f"opening a tab left a hover preview at {opened['hover']} s (the 3D parks there)"
-    _assert_everything_at(opened, committed, "joints tab, first open")
+    _assert_everything_at(opened, committed, "joints tab, first open", dots=True)
 
 
 def test_a_drag_on_another_tab_moves_the_first_tabs_charts_too(measured):
@@ -496,7 +506,7 @@ def test_a_drag_on_another_tab_moves_the_first_tabs_charts_too(measured):
         _assert_everything_at(drag[phase], drag[phase]["t"], f"joints drag {phase}")
     back = _step(measured, "backToTrack")
     assert back["activeTab"] == "track"
-    _assert_everything_at(back, drag["released"]["t"], "back on the track tab")
+    _assert_everything_at(back, drag["released"]["t"], "back on the track tab", dots=True)
 
 
 def test_hover_previews_in_the_3d_only_and_leaving_restores_the_committed_time(measured):
@@ -513,7 +523,7 @@ def test_hover_previews_in_the_3d_only_and_leaving_restores_the_committed_time(m
     for robot in over["robots"]:
         assert _close(robot["t"], over["hover"], max(dt, robot["spacing"])), f"hover: {robot['name']} arm at {robot['t']}"
     assert hover["left"]["hover"] is None
-    _assert_everything_at(hover["left"], committed, "hover left")
+    _assert_everything_at(hover["left"], committed, "hover left", dots=True)
 
 
 # ── zoom moves off the plain drag ────────────────────────────────────────────────────────────────────────────────────
@@ -533,7 +543,7 @@ def test_shift_drag_zooms_x_on_every_chart_without_moving_the_time(measured):
             f"a chart shows {chart_min}..{chart_max} s after Shift-dragging {lo:.3f}..{hi:.3f} s"
         )
     assert after["t"] == before["t"], f"Shift-drag moved the time {before['t']} -> {after['t']}"
-    _assert_everything_at(after, before["t"], "after the Shift-drag zoom")
+    _assert_everything_at(after, before["t"], "after the Shift-drag zoom", dots=True)
 
 
 def test_reset_zoom_restores_the_full_range_on_every_chart(measured):
@@ -571,7 +581,7 @@ def test_a_double_click_restores_the_full_range(measured):
 
 def test_the_stage_slider_moves_every_playhead(measured):
     slider = _step(measured, "slider")
-    _assert_everything_at(slider["after"], slider["time"], "after the slider")
+    _assert_everything_at(slider["after"], slider["time"], "after the slider", dots=True)
 
 
 def test_a_touch_drag_on_a_chart_scrubs(measured):
@@ -594,7 +604,7 @@ def test_the_stage_hint_names_the_drag(measured):
 
 
 def _named_runs(text: str, runs: list[dict]) -> set[str]:
-    return {run["title"] for run in runs if re.search(r"(?<![\w ])" + re.escape(run["title"]) + r"(?![\w])", text)}
+    return {run["title"] for run in runs if re.search(r"(?<!\w)" + re.escape(run["title"]) + r"(?!\w)", text)}
 
 
 def test_hiding_the_worst_run_takes_it_out_of_the_answer_and_the_ranking(measured):
