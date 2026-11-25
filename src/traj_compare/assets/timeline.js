@@ -395,16 +395,18 @@ var TrajCompareTimeline = (function () {
         if (sit.role === 'target') return;
         var key = sit.group || '';
         if (!byKey[key]) {
-          byKey[key] = { key: key, title: sit.group_title || sit.group || '', sits: [] };
+          // ``sits``: the runs with data (what the group's eye and count act on); ``all``: every row, no-data ones too
+          byKey[key] = { key: key, title: sit.group_title || sit.group || '', sits: [], all: [] };
           groups.push(byKey[key]);
         }
         if (sit.has_data) byKey[key].sits.push(sit);
-        byKey[key].all = (byKey[key].all || []).concat([sit]);
+        byKey[key].all.push(sit);
       });
       var grouped = groups.length > 1;
       groups.forEach(function (group) {
-        if (grouped && group.sits.length) addGroup(group);
-        group.all.forEach(function (sit) { addTrack(sit, grouped ? group : null); });
+        var row = grouped && group.sits.length;
+        if (row) addGroup(group);
+        group.all.forEach(function (sit) { addTrack(sit, row ? group : null); });
       });
     })();
 
@@ -1022,12 +1024,13 @@ var TrajCompareTimeline = (function () {
       queue();
     }
 
-    function dragHandle(handle, onMove, onDone) {
+    // a handle drag: ``onMove(startValue, dx, dy)`` while it moves, ``onDone()`` once released (it remembers the size)
+    function dragHandle(handle, startValue, onMove, onDone) {
       handle.addEventListener('pointerdown', function (event) {
         if (event.button !== 0 || (handle === sizer && folded)) return;
         event.preventDefault();
         var start = { x: event.clientX, y: event.clientY }, id = event.pointerId;
-        var from = onMove(null);
+        var from = startValue();
         handle.classList.add('dragging');
         try { handle.setPointerCapture(id); } catch (error) {}
         function move(moveEvent) { if (moveEvent.pointerId === id) onMove(from, moveEvent.clientX - start.x, moveEvent.clientY - start.y); }
@@ -1045,15 +1048,11 @@ var TrajCompareTimeline = (function () {
       });
     }
     // the lane's top edge: up makes it taller
-    dragHandle(sizer, function (from, dx, dy) {
-      if (from === null) return root.offsetHeight;
-      setLaneHeight(from - dy, false);
-    }, function () { kit.store('lane-height', laneHeight); });
+    dragHandle(sizer, function () { return root.offsetHeight; }, function (from, dx, dy) { setLaneHeight(from - dy, false); },
+      function () { kit.store('lane-height', laneHeight); });
     sizer.addEventListener('dblclick', function () { setLaneHeight(null, true); });
-    dragHandle(namesHandle, function (from, dx) {
-      if (from === null) return namesWidth;
-      setNamesWidth(from + dx, false);
-    }, function () { kit.store('lane-names-width', namesWidth); });
+    dragHandle(namesHandle, function () { return namesWidth; }, function (from, dx) { setNamesWidth(from + dx, false); },
+      function () { kit.store('lane-names-width', namesWidth); });
     namesHandle.addEventListener('dblclick', function () { setNamesWidth(null, true); });
 
     /* ---------------- wiring ---------------- */
