@@ -696,6 +696,8 @@ _INDEX = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<!-- an empty icon: without one Chrome asks the server for /favicon.ico and logs its 404 as a console error -->
+<link rel="icon" href="data:,">
 <title>{title}</title>
 <link rel="stylesheet" href="{kit}/data-ui.css">
 <style>
@@ -729,6 +731,7 @@ _EMBED = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:,">
 <title>Host app · {title}, embedded</title>
 <link rel="stylesheet" href="{kit}/data-ui.css">
 <style>

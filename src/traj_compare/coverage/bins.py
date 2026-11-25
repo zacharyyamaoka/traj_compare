@@ -89,6 +89,20 @@ def grid_origin(low: np.ndarray, size: float, axes) -> np.ndarray:
     return np.floor(np.asarray(low)[list(axes)] / size) * size
 
 
+def grid_cells_on(points: np.ndarray, origin, shape, size: float, axes) -> np.ndarray:
+    """`grid_cells` on a payload's own grid (its `origin` and `shape`), -1 outside: low and high are set half a cell
+    inside its first and last cells, so `grid_cells` lands on exactly that first cell and shape. WHY: a payload writes
+    its origin rounded; re-deriving the grid from rounded bounds could shift it by a cell (the workbenches re-bin)."""
+    low, high = np.zeros(3), np.zeros(3)
+    for axis, start, cells in zip(axes, origin, shape, strict=True):
+        first = round(start / size)
+        low[axis], high[axis] = (first + 0.5) * size, (first + cells - 0.5) * size
+    index, got = grid_cells(np.asarray(points, float).reshape(-1, 3), size, low, high, axes)
+    if got != list(shape):  # pragma: no cover - a guard on the half-cell rule above
+        raise AssertionError(f"the payload's grid {list(shape)} rebuilt as {got}")
+    return index
+
+
 def sphere_counts(directions: np.ndarray, rings: int = SPHERE_RINGS, sectors: int = SPHERE_SECTORS) -> np.ndarray:
     """Equal-area cells of unit vectors (prior art sphere_cell): rings uniform in z (Archimedes: equal z bands have equal
     area) x sectors uniform in azimuth from -pi. Flat index ring * sectors + sector."""

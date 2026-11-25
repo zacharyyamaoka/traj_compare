@@ -128,6 +128,48 @@ def _bar(css: str) -> str:
             f'vertical-align:3px"></span>')
 
 
+def sphere_grid_segments(rings: int, sectors: int) -> np.ndarray:
+    """The equal-area sphere's cell edges (band circles and meridians) just outside the unit sphere, (n, 2, 3) float32.
+    Shared with the grasp coverage viewer (one sphere, one drawing)."""
+    circle = np.linspace(0.0, 2 * np.pi, 97)
+    segments = []
+    for z in -1 + 2 * np.arange(1, rings) / rings:  # the equal-area band edges
+        r = math.sqrt(1 - z * z)
+        loop = np.column_stack([r * np.cos(circle), r * np.sin(circle), np.full_like(circle, z)]) * 1.014
+        segments.append(np.stack([loop[:-1], loop[1:]], axis=1))
+    height = np.linspace(-1.0, 1.0, 49)
+    for azimuth in -np.pi + 2 * np.pi * np.arange(sectors) / sectors:
+        r = np.sqrt(1 - height**2)
+        meridian = np.column_stack([r * np.cos(azimuth), r * np.sin(azimuth), height]) * 1.014
+        segments.append(np.stack([meridian[:-1], meridian[1:]], axis=1))
+    return np.concatenate(segments).astype(np.float32)
+
+
+def sphere_cell_points(colours: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Fill points (float32) and their uint8 colours for every equal-area cell; `colours` is (rings, sectors, 3).
+    Shared with the grasp coverage viewer."""
+    rings, sectors = colours.shape[:2]
+    points, point_colours = [], []
+    for ring in range(rings):
+        # WHY rows per band: equal-z bands are equal in AREA, not in arc, so the polar caps are ~3.5x taller
+        # (in polar angle) than the equator band; a fixed row count left white stripes in the caps.
+        bottom = math.acos(-1 + 2 * ring / rings)
+        top = math.acos(-1 + 2 * (ring + 1) / rings)
+        rows = max(3, math.ceil(abs(top - bottom) / SPHERE_SPACING))
+        widest = max(math.sin(bottom), math.sin(top), 1.0 if (bottom - math.pi / 2) * (top - math.pi / 2) < 0
+                     else 0.0)
+        around = max(3, math.ceil(2 * math.pi * widest / sectors / SPHERE_SPACING))
+        rise, turn = np.meshgrid((np.arange(rows) + 0.5) / rows, (np.arange(around) + 0.5) / around,
+                                 indexing="ij")
+        polar = bottom + (top - bottom) * rise.ravel()
+        for sector in range(sectors):
+            azimuth = -np.pi + 2 * np.pi * (sector + turn.ravel()) / sectors
+            points.append(np.stack([np.sin(polar) * np.cos(azimuth), np.sin(polar) * np.sin(azimuth),
+                                    np.cos(polar)], axis=-1))
+            point_colours.append(np.repeat(colours[ring, sector][None], len(polar), axis=0))
+    return np.concatenate(points).astype(np.float32), np.concatenate(point_colours)
+
+
 class CoverageViewer:
     """The GUI and scene of one coverage payload on a viser_3d_viewer `Viewer` (kept as `viewer.coverage`)."""
 
@@ -304,18 +346,7 @@ class CoverageViewer:
     def _draw_sphere_grid(self) -> None:
         scene = self.server.scene
         rings, sectors, _ = self._sphere_block()
-        circle = np.linspace(0.0, 2 * np.pi, 97)
-        segments = []
-        for z in -1 + 2 * np.arange(1, rings) / rings:  # the equal-area band edges
-            r = math.sqrt(1 - z * z)
-            loop = np.column_stack([r * np.cos(circle), r * np.sin(circle), np.full_like(circle, z)]) * 1.014
-            segments.append(np.stack([loop[:-1], loop[1:]], axis=1))
-        height = np.linspace(-1.0, 1.0, 49)
-        for azimuth in -np.pi + 2 * np.pi * np.arange(sectors) / sectors:
-            r = np.sqrt(1 - height**2)
-            meridian = np.column_stack([r * np.cos(azimuth), r * np.sin(azimuth), height]) * 1.014
-            segments.append(np.stack([meridian[:-1], meridian[1:]], axis=1))
-        scene.add_line_segments("/coverage/sphere/grid", np.concatenate(segments).astype(np.float32), HAIR_RGB,
+        scene.add_line_segments("/coverage/sphere/grid", sphere_grid_segments(rings, sectors), HAIR_RGB,
                                 thickness=1.0, thickness_units="screen")
         reference = np.asarray(self.tool["orientation"].get("reference", (0.0, 0.0, -1.0)), float)
         reference = reference / (np.linalg.norm(reference) or 1.0)
@@ -334,27 +365,9 @@ class CoverageViewer:
         self.sphere_scale = scaled
         # never-held cells are a near-white (246): white to the eye, but the sphere keeps its outline on the white page
         colours = np.where((scaled.t >= 0)[..., None], self._colours(scaled), np.uint8(246)).reshape(rings, sectors, 3)
-        points, point_colours = [], []
-        for ring in range(rings):
-            # WHY rows per band: equal-z bands are equal in AREA, not in arc, so the polar caps are ~3.5x taller
-            # (in polar angle) than the equator band; a fixed row count left white stripes in the caps.
-            bottom = math.acos(-1 + 2 * ring / rings)
-            top = math.acos(-1 + 2 * (ring + 1) / rings)
-            rows = max(3, math.ceil(abs(top - bottom) / SPHERE_SPACING))
-            widest = max(math.sin(bottom), math.sin(top), 1.0 if (bottom - math.pi / 2) * (top - math.pi / 2) < 0
-                         else 0.0)
-            around = max(3, math.ceil(2 * math.pi * widest / sectors / SPHERE_SPACING))
-            rise, turn = np.meshgrid((np.arange(rows) + 0.5) / rows, (np.arange(around) + 0.5) / around,
-                                     indexing="ij")
-            polar = bottom + (top - bottom) * rise.ravel()
-            for sector in range(sectors):
-                azimuth = -np.pi + 2 * np.pi * (sector + turn.ravel()) / sectors
-                points.append(np.stack([np.sin(polar) * np.cos(azimuth), np.sin(polar) * np.sin(azimuth),
-                                        np.cos(polar)], axis=-1))
-                point_colours.append(np.repeat(colours[ring, sector][None], len(polar), axis=0))
-        self.server.scene.add_point_cloud("/coverage/sphere/cells", np.concatenate(points).astype(np.float32),
-                                          np.concatenate(point_colours), point_size=0.012, point_shape="square",
-                                          point_shading="flat", precision="float32")
+        points, point_colours = sphere_cell_points(colours)
+        self.server.scene.add_point_cloud("/coverage/sphere/cells", points, point_colours, point_size=0.012,
+                                          point_shape="square", point_shading="flat", precision="float32")
 
     def _height_geometry(self, joint: str) -> dict[str, Any]:
         plane = self.payload["planes"][joint]["q_qd"]
