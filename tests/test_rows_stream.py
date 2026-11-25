@@ -156,10 +156,6 @@ def test_a_reuse_write_does_not_hold_every_runs_rows(tmp_path):
                     measured={"sim": follow(references[i % 4], i), "real": follow(references[i % 4], i + 1000)},
                     pairs=[("reference", "sim"), ("reference", "real"), ("sim", "real")]) for i in range(count)]
 
-    # WHY the lower peak of two reuse writes (2026-11-25, CI 3.11 at 5e13af2): one 3755 KiB allocation at pathlib.py:71,
-    # sys.intern, landed in the 40-run window: the interpreter's interned-string table resizing, once, after every test
-    # before this one had filled it, and read as 177 KiB a run. The second write cannot meet that resize again (the table
-    # just doubled), and a write that holds every run's rows peaks as high on both, so the bound below still catches it.
     peaks = {}
     for count in (10, 40):
         written = runs(count)
@@ -167,12 +163,10 @@ def test_a_reuse_write_does_not_hold_every_runs_rows(tmp_path):
         started_here = not tracemalloc.is_tracing()
         if started_here:
             tracemalloc.start(1)
+        tracemalloc.reset_peak()
         try:
-            for _ in range(2):
-                tracemalloc.reset_peak()
-                write_dataset_report(written, tmp_path / f"n{count}", title="t", rows=("parquet",))  # every run reused
-                peak = tracemalloc.get_traced_memory()[1]
-                peaks[count] = min(peaks.get(count, peak), peak)
+            write_dataset_report(written, tmp_path / f"n{count}", title="t", rows=("parquet",))  # every run reused
+            peaks[count] = tracemalloc.get_traced_memory()[1]
         finally:
             if started_here:
                 tracemalloc.stop()
