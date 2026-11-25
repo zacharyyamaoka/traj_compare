@@ -2349,39 +2349,49 @@ def _clip_situations(manifest: Mapping[str, Any], series_names: Sequence[str]) -
     return clips
 
 
-def _build_run_report(folder: Path) -> Path:
-    manifest = json.loads((folder / "manifest.json").read_text("utf-8"))
-    poses = _import_spec(manifest["poses"], manifest["import_roots"]) if manifest["poses"] else None
-    robot: RobotDisplay | None = _import_spec(manifest["robot"], manifest["import_roots"])() if manifest["robot"] else None
-    tolerances = from_dict(manifest["tolerances"], Tolerances) if manifest["tolerances"] else None
-    pose_tolerances = tolerances is not None and (
-        isinstance(tolerances.path, PoseTolerance) or isinstance(tolerances.goal, PoseTolerance)
-    )
-    labels: Mapping[str, str] = manifest["labels"]
+class _RunFolder:
+    """One run folder read back for the run view: its manifest, every series, the torque breakdowns, the channel
+    descriptions and the ``poses`` function; ``situation()`` turns one series into a ``Situation``.
 
-    def label(name: str) -> str:
-        return "Reference" if name == REFERENCE else labels.get(name, name)
+    WHY a class of its own (2026-11-24): the run report (``_build_run_report``) and a playback of runs picked across
+    several folders (``traj_compare.selection.build_playback``, the runs workbench's third level) must draw a series the
+    same way; one builder keeps them from drifting apart.
+    """
 
-    trajectories = {name: load_npz(folder / file) for name, file in manifest["files"].items()}
-    torques: dict[str, dict[str, np.ndarray]] = {}
-    for name, keys in manifest.get("torques", {}).items():  # .get: manifests written before 2026-11-19 have none
-        with np.load(folder / _torque_file(name), allow_pickle=False) as stored:
-            torques[name] = {key: stored[key] for key in keys}
-    # .get: manifests written before 2026-11-20 describe no channel (they are drawn under their own names)
-    signals = {
-        str(name): Signal(title=entry.get("title", ""), unit=entry.get("unit", ""), columns=tuple(entry.get("columns", ())),
-                          per_joint=bool(entry.get("per_joint", False)))
-        for name, entry in (manifest.get("signals") or {}).items()
-    }  # fmt: skip
-    not_drawn: dict[str, str] = {}  # a channel the run view cannot hold -> why; the page says so (never silently)
-    offsets: Mapping[str, float] = manifest["time_offset_s"]
-    series_names = list(manifest["series"])
-    shown = {tuple(pair) for pair in manifest["default_pairs"]}
-    # Tabs open on the default pairs; the hidden ones (earlier twin iterations) follow, marked.
-    pairs = sorted((tuple(pair) for pair in manifest["pairs"]), key=lambda pair: pair not in shown)
+    def __init__(self, folder: Path) -> None:
+        self.folder = Path(folder)
+        manifest = self.manifest = json.loads((self.folder / "manifest.json").read_text("utf-8"))
+        self.poses = _import_spec(manifest["poses"], manifest["import_roots"]) if manifest["poses"] else None
+        self.tolerances = from_dict(manifest["tolerances"], Tolerances) if manifest["tolerances"] else None
+        self.labels: Mapping[str, str] = manifest["labels"]
+        self.trajectories = {name: load_npz(self.folder / file) for name, file in manifest["files"].items()}
+        self.torques: dict[str, dict[str, np.ndarray]] = {}
+        for name, keys in manifest.get("torques", {}).items():  # .get: manifests written before 2026-11-19 have none
+            with np.load(self.folder / _torque_file(name), allow_pickle=False) as stored:
+                self.torques[name] = {key: stored[key] for key in keys}
+        # .get: manifests written before 2026-11-20 describe no channel (they are drawn under their own names)
+        self.signals = {
+            str(name): Signal(title=entry.get("title", ""), unit=entry.get("unit", ""), columns=tuple(entry.get("columns", ())),
+                              per_joint=bool(entry.get("per_joint", False)))
+            for name, entry in (manifest.get("signals") or {}).items()
+        }  # fmt: skip
+        self.not_drawn: dict[str, str] = {}  # a channel the run view cannot hold -> why; the page says so (never silently)
 
-    def situation(name: str, reference: JointTrajectory, role_origin: float, offset_s: float) -> Situation:
-        trajectory = trajectories[name]
+    def robot(self) -> RobotDisplay | None:
+        manifest = self.manifest
+        return _import_spec(manifest["robot"], manifest["import_roots"])() if manifest["robot"] else None
+
+    def label(self, name: str) -> str:
+        return "Reference" if name == REFERENCE else self.labels.get(name, name)
+
+    def situation(self, name: str, reference: JointTrajectory, role_origin: float, offset_s: float, *,
+                  title: str | None = None, situation_name: str | None = None,
+                  video_root: Path | None = None) -> Situation:
+        """``name``'s series as a ``Situation`` on ``reference``'s joints, ``role_origin`` its time zero. ``title`` and
+        ``situation_name`` default to the run report's (the series' label and name); ``video_root`` is the folder the
+        page lives in when that is not this run's own (a playback page), so a synced video is linked relative to it."""
+        manifest, torques, signals, not_drawn = self.manifest, self.torques, self.signals, self.not_drawn
+        trajectory = self.trajectories[name]
         if set(trajectory.joint_names) != set(reference.joint_names):
             raise ValueError(f"{name!r} has joints {trajectory.joint_names}, the reference {reference.joint_names}")
         # The breakdown's columns follow the series' own joint order; reorder them with the series onto the reference's.
@@ -2405,9 +2415,12 @@ def _build_run_report(folder: Path) -> Path:
             signal = signals.get(key)
             channels[key] = values[:, columns] if signal is not None and signal.per_joint else values
         trajectory = trajectory.select(reference.joint_names)
+        video = manifest["media"].get(name, "")
+        if video and video_root is not None:
+            video = Path(_relative_path(self.folder / video, video_root)).as_posix()
         return Situation(
-            name=name,
-            title=label(name),
+            name=situation_name or name,
+            title=self.label(name) if title is None else title,
             t=trajectory.absolute_times - role_origin,
             q=trajectory.positions,
             qd=trajectory.velocities,
@@ -2415,13 +2428,34 @@ def _build_run_report(folder: Path) -> Path:
             tau=trajectory.effort,
             current=None if current is None else current[:, columns],
             **breakdown,  # tau_cmd / tau_ff / tau_fb as given; the run view derives the third (its "Feedforward or feedback?" tab)
-            poses=None if poses is None else poses(trajectory).matrices(),
-            video=manifest["media"].get(name, ""),
+            poses=None if self.poses is None else self.poses(trajectory).matrices(),
+            video=video,
             video_start_s=manifest["media_start_s"].get(name, 0.0),
             time_offset_s=offset_s,
             robot=None,
             channels=channels,
         )
+
+
+def _relative_path(path: Path, start: Path) -> str:
+    import os
+
+    return os.path.relpath(Path(path).resolve(), Path(start).resolve())
+
+
+def _build_run_report(folder: Path) -> Path:
+    run = _RunFolder(folder)
+    manifest, poses, tolerances, signals, not_drawn = run.manifest, run.poses, run.tolerances, run.signals, run.not_drawn
+    robot = run.robot()
+    pose_tolerances = tolerances is not None and (
+        isinstance(tolerances.path, PoseTolerance) or isinstance(tolerances.goal, PoseTolerance)
+    )
+    label, situation, trajectories = run.label, run.situation, run.trajectories
+    offsets: Mapping[str, float] = manifest["time_offset_s"]
+    series_names = list(manifest["series"])
+    shown = {tuple(pair) for pair in manifest["default_pairs"]}
+    # Tabs open on the default pairs; the hidden ones (earlier twin iterations) follow, marked.
+    pairs = sorted((tuple(pair) for pair in manifest["pairs"]), key=lambda pair: pair not in shown)
 
     comparisons = []
     for first, second in pairs:
@@ -2470,6 +2504,22 @@ def _build_run_report(folder: Path) -> Path:
         rerun=_rerun_available(),
         **extra,
     )
+
+
+_PAYLOAD = re.compile(r'<script type="application/json" id="traj-compare-dataset">(.*?)</script>', re.S)
+
+
+def read_site_payload(site: Path | str) -> dict[str, Any]:
+    """The payload ``write_dataset_report`` embedded in ``<site>/index.html`` (runs, rows, levels, sweep, ...), as a dict.
+
+    WHY public (2026-11-24): the runs workbench (``traj_compare.runs_workbench``) is written from the sites a bench
+    already has, never by re-reading every run; this is the one reader of that page's data block.
+    """
+    page = Path(site) / "index.html"
+    match = _PAYLOAD.search(page.read_text("utf-8"))
+    if match is None:
+        raise ValueError(f"{page} holds no traj_compare dataset payload (is it a write_dataset_report site?)")
+    return json.loads(match.group(1).replace("<\\/", "</"))
 
 
 def build_drill_down(output_dir: Path | str, run_name: str) -> Path:

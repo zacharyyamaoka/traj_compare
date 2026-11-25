@@ -12,6 +12,15 @@ which is what the report's "Open in Rerun" button calls. WHY an endpoint and not
 scheme: a browser page cannot start a process, and a registered ``rerun://`` handler would be one
 more thing to install per machine; this is the same ``uvx`` command the "Copy command" button
 shows, started for you. Standard library only.
+
+Two more for the runs workbench's target view (``traj_compare.runs_workbench``, docs/RUNS_WORKBENCH.md), each posted to
+``<page dir>/<endpoint>`` with ``{"runs": [{"folder", "series", "label"?, "color"?}]}`` (folders relative to that page
+directory, refused outside the root) or ``?runs=<folder>:<series>,...``:
+
+- ``POST <dir>/__playback`` (``crumbs``, ``title`` too): traj_compare's comparison viewer over exactly those runs and their
+  target (``selection.build_playback``), cached under ``<dir>/playback/<key>/``; answers ``{ok, n, href}``.
+- ``POST <dir>/__rerun/selection[?dry=1]``: one ``.rrd`` of them (``selection.build_selection_rrd``, one plot per joint,
+  one line per run) under ``<dir>/selections/``, then the pinned viewer; ``dry=1`` builds without starting it.
 """
 
 from __future__ import annotations
@@ -31,6 +40,41 @@ from .rerun_export import LAYOUTS, blueprint_path, viewer_argv, viewer_command
 
 DEFAULT_PORT = 8767
 OPEN_PATH = "/__rerun/open"
+# POST <page dir>/__rerun/selection and <page dir>/__playback (the runs workbench's target view): the run folders a body
+# names are relative to <page dir>, the directory of the page that posted (a relative URL keeps it), never a guess.
+SELECTION_ENDPOINT = "__rerun/selection"
+PLAYBACK_ENDPOINT = "__playback"
+_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
+_MAX_BODY = 2_000_000
+
+
+def _endpoint_dir(path: str, endpoint: str) -> str | None:
+    """``"all/"``-style directory (relative to the root, ``""`` for the root itself) a POST to ``/<dir>/<endpoint>``
+    came from, or None when the path names another endpoint."""
+    clean = unquote(path)
+    if clean == f"/{endpoint}":
+        return ""
+    if clean.endswith(f"/{endpoint}"):
+        return clean[1 : -len(endpoint)]
+    return None
+
+
+def _crumbs(value: object) -> list[tuple[str, str]]:
+    """A playback page's breadcrumb from a request: ``[[label, href], ...]``, each href a same-origin path or a
+    relative one (WHY refused otherwise: the page would carry a ``javascript:`` or another site's link)."""
+    if value is None:
+        return []
+    if not isinstance(value, list) or len(value) > 8:
+        raise ValueError("crumbs is a list of at most 8 [label, href] pairs")
+    out = []
+    for item in value:
+        if not (isinstance(item, list) and len(item) == 2 and all(isinstance(part, str) for part in item)):
+            raise ValueError(f"a crumb is [label, href], got {item!r}")
+        label, href = item
+        if len(label) > 300 or len(href) > 8000 or href.startswith("//") or _SCHEME.match(href):
+            raise ValueError(f"a crumb's href is a same-origin or relative path, got {href[:80]!r}")
+        out.append((label, href))
+    return out
 # [<site>/]runs/<slug>/report.html or [<site>/]runs/<slug>/rerun/<pair>.rrd, relative to the served root
 _LAZY_BUILD = re.compile(r"^((?:[^/]+/)*)runs/([A-Za-z0-9][A-Za-z0-9._-]*)/(?:report\.html|rerun/[A-Za-z0-9._-]+\.rrd)$")
 
@@ -184,9 +228,90 @@ def make_handler(
             self.end_headers()
             self.wfile.write(data)
 
+        def _body(self) -> dict:
+            length = int(self.headers.get("Content-Length") or 0)
+            if length > _MAX_BODY:
+                raise ValueError("request body too large")
+            raw = self.rfile.read(length) if length else b""
+            body = json.loads(raw) if raw.strip() else {}
+            if not isinstance(body, dict):
+                raise ValueError("the body is a JSON object")
+            return body
+
+        def _picks(self, directory: str, body: dict, query: dict) -> tuple[Path, list]:
+            """The page's directory and the runs it names: ``{"runs": [{"folder", "series", "label"?, "color"?}]}`` or,
+            for data-ui's bodyless ``post:`` action, ``?runs=<folder>:<series>,...``; each folder relative to it."""
+            from .selection import Pick
+
+            base = (root / directory).resolve()
+            if not base.is_relative_to(root):
+                raise PermissionError("the page's directory is outside the served root")
+            items = list(body.get("runs") or [])
+            for token in ",".join(query.get("runs") or []).split(","):
+                if token.strip():
+                    folder, _, series = token.rpartition(":")
+                    items.append({"folder": folder, "series": series})
+            picks = []
+            for item in items:
+                if not isinstance(item, dict) or not isinstance(item.get("folder"), str) or not item.get("series"):
+                    raise ValueError(f"a run is {{folder, series}}, got {item!r}")
+                folder = (base / item["folder"]).resolve()
+                if not folder.is_relative_to(root):
+                    raise PermissionError(f"{item['folder']} is outside the served root")
+                picks.append(Pick(folder, str(item["series"]), label=str(item.get("label") or ""),
+                                  color=str(item.get("color") or "")))
+            return base, picks
+
+        def _selection(self, directory: str, parts, query: dict) -> None:
+            """``POST <dir>/__rerun/selection[?dry=1]``: one .rrd of the picked lines (``selection.build_selection_rrd``),
+            then the pinned viewer on it; ``dry=1`` builds and answers without starting the viewer."""
+            from .selection import build_selection_rrd, selection_key
+
+            base, picks = self._picks(directory, self._body(), query)
+            if not picks:
+                raise ValueError("no runs selected")
+            path = base / "selections" / f"selection-{len(picks)}-{selection_key(picks)}.rrd"
+            with build_lock:
+                path, names = build_selection_rrd(picks, path)
+            dry = (query.get("dry") or ["0"])[0] == "1"
+            answer = {"ok": True, "n": len(picks), "rrd": str(path), "command": viewer_command(path), "entities": names,
+                      "dry": dry}
+            if not dry:
+                try:
+                    spawn(viewer_argv(path))
+                except OSError as error:
+                    self._json(500, {**answer, "ok": False, "error": f"could not start the viewer ({error}); is uv installed?"})
+                    return
+            self._json(200, answer)
+
+        def _playback(self, directory: str, query: dict) -> None:
+            """``POST <dir>/__playback`` with ``{runs, crumbs?, title?}``: traj_compare's comparison viewer over exactly
+            those runs and their target (``selection.build_playback``), cached under ``<dir>/playback/<key>/``;
+            answers ``{ok, n, href}``, the page's path, for the target view to open in its own tab."""
+            from .selection import build_playback, selection_key
+
+            body = self._body()
+            base, picks = self._picks(directory, body, query)
+            if not picks:
+                raise ValueError("no runs selected")
+            crumbs = _crumbs(body.get("crumbs"))
+            title = body.get("title") or ""
+            if not isinstance(title, str) or len(title) > 300:
+                raise ValueError("title is a string of at most 300 characters")
+            count = f"{len(picks)} run{'s' if len(picks) != 1 else ''}"
+            folder = base / "playback" / selection_key(picks, title, crumbs)
+            with build_lock:
+                if not (folder / "report.html").is_file():
+                    build_playback(picks, folder, title=title, breadcrumb=[*crumbs, (f"Playback · {count}", "")],
+                                   assets=base / "playback" / "assets")
+            href = "/" + quote((folder / "report.html").relative_to(root).as_posix())
+            self._json(200, {"ok": True, "n": len(picks), "href": href})
+
         def do_POST(self) -> None:  # noqa: N802
             parts = urlsplit(self.path)
-            if parts.path != OPEN_PATH:
+            selection = _endpoint_dir(parts.path, SELECTION_ENDPOINT)
+            playback = _endpoint_dir(parts.path, PLAYBACK_ENDPOINT)
+            if parts.path != OPEN_PATH and selection is None and playback is None:
                 self._json(404, {"ok": False, "error": f"no such endpoint: {parts.path}"})
                 return
             # WHY same-origin only: this endpoint starts a process, and the CORS header above lets
@@ -194,6 +319,20 @@ def make_handler(
             origin = self.headers.get("Origin")
             if origin and urlsplit(origin).netloc != self.headers.get("Host"):
                 self._json(403, {"ok": False, "error": "cross-origin request refused"})
+                return
+            if selection is not None or playback is not None:
+                query = parse_qs(parts.query)
+                try:
+                    if selection is not None:
+                        self._selection(selection, parts, query)
+                    else:
+                        self._playback(playback, query)
+                except PermissionError as error:
+                    self._json(403, {"ok": False, "error": str(error)})
+                except (ValueError, KeyError) as error:
+                    self._json(400, {"ok": False, "error": str(error)})
+                except Exception as error:  # noqa: BLE001 - the page says why, the server keeps running
+                    self._json(500, {"ok": False, "error": f"{type(error).__name__}: {error}"})
                 return
             requested = (parse_qs(parts.query).get("rrd") or [""])[0]
             if not requested:
