@@ -1,0 +1,108 @@
+{
+ "ready": "html[data-ready='1']",
+ "count": "#tc data-count",
+ "filter": [
+  {
+   "click": "#tc data-facets section[data-key=dataset] input[type=checkbox]"
+  }
+ ],
+ "figure": "#tc data-dashboard[tab='Overview'] data-views[data-view='chart']",
+ "tabs": [
+  {
+   "id": "overview",
+   "label": "Overview",
+   "sel": "#tc data-tabs [role=tab]:nth-of-type(1)"
+  },
+  {
+   "id": "targets",
+   "label": "Targets",
+   "sel": "#tc data-tabs [role=tab]:nth-of-type(2)"
+  },
+  {
+   "id": "runs",
+   "label": "Runs",
+   "sel": "#tc data-tabs [role=tab]:nth-of-type(3)"
+  }
+ ],
+ "panel": "#tc data-fold.dw-rail",
+ "resizer": "#tc .dw-rail-handle",
+ "fold": "#fold",
+ "url_query": "?dry=1",
+ "target_link": [
+  {
+   "fill": [
+    "#tc data-facets input[data-k=\"find:target\"]",
+    "conveyor-dev-001 · conveyor-v1 · 1 ×"
+   ]
+  },
+  {
+   "wait": 1200
+  },
+  {
+   "click": "#tc data-facets input[data-k=\"v:target:conveyor-dev-001 · conveyor-v1 · 1 × reference motion speed (180 deg/s)\"]"
+  },
+  {
+   "wait": 2500
+  },
+  {
+   "click": "#tc data-tabs [role=tab]:nth-of-type(3)"
+  },
+  {
+   "wait": 4000
+  }
+ ],
+ "rerun_frame": "#v1-target iframe",
+ "rerun_button": "#rerun",
+ "story": [
+  {
+   "label": "Landing",
+   "caption": "Every run of all four deployments (18,507): the League across configs and model types, the cross-deployment warning above.",
+   "actions": []
+  },
+  {
+   "label": "One deployment",
+   "caption": "Tick UR5e + Conveyor PnP cell: 5,750 of 18,507 runs, the warning goes, every tab recounts.",
+   "actions": [
+    {
+     "click": "#tc data-facets input[data-k=\"v:deployment:UR5e + Conveyor PnP cell\"]"
+    },
+    {
+     "wait": 2500
+    }
+   ]
+  },
+  {
+   "label": "One target in the rail",
+   "caption": "Find and tick one target: 12 of 18,507 runs.",
+   "actions": [
+    {
+     "fill": [
+      "#tc data-facets input[data-k=\"find:target\"]",
+      "conveyor-dev-001 · conveyor-v1 · 1 ×"
+     ]
+    },
+    {
+     "wait": 1200
+    },
+    {
+     "click": "#tc data-facets input[data-k=\"v:target:conveyor-dev-001 · conveyor-v1 · 1 × reference motion speed (180 deg/s)\"]"
+    },
+    {
+     "wait": 2500
+    }
+   ]
+  },
+  {
+   "label": "Runs = its target view",
+   "caption": "The Runs tab now opens with that target's view; its checkboxes are the 12 runs the rail keeps.",
+   "actions": [
+    {
+     "click": "#tc data-tabs [role=tab]:nth-of-type(3)"
+    },
+    {
+     "wait": 5000
+    }
+   ]
+  }
+ ]
+}

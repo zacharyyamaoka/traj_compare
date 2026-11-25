@@ -1,0 +1,344 @@
+{
+ "title": "traj_compare on the stock workbench: five ways to link Dataset → Target → Run",
+ "kicker": "/babble 5 · traj_compare · 2026-11-24",
+ "brief": "Zach: the TensorBoard pattern for the trajectory comparison viewer — a big filter rail on the left over RUNS (all deployments present, deployment a filter, model type across deployments), tabs Overview (the League) · Targets · Runs, and a second stage: one target's view (today's look) whose Open in Rerun sends every selected run as lines. All five are the same stock data-ui <data-workbench> over 18,507 real runs; they differ in how the target view is reached, what 'selected' means, and how model × deployment shows.",
+ "defaultId": "v2",
+ "defaultWhy": "V2 Two viewers, 91/100: it is his two stages literally — the rail's filter carries into the target view's checkboxes and back again, the target view gets the full screen, and it needs the least glue on top of stock parts. V1, V3 and V4 tie at 87.",
+ "decisionHinge": "Whether the target view must be INSIDE the droppable component. Give 'compact, droppable' 10 more points (from 'stock parts') and V3 (target as a 4th tab) ties V2; once data-ui grows scope.addPage (a runtime tab the URL can restore) V3 scores 5 on the link and leads. Splice either way: V4's model type × deployment matrix on the Overview.",
+ "invariants": [
+  "Real runs of all four bench deployments: UR5e + Conveyor PnP cell 5,750 · UR5e 3 · BAM FB 4,972 · 1-DOF pendulum 7,782 (18,507).",
+  "One stock data-ui <data-workbench> (main e8c73dc, CONTRACT §53) with the same rail and tabs in every variant.",
+  "One shared target view (common/target.html) and one Open in Rerun endpoint (serve_round.py → stock robot_msgs.viz.rerun, one .rrd per selection).",
+  "Model type is a PROPOSED mapping (build_rows.py MODEL_TYPE), labelled as such."
+ ],
+ "boundary": "Live prototypes on the real bench payloads, served by one local command; Rerun proven by building the .rrd (12 runs → 12 lines per joint, read back) and opening it in Rerun's own viewer. Not wired into traj_compare's dataset.py/serve.py; no date tags exist yet.",
+ "axes": [
+  {
+   "name": "How the target view is reached",
+   "values": [
+    "a rail filter to one target (V1)",
+    "its own page, filter carried (V2)",
+    "a 4th tab in the component (V3)",
+    "a side pane (V4)",
+    "a basket across targets (V5)"
+   ]
+  },
+  {
+   "name": "What 'selected' means",
+   "values": [
+    "passes the rail (V1)",
+    "checkboxes, seeded by the rail (V2)",
+    "checkboxes the rail narrows (V3)",
+    "the pane's checkboxes (V4)",
+    "the basket (V5)"
+   ]
+  },
+  {
+   "name": "Model / deployment on the Overview",
+   "values": [
+    "Leagues by config and model type + warning (V1)",
+    "same (V2)",
+    "same (V3)",
+    "model type × deployment matrix first (V4)",
+    "same as V1 (V5)"
+   ]
+  }
+ ],
+ "variants": [
+  {
+   "id": "v1",
+   "name": "The rail is the selection",
+   "accent": "#2563eb",
+   "thesis": "Target is just another rail facet: when the runs left belong to one target, the Runs tab becomes that target's view, and its checkboxes are exactly the rail's runs.",
+   "bestWhen": "You narrow by facets anyway (deployment → dataset → speed → target) and want one selection model: what the rail keeps is what Rerun gets.",
+   "losesWhen": "You want to untick a run without touching the rail (the next rail change resets it), or reach a target from a table click: it takes typing in the Target facet's Find box, then a tick.",
+   "decisions": [
+    {
+     "label": "Selected",
+     "value": "= passes the rail; the embedded target view's checkboxes start as the rail's runs."
+    },
+    {
+     "label": "Link",
+     "value": "Exactly one target left → its view (target.html?embed=1&keep=…) above the Runs table."
+    },
+    {
+     "label": "Gap",
+     "value": "No host-panel slot in a data-ui page: the iframe is inserted before the stock dashboard."
+    }
+   ],
+   "keepParts": [
+    "one target left → show its view",
+    "target as a big rail facet with Find"
+   ],
+   "targetCaption": "Ticking one target in the rail (12 of 18,507 runs) turns the Runs tab into its target view with those 12 checked.",
+   "scores": {
+    "fr1": {
+     "score": 5,
+     "evidence": "Measured (check.cjs, same in all five): one dataset tick 18,507 → 4,576 of 18,507 runs; Targets 260 of 2,558; the League's input 8,520 → 1,248 rows; the count holds on all three tabs. The target view itself follows the rail.",
+     "confidence": "high"
+    },
+    "fr2": {
+     "score": 4,
+     "evidence": "The target view sits inside the Runs tab with the rail's 12 runs checked (measured); getting there is Find + tick (two actions, typing), and the way back is clearing one pill.",
+     "confidence": "high"
+    },
+    "fr3": {
+     "score": 5,
+     "evidence": "Button read 'Open in Rerun · 12 lines'; the server answered n=12 and the .rrd lists 12 runs + target (dry run).",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 4,
+     "evidence": "Shared: all four deployments, Deployment facet, League by model type (proposed mapping), a host warning line when >1 deployment is kept; no model × deployment view.",
+     "confidence": "high"
+    },
+    "fr5": {
+     "score": 4,
+     "evidence": "Tabs on the component; the target view lives inside the component (iframe); the warning and Fold button are host lines above it; the dataset legend lists all 36.",
+     "confidence": "medium"
+    },
+    "fr6": {
+     "score": 4,
+     "evidence": "Stock workbench + .base; host glue is the iframe insertion and a scope-change listener; gap: no panel slot.",
+     "confidence": "medium"
+    }
+   }
+  },
+  {
+   "id": "v2",
+   "name": "Two viewers, the filter carried",
+   "accent": "#0f9d8a",
+   "thesis": "The outer workbench and the target view are two pages: a Targets or Runs row opens the target page with the rail's runs checked, and ‹ All targets comes back to the same filter and tab.",
+   "bestWhen": "The target view is where you spend time (repeats, bands, joint by joint, Rerun) and you want the whole screen for it — Zach's two stages, literally.",
+   "losesWhen": "You hop between many targets: each round trip reloads the 19 MB runs file (3.5–4.7 s to ready).",
+   "decisions": [
+    {
+     "label": "Selected",
+     "value": "= the target view's checkboxes; they start as the rail's runs for that target (the rest listed unchecked)."
+    },
+    {
+     "label": "Link",
+     "value": "Same-tab navigation with keep= and back= (back = the workbench URL, which already holds ?filter and #tab)."
+    },
+    {
+     "label": "Target view",
+     "value": "Full width, today's traj_compare look (the screenshot he liked)."
+    }
+   ],
+   "keepParts": [
+    "keep= + back= carry-over",
+    "full-width target page"
+   ],
+   "targetCaption": "A Targets row → Open target view: the target page, the rail's runs checked; its ‹ All targets link is /v2/index.html?…#tab=targets.",
+   "scores": {
+    "fr1": {
+     "score": 5,
+     "evidence": "Measured (check.cjs, same in all five): one dataset tick 18,507 → 4,576 of 18,507 runs; Targets 260 of 2,558; the League's input 8,520 → 1,248 rows; the count holds on all three tabs.",
+     "confidence": "high"
+    },
+    "fr2": {
+     "score": 5,
+     "evidence": "Two clicks (row → Open target view); keep= carried (4/4 checked on arrival, measured); back link proved to keep query and tab; it is a separate page, so the outer view is not visible meanwhile.",
+     "confidence": "medium"
+    },
+    "fr3": {
+     "score": 5,
+     "evidence": "Button 'Open in Rerun · 4 lines' → server n=4, entities target + 4 runs (dry). The same page made the 12-run .rrd shown in Rerun.",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 4,
+     "evidence": "Shared deployment/model-type handling; no model × deployment matrix.",
+     "confidence": "high"
+    },
+    "fr5": {
+     "score": 3,
+     "evidence": "The outer component is droppable, but the target view is a second full page, not part of the dropped piece; host warning line; 36-entry legend.",
+     "confidence": "medium"
+    },
+    "fr6": {
+     "score": 5,
+     "evidence": "Least glue of the five: a link with two query params into an existing-style page; stock workbench; robot_msgs Rerun.",
+     "confidence": "high"
+    }
+   }
+  },
+  {
+   "id": "v3",
+   "name": "The target is a workbench page",
+   "accent": "#c22f6e",
+   "thesis": "Open target view adds a 4th tab, “Target · <task>”, inside the same component: the outer view and the target view drop into another app as one piece.",
+   "bestWhen": "The viewer must drop into Clank, robotparts or a dashboard as one tag, and one target at a time is enough.",
+   "losesWhen": "You reload or share the link (the runtime tab is not restored: #tab=target-… falls back to Overview), or want two targets side by side.",
+   "decisions": [
+    {
+     "label": "Selected",
+     "value": "= the target tab's checkboxes; the rail keeps narrowing them while it is open."
+    },
+    {
+     "label": "Link",
+     "value": "A host <section tab> appended to the workbench's pages: tab strip, keyboard and #tab are stock."
+    },
+    {
+     "label": "Gap",
+     "value": "needs scope.addPage(name, element) that the URL can name, to survive a reload."
+    }
+   ],
+   "keepParts": [
+    "a target as a 4th tab of the same component",
+    "rail narrows the open target's checkboxes"
+   ],
+   "targetCaption": "Targets row → Open target view: a 4th tab inside the component, the rail and count still in view.",
+   "scores": {
+    "fr1": {
+     "score": 5,
+     "evidence": "Measured (check.cjs, same in all five): one dataset tick 18,507 → 4,576 of 18,507 runs; Targets 260 of 2,558; the League's input 8,520 → 1,248 rows; the count holds on all three tabs. The open target tab follows the rail.",
+     "confidence": "high"
+    },
+    "fr2": {
+     "score": 4,
+     "evidence": "Two clicks, filter carried, back = one tab click, all in one frame; but the tab is lost on reload (measured fall-back to Overview).",
+     "confidence": "medium"
+    },
+    "fr3": {
+     "score": 5,
+     "evidence": "Button 'Open in Rerun · 4 lines' → n=4 (dry), same endpoint.",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 4,
+     "evidence": "Shared deployment/model-type handling; no model × deployment matrix.",
+     "confidence": "high"
+    },
+    "fr5": {
+     "score": 4,
+     "evidence": "Most droppable: outer and target view are one component; host warning line and the 36-entry legend remain.",
+     "confidence": "medium"
+    },
+    "fr6": {
+     "score": 4,
+     "evidence": "Stock workbench; the runtime page uses stock 'any element with tab is a page' but appends into an undocumented box.",
+     "confidence": "medium"
+    }
+   }
+  },
+  {
+   "id": "v4",
+   "name": "Model × deployment first, target in a side pane",
+   "accent": "#a67c00",
+   "thesis": "The Overview leads with a model type × deployment matrix (stock pivot), then the Leagues; a target opens in a resizable pane beside the tabs, so you click down the Targets list with the filter in view.",
+   "bestWhen": "The question is 'which model type works on which robot', and you scan many targets in a row without losing the outer view.",
+   "losesWhen": "The screen is narrow: the workbench folds to its chip under 1,100 px and the target view in a ~640 px pane stacks its panel above one column of charts.",
+   "decisions": [
+    {
+     "label": "Overview",
+     "value": "Model type × deployment pivot (median tool RMS over runs, one stage, named), then League by model type and by config."
+    },
+    {
+     "label": "Link",
+     "value": "Targets row → target view in a right pane; data-ui's own makeResizable (641 → 763 px after a 120 px drag, 763 after reload)."
+    },
+    {
+     "label": "Selected",
+     "value": "= the pane's checkboxes."
+    }
+   ],
+   "keepParts": [
+    "model type × deployment pivot",
+    "target view in a side pane"
+   ],
+   "targetCaption": "Targets row → Open target view: the pane on the right; tabs, filter and the Targets list stay visible.",
+   "scores": {
+    "fr1": {
+     "score": 5,
+     "evidence": "Measured (check.cjs, same in all five): one dataset tick 18,507 → 4,576 of 18,507 runs; Targets 260 of 2,558; the League's input 8,520 → 1,248 rows; the count holds on all three tabs.",
+     "confidence": "high"
+    },
+    "fr2": {
+     "score": 4,
+     "evidence": "Two clicks, filter and outer view stay visible, the next row replaces the pane; the pane is cramped at 1440 (one chart column).",
+     "confidence": "medium"
+    },
+    "fr3": {
+     "score": 5,
+     "evidence": "Button 'Open in Rerun · 4 lines' → n=4 (dry).",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 5,
+     "evidence": "The only variant that answers 'model vs configuration across deployments' on the Overview: a model type × deployment matrix, then the Leagues, with the warning line.",
+     "confidence": "high"
+    },
+    "fr5": {
+     "score": 3,
+     "evidence": "The pane is host markup outside the component; the Overview is the tallest (1.74 screens).",
+     "confidence": "medium"
+    },
+    "fr6": {
+     "score": 4,
+     "evidence": "Stock pivot + stock makeResizable; host pane around the workbench.",
+     "confidence": "medium"
+    }
+   }
+  },
+  {
+   "id": "v5",
+   "name": "A selection basket across targets",
+   "accent": "#7c5cc4",
+   "thesis": "Runs (and Targets) rows go into a basket that stays on every tab — “Selection · N runs” with Open target view and Open in Rerun — so a comparison can span targets and deployments.",
+   "bestWhen": "The comparison is not one target: the same config on two robots, or the worst run of each dataset, side by side in Rerun.",
+   "losesWhen": "You look at one target at a time (two clicks per run to fill the basket); the basket is per browser and ignores the rail.",
+   "decisions": [
+    {
+     "label": "Selected",
+     "value": "= the basket, deliberately independent of the rail."
+    },
+    {
+     "label": "Link",
+     "value": "target.html?basket=site:line,… groups the basket by target (cross-deployment warning in its verdict)."
+    },
+    {
+     "label": "Gap",
+     "value": "no multi-row select in a data-ui table; the ＋ Add button is an intercepted stock copy: action; the chip sits above the component."
+    }
+   ],
+   "keepParts": [
+    "the basket chip on every tab",
+    "?basket= target view across targets"
+   ],
+   "targetCaption": "The basket's target view (target.html?basket=ur5e:19,ur5e:22,bam_fb:0,bam_fb:1): 4 lines from 2 targets on 2 robots, the warning in the verdict; Rerun built one .rrd of all 4.",
+   "scores": {
+    "fr1": {
+     "score": 4,
+     "evidence": "Measured (check.cjs, same in all five): one dataset tick 18,507 → 4,576 of 18,507 runs; Targets 260 of 2,558; the League's input 8,520 → 1,248 rows; the count holds on all three tabs. But the basket ignores the rail, so a second selection model exists beside it.",
+     "confidence": "high"
+    },
+    "fr2": {
+     "score": 2,
+     "evidence": "No one-target path: a target's runs reach the target view only by adding them to the basket (two clicks per run, or a Targets row adds all its kept runs); opens in a new tab.",
+     "confidence": "medium"
+    },
+    "fr3": {
+     "score": 5,
+     "evidence": "Chip 'Open in Rerun (1)' → n=1 (dry); the basket page sent 4 runs from 2 deployments → one .rrd with two targets (measured).",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 4,
+     "evidence": "Shared handling, plus cross-deployment comparisons in Rerun are its point; no model × deployment matrix.",
+     "confidence": "medium"
+    },
+    "fr5": {
+     "score": 3,
+     "evidence": "The chip lives outside the component; basket in localStorage.",
+     "confidence": "medium"
+    },
+    "fr6": {
+     "score": 3,
+     "evidence": "Most glue: an intercepted copy: action, a host basket store, a host chip.",
+     "confidence": "medium"
+    }
+   }
+  }
+ ]
+}

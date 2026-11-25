@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Target view</title>
+<link rel="stylesheet" href="vendor/uplot.min.css">
+<link rel="stylesheet" href="target.css">
+</head>
+<body>
+<!-- The target view of the 2026-11-24 workbench round: today's traj_compare Target level (dataset.js, NAVIGATION.md
+     Part A) rebuilt over one target's lines, plus Open in Rerun for the CHECKED lines (Zach, Nov 24: "a button on the
+     target view to open in rerun. Now any of the selected runs show now appear as lines in the rerun viewer").
+     ?site=&target=[&keep=1,2][&back=url][&embed=1]   or   ?basket=site:line,site:line[&embed=1] -->
+<div class="tv" id="tv">
+  <nav class="tv-crumb" id="crumb"></nav>
+  <div class="tv-body">
+    <aside class="tv-panel" id="panel">
+      <div class="tv-panel-head"><b>Lines</b><span class="tv-mut" id="lcount"></span>
+        <button class="tv-fold" id="fold" title="Fold the lines panel">«</button></div>
+      <input type="text" id="regex" placeholder="Filter lines (regex)">
+      <div class="tv-chips" id="chips"></div>
+      <label class="tv-group">Group by <select id="groupby"><option value="config">config</option><option value="kind">sim / real</option><option value="target">target</option></select></label>
+      <div class="tv-lines" id="lines"></div>
+      <p class="tv-note">Checkbox colour = config (the bench's config colours). The checked lines are what every chart
+        draws and what <b>Open in Rerun</b> sends. ↗ opens the run report.</p>
+      <div class="tv-resize" id="resize" title="Drag to resize"></div>
+    </aside>
+    <main class="tv-main">
+      <div class="tv-head">
+        <div><h1 id="title"></h1><p class="tv-sub" id="sub"></p></div>
+        <div class="tv-rerun"><button id="rerun" class="tv-primary">Open in Rerun</button><div class="tv-status" id="status"></div></div>
+      </div>
+      <div class="tv-card" id="verdict"></div>
+      <div class="tv-bar">
+        <span class="tv-k">Repeats</span>
+        <span class="tv-seg" id="mode"><button data-mode="auto" class="on">Auto</button><button data-mode="lines">Lines</button><button data-mode="bands">Bands</button></span>
+        <label><span class="tv-k">Lines up to N</span> <input type="range" id="linesn" min="1" max="20" value="5"> <span id="linesnv">5</span></label>
+        <label><span class="tv-k">Joint</span> <select id="joint"></select></label>
+      </div>
+      <div id="sections"></div>
+    </main>
+  </div>
+</div>
+<script src="vendor/uplot.iife.min.js"></script>
+<script src="target.js"></script>
+</body>
+</html>

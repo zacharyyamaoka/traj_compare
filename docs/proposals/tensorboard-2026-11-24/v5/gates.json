@@ -1,0 +1,120 @@
+{
+ "ready": "html[data-ready='1']",
+ "count": "#tc data-count",
+ "filter": [
+  {
+   "click": "#tc data-facets section[data-key=dataset] input[type=checkbox]"
+  }
+ ],
+ "figure": "#tc data-dashboard[tab='Overview'] data-views[data-view='chart']",
+ "tabs": [
+  {
+   "id": "overview",
+   "label": "Overview",
+   "sel": "#tc data-tabs [role=tab]:nth-of-type(1)"
+  },
+  {
+   "id": "targets",
+   "label": "Targets",
+   "sel": "#tc data-tabs [role=tab]:nth-of-type(2)"
+  },
+  {
+   "id": "runs",
+   "label": "Runs",
+   "sel": "#tc data-tabs [role=tab]:nth-of-type(3)"
+  }
+ ],
+ "panel": "#tc data-fold.dw-rail",
+ "resizer": "#tc .dw-rail-handle",
+ "fold": "#fold",
+ "url_query": "?dry=1",
+ "target_link": [
+  {
+   "click": "#tc data-tabs [role=tab]:nth-of-type(3)"
+  },
+  {
+   "wait": 2500
+  },
+  {
+   "click": "#tc data-dashboard[tab='Runs'] tbody tr"
+  },
+  {
+   "wait": 1200
+  },
+  {
+   "click": "#tc button[data-drill-action]:has-text('Add to selection')"
+  },
+  {
+   "wait": 500
+  },
+  {
+   "click": "#basket-open"
+  },
+  {
+   "wait": 4000
+  }
+ ],
+ "rerun_frame": null,
+ "rerun_button": "#basket-rerun",
+ "story": [
+  {
+   "label": "Landing",
+   "caption": "Every run of all four deployments (18,507): the League across configs and model types, the cross-deployment warning above.",
+   "actions": []
+  },
+  {
+   "label": "One deployment",
+   "caption": "Tick UR5e + Conveyor PnP cell: 5,750 of 18,507 runs, the warning goes, every tab recounts.",
+   "actions": [
+    {
+     "click": "#tc data-facets input[data-k=\"v:deployment:UR5e + Conveyor PnP cell\"]"
+    },
+    {
+     "wait": 2500
+    }
+   ]
+  },
+  {
+   "label": "Runs",
+   "caption": "The Runs tab: every run the rail keeps.",
+   "actions": [
+    {
+     "click": "#tc data-tabs [role=tab]:nth-of-type(3)"
+    },
+    {
+     "wait": 2500
+    }
+   ]
+  },
+  {
+   "label": "Into the basket",
+   "caption": "Open a run, ＋ Add to selection: the chip says Selection · 1 runs on every tab, with Open target view and Open in Rerun (1).",
+   "actions": [
+    {
+     "click": "#tc data-dashboard[tab='Runs'] tbody tr"
+    },
+    {
+     "wait": 1200
+    },
+    {
+     "click": "#tc button[data-drill-action]:has-text('Add to selection')"
+    },
+    {
+     "wait": 800
+    }
+   ]
+  },
+  {
+   "label": "Basket kept across tabs",
+   "caption": "Back on the Overview the basket is still there.",
+   "actions": [
+    {
+     "click": "#tc data-tabs [role=tab]:nth-of-type(1)"
+    },
+    {
+     "wait": 2000
+    }
+   ]
+  }
+ ]
+}
