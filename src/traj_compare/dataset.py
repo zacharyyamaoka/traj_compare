@@ -56,6 +56,7 @@ import inspect
 import json
 import math
 import operator
+import os
 import re
 import shlex
 import shutil
@@ -1484,19 +1485,28 @@ def _run_digest(run: Run, slug: str, target: _Target, contents: _Contents, share
     return digest.hexdigest()
 
 
-def _reusable_run(folder: Path, digest: str) -> tuple[dict[str, Any], dict[str, Any]] | None:
+def _reusable_run(folder: str | os.PathLike[str], digest: str) -> tuple[dict[str, Any], dict[str, Any]] | None:
     """(manifest, analysis) of a run folder D1 reuses: both parse and hold ``digest``, and every file the manifest names
-    (series, reference, torques, media) exists. None when any of that fails: the folder is then rewritten."""
+    (series, reference, torques, media) exists. None when any of that fails: the folder is then rewritten.
+
+    WHY os.path and not pathlib, here and for the run folders a reuse write walks (2026-11-25, CI 3.11 at 5e13af2):
+    Python 3.11's pathlib interns every part it parses (sys.intern), so each run's slug and file names went into the
+    interpreter's interned-string table, three entries a run; the table grows by resizing, once in a while, and one
+    3.7 MB resize fell inside test_rows_stream's traced 40-run write and read as 177 KiB a run. A write's per-run work
+    stays out of that table."""
+    folder = os.fspath(folder)
     try:
-        manifest = json.loads((folder / "manifest.json").read_text("utf-8"))
+        with open(os.path.join(folder, "manifest.json"), encoding="utf-8") as handle:
+            manifest = json.loads(handle.read())
         if manifest.get("digest") != digest:
             return None
-        analysis = json.loads((folder / "analysis.json").read_text("utf-8"))
+        with open(os.path.join(folder, "analysis.json"), encoding="utf-8") as handle:
+            analysis = json.loads(handle.read())
         if analysis.get("digest") != digest or not {"entries", "rows"} <= set(analysis):
             return None
         named = [*manifest["files"].values(), *manifest["media"].values()]
         named += [_torque_file(name) for name in manifest["torques"]]
-        if not all((folder / relative).is_file() for relative in named):
+        if not all(os.path.isfile(os.path.join(folder, relative)) for relative in named):
             return None
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
@@ -2102,7 +2112,7 @@ def write_dataset_report(
     report("runs", 0, len(runs))
     for done, run in enumerate(runs, start=1):
         slug = slugs[run.name]
-        folder = runs_dir / slug
+        folder = os.path.join(runs_dir, slug)  # WHY a str, not runs_dir / slug: see _reusable_run
         digest = digests[run.name] = _run_digest(run, slug, target_of[run.name], contents, shared)
         kept = _reusable_run(folder, digest) if reuse else None
         if kept is not None:
@@ -2114,7 +2124,7 @@ def write_dataset_report(
         else:
             analysis = _analyze_run(run, slug, options, pose_cache[run.name], joint_errors)
             manifest = _write_run_files(
-                run, folder, slug, options, specs, import_roots, primary, default_view, target_of[run.name],
+                run, Path(folder), slug, options, specs, import_roots, primary, default_view, target_of[run.name],
                 references=references, digest=digest, analysis=analysis,
             )
         run_files[slug] = manifest["files"]
@@ -2282,9 +2292,9 @@ def write_dataset_report(
     if drill_down == "eager":
         report("drill", 0, len(runs))
         for done, run in enumerate(runs, start=1):
-            folder = runs_dir / slugs[run.name]
+            folder = os.path.join(runs_dir, slugs[run.name])  # WHY a str: see _reusable_run
             # WHY by folder, not build_drill_down's name scan: that reads every manifest once per run
-            if run.name not in reused or not (folder / "report.html").is_file():
+            if run.name not in reused or not os.path.isfile(os.path.join(folder, "report.html")):
                 build_run_folder(folder)
             report("drill", done, len(runs))
     return index
