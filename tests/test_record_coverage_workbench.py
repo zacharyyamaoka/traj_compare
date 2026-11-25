@@ -276,13 +276,14 @@ const spec = JSON.parse(require('fs').readFileSync(process.argv[4], 'utf8'));
   out.first = await page.evaluate(() => { const g = document.querySelector('data-workbench data-facets section.df-group'); return g && g.dataset.p; });
   out.count0 = await count(page);
   out.tabs = await page.evaluate(() => [...document.querySelectorAll('data-workbench data-tabs [role=tab]')].map((t) => t.dataset.tab));
-  await page.click(`${WB} data-tabs [role=tab][data-tab="numbers"]`); await page.waitForTimeout(800);
+  const tabNamed = (word) => out.tabs.find((t) => t.toLowerCase() === word);
+  await page.click(`${WB} data-tabs [role=tab][data-tab="${tabNamed('numbers')}"]`); await page.waitForTimeout(800);
   out.numbers0 = await figures(page);
   await page.click(`${WB} data-facets section.df-group[data-p="item"] input[data-value="${spec.level}"]`);
   await page.waitForTimeout(800);
   out.count1 = await count(page);
   out.numbers1 = await figures(page);
-  await page.click(`${WB} data-tabs [role=tab][data-tab="pairs"]`); await page.waitForTimeout(800);
+  await page.click(`${WB} data-tabs [role=tab][data-tab="${tabNamed('pairs')}"]`); await page.waitForTimeout(800);
   out.pairs1 = await figures(page);
   out.kept = {};
   out.drawn = {};
@@ -379,7 +380,7 @@ def test_every_tab_keeps_the_tick_and_draws_something(browsed, picks):
     kept = sum(1 for p in picks if p.item == "cap")
     assert set(browsed["kept"].values()) == {f"{kept} of 240 records"}
     for tab, drawn in browsed["drawn"].items():
-        assert drawn and (drawn["canvases"] > 0 or tab == "records") and drawn["text"] > 0, (tab, drawn)
+        assert drawn and (drawn["canvases"] > 0 or tab.lower() == "records") and drawn["text"] > 0, (tab, drawn)
 
 
 @needs_browser
