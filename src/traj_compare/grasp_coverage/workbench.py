@@ -443,8 +443,10 @@ def _views(payload: Mapping, rows: list[dict], slots: Mapping[str, int], areas: 
         {"primitive": "arrows", "from": ["from_x_mm", "from_y_mm", "from_z_mm"], "to": ["x_mm", "y_mm", "z_mm"],
          "color": "outcome", "density": 100000},
     ]
-    stage: dict[str, Any] = {"unit": "mm", "projection": {"dir": [-1, -1, -1], "up": [0, 0, 1]}, "show": "all",
-                             "axes": "auto", "layers": layers}
+    # WHY perspective: data-ui's face and {dir} projections are orthographic, where a drag pans and nothing rotates;
+    # a grasp set is read by orbiting it (DROID's scene views)
+    stage: dict[str, Any] = {"unit": "mm", "projection": "perspective", "show": "all", "axes": "auto",
+                             "layers": layers}
     area = payload["position"]["area"]
     if area:
         # WHY the outer box, not a box per area: a campaign offers one look area per run (174 on the repicks); their
