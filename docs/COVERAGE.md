@@ -242,6 +242,11 @@ write_workbench(coverage, trajectories, out, tool=poses, title="UR5e", rrd_for=l
   trajectory add back up to the payload exactly (planes' samples, paths and max |qdd|; histograms and their groups;
   projections' samples, paths and max speed; the tool speed histogram; the direction sphere, the pointing disk, tilt ×
   yaw). `tests/test_coverage_workbench.py` is that oracle, plus `data-ui check` on the `.base` and a headless-Chrome run.
+- One filter, every view: `tests/test_coverage_workbench_filter_every_view.py` ticks the rail (none, holdout, holdout
+  of one dataset) and checks EVERY panel of EVERY tab in headless Chrome: it draws from exactly the kept trajectories, and
+  each coverage figure's drawn samples equal `parts.json` summed over them (Zach, 2026-11-24, on this view: "it lets use
+  filter specifically and then see the anlaysis on all of the views"). The panels come from the `.base`, so a new tab is
+  held without editing the test; run it with `TRAJ_COMPARE_REQUIRE_BROWSER=1` to fail, not skip, without Chrome.
 - Files: `trajectories.json` (one row per trajectory: name, every tag, `rrd`, duration, samples, new cells, each joint's
   range used, the tool's path length, top speed and largest tilt), `parts.json` (one row per trajectory × figure; a big grid
   is sparse, `at` + `samples`), `coverage.base`, `index.html`, `embed.html` (the page in a host app's 1000 × 680 slot),
