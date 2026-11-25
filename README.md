@@ -418,6 +418,18 @@ write_dataset_report(runs, "out/", title="Wrist coverage", poses="my_rig:tool_po
 - **Contract gap found**: `robot_msgs.trajectory`'s `quat_slerp` falls back to a normalised lerp under 1.8° (`dot > 0.9995`), which is
   up to 8e-4 mrad off the contract's slerp, so `difference` takes b's orientation at t from its own exact slerp (the rest is robot_msgs').
 
+## Coverage viewers
+
+Three families, one shape (Zach 2026-11-23: "Robot_msgs in. Then do the analysis. and then like the viewers out"):
+`analyze()` writes one JSON payload, and a data-ui workbench page, Matplotlib PNGs, Viser and W&B summary scalars all
+read only that payload.
+
+- **Trajectories** (`traj_compare.coverage`, `docs/COVERAGE.md`): joint limits, phase planes, the tool's workspace.
+- **Grasps** (`traj_compare.grasp_coverage`, `docs/GRASP_COVERAGE.md`): GraspPose + outcome + the jaw range.
+- **Any records** (`traj_compare.record_coverage`, `docs/RECORD_COVERAGE.md`): a list of frozen dataclasses (robot_msgs
+  messages, JSON rows); per field against its declared `Value(low=, high=)`, class balance, missing values, pair planes,
+  growth with a Chao1 ceiling, held-out support. `python -m traj_compare.record_coverage rows.jsonl --out site/`.
+
 ## Parquet and MCAP exports
 
 `write_comparison_report(comparisons, out_dir, exports=True)` also writes `exports/<comparison.name>.parquet` and

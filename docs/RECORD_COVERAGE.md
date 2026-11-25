@@ -67,7 +67,8 @@ coverage.serve_viser(port=0)       # the house viser_3d_viewer (calls viser_view
 coverage.log_wandb(run)            # summary scalars (calls wandb_log.log_records)
 ```
 
-`python -m traj_compare.record_coverage <file.jsonl|file.json ...> --out <dir> [--group-by F] [--split F] [--pair X Y]`
+`python -m traj_compare.record_coverage <file.jsonl|file.json ...> --out <dir> [--group-by F] [--split F]
+[--reference L] [--pair X Y]... [--range F LOW HIGH]... [--kit HREF] [--title T]`
 reads JSON-lines / JSON-list records as Mappings and writes `<dir>/index.html` (the workbench) + `<dir>/coverage.json`.
 
 ### Fields: how a record becomes columns

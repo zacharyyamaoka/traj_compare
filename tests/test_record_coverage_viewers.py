@@ -200,3 +200,26 @@ def test_without_3d_points_the_viser_view_is_refused(plain_payload):
 
     with pytest.raises(ValueError, match="3-D"):
         serve_records(plain_payload, port=0)
+
+
+# ── the command line ─────────────────────────────────────────────────────────
+
+
+def test_the_cli_reads_json_lines_and_a_json_list_and_writes_the_workbench(tmp_path):
+    lines = tmp_path / "a.jsonl"
+    lines.write_text("\n".join(json.dumps({"x_m": i / 10, "kind": "a" if i % 3 else "b", "split": "dev" if i % 4 else "holdout"})
+                               for i in range(40)) + "\n")
+    listed = tmp_path / "b.json"
+    listed.write_text(json.dumps([{"x_m": 0.5, "kind": "c", "split": "dev"}]))
+    (tmp_path / "kit").mkdir()
+    out = tmp_path / "site"
+    result = subprocess.run([sys.executable, "-m", "traj_compare.record_coverage", str(lines), str(listed), "--out", str(out),
+                             "--group-by", "kind", "--split", "split", "--range", "x_m", "0", "5", "--kit", "../kit",
+                             "--title", "CLI rows"], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    payload = json.loads((out / "coverage.json").read_text())
+    assert payload["source"]["records"] == 41 and payload["title"] == "CLI rows"
+    assert payload["source"]["group_by"] == "kind" and payload["support"]["reference"] == "dev"
+    assert (payload["hist"]["x_m"]["low"], payload["hist"]["x_m"]["high"], payload["hist"]["x_m"]["source"]) == (0.0, 5.0, "given")
+    assert (out / "index.html").is_file() and 'src="../kit/data-ui.js"' in (out / "index.html").read_text()
+    assert str(out / "index.html") in result.stdout
