@@ -497,3 +497,34 @@ def test_served_locally_the_record_posts_to_rerun_and_offers_the_file(site):
     base = yaml.safe_load((site / "coverage.base").read_text("utf-8"))
     labels = [action["label"] for action in base["drill"]["actions"]]
     assert labels[0] == "Open in Rerun" and any(action.get("href") == "{rrd}" for action in base["drill"]["actions"])
+
+
+@needs_data_ui
+def test_below_the_server_root_the_rerun_post_names_the_file_from_the_root(inputs, tmp_path):
+    """TTA (2026-11-24): its workbench sits at /datasets/ur5e/, but traj_compare.serve resolves ?rrd= from the server root,
+    so the POST must carry the page's path; the download link stays relative to the page."""
+    yaml = pytest.importorskip("yaml")
+    _, joints, tools, tags = inputs
+    coverage = analyze(joints, tool=tools, tags=tags, group_by="dataset")
+    write_workbench(coverage, joints, tmp_path, tool=tools, kit="../kit", rrd_for=lambda name: f"rrd/{name}.rrd",
+                    served_at="/datasets/ur5e/")
+    actions = yaml.safe_load((tmp_path / "coverage.base").read_text("utf-8"))["drill"]["actions"]
+    post = next(action["post"] for action in actions if "post" in action)
+    assert post == "/__rerun/open?rrd=datasets/ur5e/{rrd}", post
+    assert any(action.get("href") == "{rrd}" for action in actions)
+
+
+def test_a_host_with_its_own_page_can_skip_index_and_embed(inputs, tmp_path):
+    _, joints, tools, tags = inputs
+    coverage = analyze(joints, tool=tools, tags=tags, group_by="dataset")
+    write_workbench(coverage, joints, tmp_path, tool=tools, kit="../kit", pages=False)
+    assert not (tmp_path / "index.html").exists() and not (tmp_path / "embed.html").exists()
+    assert (tmp_path / "coverage.base").is_file() and (tmp_path / "trajectories.json").is_file()
+
+
+def test_a_row_without_a_recording_carries_no_rrd(inputs):
+    coverage, joints, tools, _ = inputs
+    names = list(joints)
+    rows, _ = workbench_rows(coverage, joints, tool=tools, rrd_for={names[0]: f"rrd/{names[0]}.rrd"})
+    assert rows[0]["rrd"] == f"rrd/{names[0]}.rrd"
+    assert all("rrd" not in row for row in rows[1:]), [row.get("rrd") for row in rows[1:3]]

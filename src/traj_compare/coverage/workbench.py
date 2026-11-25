@@ -98,8 +98,8 @@ def workbench_rows(coverage, trajectories, *, tool=None,
         signals = dict(zip(cov.SIGNALS, cov._signals(trajectory), strict=True))
         source = payload["trajectories"][k]
         row = {"id": name, "name": name, **source["tags"]}
-        if rrd is not None:
-            row["rrd"] = rrd(name)
+        if rrd is not None and rrd(name):
+            row["rrd"] = rrd(name)  # WHY only when it exists: a row with no file must not offer an empty Rerun link
         row.update(duration_s=source["duration_s"], samples=source["samples"], new_cells=source["new_cells"])
         for joint in joints:
             row[f"q_range_{joint['name']}_pct"] = source["span_pct"][joint["name"]]["q"]
@@ -322,8 +322,10 @@ def write_workbench(coverage, trajectories, out_dir: Path | str, *, tool=None, t
                     dataset: str = "dataset", facets: Sequence[str] = ("split", "kind", "tags"),
                     lead: Sequence[str] = ("deployment",),
                     labels: Mapping[str, str] | None = None, kit: str | None = None, vendor: str = "main",
-                    data_ui: Path | str = DATA_UI, public_url: str | None = None, rerun_server: bool = True) -> Path:
-    """Write the workbench page into ``out_dir`` (see the module docstring) and return its ``index.html``.
+                    data_ui: Path | str = DATA_UI, public_url: str | None = None, rerun_server: bool = True,
+                    served_at: str = "", pages: bool = True) -> Path:
+    """Write the workbench page into ``out_dir`` (see the module docstring) and return its ``index.html`` (its
+    ``coverage.base`` when ``pages=False``).
 
     ``dataset`` is the tag the rail lists first (its values get the series colours); ``facets`` the tags after it, in
     order (a tag no trajectory has is left out); ``labels`` renames a tag in the rail. ``kit`` is the href (relative to
@@ -336,7 +338,10 @@ def write_workbench(coverage, trajectories, out_dir: Path | str, *, tool=None, t
     ``public_url`` (the absolute URL ``out_dir`` is served from) adds each row's ``rrd_url`` and "Open in the Rerun web
     viewer" (app.rerun.io at the pinned SDK version; the host must send ``Access-Control-Allow-Origin``, as GitHub Pages
     does); "Download the .rrd" is always there. Deep links need nothing here: data-ui keeps the rail in the URL
-    (``index.html?deployment=cell&dataset=A,B&split=holdout#tab=trajectories``, CONTRACT §53).
+    (``index.html?deployment=cell&dataset=A,B&split=holdout#tab=trajectories``, CONTRACT §53). ``served_at`` is
+    ``out_dir``'s path under the server root (e.g. ``/datasets/ur5e/``): traj_compare.serve resolves the POST's file from
+    the root, the download link from the page. ``pages=False`` writes the data and ``coverage.base`` only, for a host that
+    brings its own page around ``<data-workbench src="coverage.base">``.
     """
     payload = _payload(coverage)
     out = Path(out_dir)
@@ -358,8 +363,10 @@ def write_workbench(coverage, trajectories, out_dir: Path | str, *, tool=None, t
                                      "titleProperty": "id", "properties": _part_properties(), "rows": parts})
     base = _base(payload, trajectory_rows, title=title, dataset=dataset, facets=facets, labels=names,
                  rrd=rrd_for is not None, tool=payload["tool"] is not None, lead=lead, rerun_server=rerun_server,
-                 rerun_web=bool(public_url))
+                 rerun_web=bool(public_url), served_at=served_at)
     _files.write_text(out / "coverage.base", _HEADER + _yaml(base) + "\n")
+    if not pages:
+        return out / "coverage.base"
     if kit is None:
         kit = _vendor(out, vendor, Path(data_ui))
     _files.write_text(out / "index.html", _INDEX.format(title=html.escape(title), subtitle=html.escape(subtitle),
@@ -467,7 +474,7 @@ _HEADER = """# The coverage workbench: data-ui's <data-workbench> over these tra
 
 def _base(payload: Mapping, rows: list[dict], *, title: str, dataset: str, facets: Sequence[str],
           labels: Mapping[str, str], rrd: bool, tool: bool, lead: Sequence[str] = (), rerun_server: bool = True,
-          rerun_web: bool = False) -> dict:
+          rerun_web: bool = False, served_at: str = "") -> dict:
     joints = [joint["name"] for joint in payload["joints"]]
     group_by = payload["source"]["group_by"]
     rail = []
@@ -510,7 +517,8 @@ def _base(payload: Mapping, rows: list[dict], *, title: str, dataset: str, facet
 
     actions = []
     if rrd and rerun_server:
-        actions.append({"label": "Open in Rerun", "post": "/__rerun/open?rrd={rrd}",
+        root = served_at.strip("/")
+        actions.append({"label": "Open in Rerun", "post": "/__rerun/open?rrd=" + (f"{root}/" if root else "") + "{rrd}",
                         "title": "Opens {rrd} in the native Rerun viewer (needs python -m traj_compare.serve)"})
     if rrd and rerun_web:
         # WHY the hosted viewer: a static host (GitHub Pages) has no server to start the native one; app.rerun.io at the
