@@ -289,9 +289,10 @@ robot lies over the camera.
 **A run with its target: target vs run** (Zach, 2026-11-25, the Rerun pick round's V2; a lone trajectory keeps
 robot_msgs' stock viewer, V1). When the robot is known as a URDF, a run against its target opens as robot_msgs' URDF arm
 for the run (V1's own logger and dashboard, no ghosts) with the target and its error on top: the run's deviation ×N
-(a 1-2-5 scale) as a thin magenta skeleton, an arrow from the target's tool point labelled `run ×N · TCP off X mm` (the
+(a 1-2-5 scale, sized from the tool point and capped so no joint is drawn more than 35° off) as a thin magenta skeleton, an arrow from the target's tool point labelled `run ×N · TCP off X mm` (the
 true offset), the target's tool path dashed blue, an **Error** tab first (tool error in mm, each joint's error in °, target
-vs run at the playhead) and the target as a pale line under the run on V1's six tabs. Who gets it:
+vs run at the playhead) and the target as a pale line under the run on V1's six tabs (a run stored without qd or qdd is
+differentiated first, np.gradient, on every path, so it shows all six). Who gets it:
 
 ```python
 from traj_compare.rerun_export import write_target_vs_run_rrd

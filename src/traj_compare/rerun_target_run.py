@@ -81,6 +81,14 @@ _AXIS_PALE = ((240, 170, 170), (165, 215, 175), (165, 185, 240))
 # the magnified deviation's peak, as a share of the tool path's bounding radius. WHY 0.35 (the round: 0.15 gave ×20
 # and a ~10 px arrow): ×50 on the UR5e tour, 176 mm drawn for 3.6 mm, a deformation seen at a glance
 MAGNIFY_SHARE = 0.35
+# the cap on the magnified joints: N × max |run − target| over every revolute joint and instant stays within this, N the
+# largest 1-2-5 step that does. WHY (2026-11-25, the UR workbench check): the share above sizes N from the tool point
+# alone, and a well-tuned run's joint errors cancel there (the UR5e sim run ctc_tuned_v2 r0 on workspace-dev-029: joints
+# ≤ 0.04°, the tool 0.10 mm off), so it asked ×2000 and swung the elbow 77°: another pose, no longer a deformation of the
+# arm. WHY 35° and not the 10-15° first proposed: the pick round's tour reads as a deformation at ×50 with its worst joint
+# (wrist 2, 0.62°) 31° off and keeps ×50, which 15° would have made ×20; that sim run gets ×500, its elbow 19° off. A
+# prismatic joint is not capped here: its slide moves the tool point one for one, which the share above already bounds
+MAX_MAGNIFIED_DEG = 35.0
 # below this peak deviation the run IS its target: nothing to magnify, so ×1 (a 1e-12 m peak gave ×1e10 otherwise)
 SAME_POSE_M = 1e-6
 # the magnifier's label sits off the arrow on a leader, at the first of a few places whose label box clears the start /
@@ -108,6 +116,14 @@ def _nice_factor(value: float) -> int:
     exponent = 10.0 ** np.floor(np.log10(value))
     candidates = [m * exponent for m in (1.0, 2.0, 5.0, 10.0)]
     return int(round(min(candidates, key=lambda c: abs(np.log(c / value)))))
+
+
+def _nice_floor(value: float) -> int:
+    """The largest 1-2-5 number at most ``value`` (×10, ×20, ×50 ...), at least 1: a cap's factor never exceeds it."""
+    if not np.isfinite(value) or value < 2.0:
+        return 1
+    exponent = 10.0 ** np.floor(np.log10(value))
+    return int(round(max(m * exponent for m in (1.0, 2.0, 5.0) if m * exponent <= value * (1.0 + 1e-12))))
 
 
 def _on(t_from: np.ndarray, values: np.ndarray, t_to: np.ndarray) -> np.ndarray:
@@ -197,6 +213,11 @@ class _TargetRun:
         self.path_radius = 0.5 * float(np.linalg.norm(np.ptp(s.tool_xyz, axis=0))) if len(s.tool_xyz) else 0.0
         peak = float(self.dev_mm.max()) / 1000.0 if len(self.dev_mm) else 0.0
         self.magnify = 1 if peak < SAME_POSE_M else _nice_factor(MAGNIFY_SHARE * self.path_radius / peak)
+        # ... and no revolute joint magnified past MAX_MAGNIFIED_DEG (the labels name this N, the one drawn)
+        revolute = [k for k, joint in enumerate(s.joints) if joint in s.revolute]
+        joint_peak = float(np.abs(self.dq_shown[:, revolute]).max()) if revolute and len(self.dq_shown) else 0.0
+        if np.isfinite(joint_peak) and joint_peak > 1e-9:  # below a nano-degree the joints ARE the target's
+            self.magnify = min(self.magnify, _nice_floor(MAX_MAGNIFIED_DEG / joint_peak))
         # the tool point's distance from the flange, named wherever "TCP off" is read
         self.tool_offset_mm = (None if s.flange is None or len(s.flange) != len(s.tool_xyz) else
                                float(np.median(np.linalg.norm(s.tool_xyz - s.flange, axis=1))) * 1000.0)  # fmt: skip
@@ -654,6 +675,7 @@ def _view(run: JointTrajectory, target: JointTrajectory, robot: str | Path, tool
     _require()
     if not isinstance(run, JointTrajectory) or not isinstance(target, JointTrajectory):
         raise TypeError("run and target are JointTrajectory messages")
+    run, target = _with_rates(run), _with_rates(target)
     return _TargetRun(run, target, robot, tool, target_tool, label=label or RUN, tool_error_mm=tool_error_mm,
                       tool_error_rms_mm=tool_error_rms_mm, tool_error_name=tool_error_name)
 
@@ -684,7 +706,8 @@ def write_target_vs_run_rrd(
     recording_name: str | None = None,
 ) -> Path:
     """Write ``run`` against its ``target`` on the URDF ``robot`` as one .rrd with its dashboard inside (the module's
-    docstring) and return its path. Opens paused at t = 0 on the Error tab.
+    docstring) and return its path. Opens paused at t = 0 on the Error tab. Velocities and accelerations either one does
+    not carry are filled by np.gradient (``_with_rates``), so every one shows V1's q, qd, qdd and qddd tabs.
 
     - ``tool`` / ``target_tool``: each one's tool PoseTrajectory, in a URDF link's frame (``header.frame_id``; empty = the
       root link), on its trajectory's clock; both or neither (neither: the URDF's last link, by forward kinematics).
@@ -719,13 +742,30 @@ def _gradient(values: np.ndarray, t: np.ndarray) -> np.ndarray:
     return gradient(values, t)
 
 
+def _with_rates(trajectory: JointTrajectory) -> JointTrajectory:
+    """``trajectory`` with velocities and accelerations: each one it does not carry by np.gradient (``analysis._gradient``,
+    as the report differentiates), the accelerations from the velocities it then has.
+
+    WHY in ``_view``, so on every V2 path (2026-11-25, the UR workbench check): V1 draws a tab per signal the run carries
+    (its qddd is the slope of qdd), and a sim run stored without accelerations showed 5 tabs from the runs workbench
+    (``selection``, the run's npz as stored) and 7 from the dataset drill-down (``_joint`` differentiated it); one
+    differentiator here, so a run shows the same tabs whichever writer opens it."""
+    if len(trajectory.t) < 2 or (trajectory.velocities is not None and trajectory.accelerations is not None):
+        return trajectory
+    t = np.asarray(trajectory.t, dtype=np.float64)
+    qd = (_gradient(np.asarray(trajectory.positions, dtype=np.float64), t) if trajectory.velocities is None
+          else np.asarray(trajectory.velocities, dtype=np.float64))  # fmt: skip
+    qdd = _gradient(qd, t) if trajectory.accelerations is None else np.asarray(trajectory.accelerations, dtype=np.float64)
+    return trajectory.replace(velocities=qd, accelerations=qdd)
+
+
 def _joint(situation: Any, joints: list[str], shift_s: float = 0.0) -> JointTrajectory:
-    """A situation's samples as a JointTrajectory; qd and qdd by np.gradient when not recorded, as the report does."""
+    """A situation's samples as a JointTrajectory; qd and qdd by np.gradient when not recorded (``_with_rates``)."""
     t = np.asarray(situation.t, dtype=np.float64) - shift_s
     q = np.asarray(situation.q, dtype=np.float64)
-    qd = _gradient(q, t) if situation.qd is None else np.asarray(situation.qd, dtype=np.float64)
-    qdd = _gradient(qd, t) if situation.qdd is None else np.asarray(situation.qdd, dtype=np.float64)
-    return JointTrajectory(t=t, joint_names=tuple(joints), positions=q, velocities=qd, accelerations=qdd)
+    qd = None if situation.qd is None else np.asarray(situation.qd, dtype=np.float64)
+    qdd = None if situation.qdd is None else np.asarray(situation.qdd, dtype=np.float64)
+    return _with_rates(JointTrajectory(t=t, joint_names=tuple(joints), positions=q, velocities=qd, accelerations=qdd))
 
 
 def _pose(situation: Any, shift_s: float, child: str) -> PoseTrajectory:
