@@ -141,6 +141,26 @@ def test_directory_routes_to_its_report_when_it_has_no_index(tmp_path):
     assert Path(launches[0][-1]).read_bytes().startswith(b"RRF2")
 
 
+def test_trusted_server_reports_absolute_command_when_generation_fails(tmp_path, monkeypatch):
+    from traj_compare import rerun_report
+
+    report = write_comparison_report(three_way(), tmp_path / "nested β's" / "saved # report.html")
+    launches = []
+
+    def unavailable(*args, **kwargs):
+        raise ImportError("recording SDK unavailable")
+
+    monkeypatch.setattr(rerun_report, "report_recording", unavailable)
+    with running(make_handler(tmp_path, spawn=launches.append)) as base:
+        with pytest.raises(urllib.error.HTTPError) as error:
+            open_report(base, report.relative_to(tmp_path).as_posix())
+        assert error.value.code == 500
+        response = json.load(error.value)
+    assert response["error"] == "recording SDK unavailable"
+    assert shlex.split(response["command"]) == ["traj-compare-rerun", str(report), "--comparison", "0", "--open"]
+    assert not launches
+
+
 DRIVER = r"""
 const { chromium } = require(process.argv[2]);
 (async () => {
@@ -153,7 +173,10 @@ const { chromium } = require(process.argv[2]);
     await page.locator('[data-tc-rerun-pin-open]').click();
     const command = page.locator('[data-tc-rerun-pin-pop] code');
     await command.waitFor({ state: 'visible' });
-    commands.push(await command.textContent());
+    commands.push({
+      command: await command.textContent(),
+      message: await page.locator('[data-tc-rerun-pin-pop] p').textContent()
+    });
   }
   console.log(JSON.stringify(commands));
   await browser.close();
@@ -175,6 +198,75 @@ def test_file_and_static_host_show_a_copyable_cli_for_the_saved_report(tmp_path)
              f"{base}/{quote(report.relative_to(tmp_path).as_posix())}"],
             capture_output=True, text=True, timeout=60, check=True,
         )
-    for command in json.loads(completed.stdout):
-        assert shlex.split(command) == ["traj-compare-rerun", str(report), "--comparison", "0", "--open"]
+    local, static = json.loads(completed.stdout)
+    for result, expected in ((local, str(report)), (static, report.name)):
+        assert shlex.split(result["command"]) == ["traj-compare-rerun", expected, "--comparison", "0", "--open"]
+    assert "Download this report" in static["message"]
     assert not list(tmp_path.rglob("*.rrd"))
+
+
+def _close_time_comparison():
+    import numpy as np
+
+    from traj_compare import Comparison, RobotDisplay, Situation
+
+    t = [0.0, 0.25000004, 0.25000037, 0.75]
+    q = [[0.0], [0.1], [0.3], [0.75]]
+
+    def poses(joints):
+        out = np.tile(np.eye(4), (len(joints), 1, 1))
+        out[:, 0, 3] = joints[:, 0]
+        return out
+
+    robot = RobotDisplay(
+        ["link"], [np.array([[[0, 0, 0], [.1, 0, 0], [0, .1, 0]]])],
+        link_fk=lambda joints: poses(joints)[:, None],
+    )
+    reference = Situation("target", t=t, q=q, qddd=[[5.0], [None], [3.0], [7.0]],
+                          channels={"load": [1.0, 2.0, 3.0, 4.0]})
+    run = Situation("run", t=t, q=q)
+    return Comparison("Close timestamp test", ["j1"], [run], target=reference, robot=robot, fk=poses)
+
+
+def test_report_time_axes_keep_distinct_submicrosecond_samples(tmp_path):
+    from test_report import extract_payload
+
+    case = _close_time_comparison()
+    page = write_comparison_report(case, tmp_path)
+    payload = extract_payload(page.read_text())["comparisons"][0]
+    assert payload["plot_t"] == case.target.t.tolist()
+    for key in ("three", "robot_track"):
+        assert payload["situations"][0][key]["t"] == case.target.t.tolist()
+
+
+def test_saved_recording_coalesces_legacy_times_with_aligned_signals(tmp_path, monkeypatch):
+    from traj_compare import rerun_report
+
+    report = write_comparison_report(_close_time_comparison(), tmp_path)
+    html = report.read_text()
+    match = rerun_report._DATA.search(html)
+    document = json.loads(match[1])
+    payload = document["comparisons"][0]
+    payload["plot_t"] = [round(t, 6) for t in payload["plot_t"]]
+    for entry in payload["situations"]:
+        for key in ("three", "robot_track"):
+            entry[key]["t"] = [round(t, 6) for t in entry[key]["t"]]
+    report.write_text(html[:match.start(1)] + json.dumps(document) + html[match.end(1):])
+    saved_payload = {}
+    original_writer = rerun_report.write_rrd
+
+    def read_aligned(comparison, path, *, payload, **options):
+        saved_payload.update(payload)
+        return original_writer(comparison, path, payload=payload, **options)
+
+    monkeypatch.setattr(rerun_report, "write_rrd", read_aligned)
+    recording = rerun_report.report_recording(report)
+    assert recording.is_file()
+    assert saved_payload["plot_t"] == [0.0, 0.25, 0.75]
+    target = saved_payload["situations"][0]
+    assert target["plot"]["q"] == [[0.0, 0.3, 0.75]]
+    assert target["plot"]["qddd"] == [[5.0, None, 7.0]]
+    assert target["channels"]["load"] == [[1.0, 3.0, 4.0]]
+    for key in ("three", "robot_track"):
+        assert target[key]["t"] == saved_payload["plot_t"]
+        assert len(target[key]["p"]) == len(target[key]["quat"]) == 3

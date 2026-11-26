@@ -225,7 +225,6 @@ def write_comparison_report(
         # Keep native run bounds and limits, which downsampled plots cannot recover.
         situations = [*comparison.situations, comparison.target]
         payload["rerun_source"] = {
-            "path": str(report_path.resolve()),
             "time_ranges": {item.name: [float(item.t[0]), float(item.t[-1])]
                             for item in situations if item is not None and item.has_data},
             "checks": dict(rerun_checks or {}),

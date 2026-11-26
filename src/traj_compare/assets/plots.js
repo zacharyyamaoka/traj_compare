@@ -2008,11 +2008,16 @@ var TrajCompare = (function () {
   function rerunCommand(page, layout) {
     var path = decodeURIComponent(location.pathname);
     if (hasRerunHost()) {
-      path = (page.data.rerun_source || {}).path || path.split('/').pop() || 'index.html';
+      path = path.split('/').pop() || 'index.html';
     }
     function shellArgument(value) { return "'" + value.replace(/'/g, "'\\''") + "'"; }
     return 'traj-compare-rerun ' + shellArgument(path) + ' --comparison ' + page.index +
       (layout ? ' --layout ' + shellArgument(layout) : '') + ' --open';
+  }
+
+  function rerunFallbackHelp() {
+    return hasRerunHost() ? 'Download this report and run the command from the same folder:' :
+      'Run this in a terminal to open Rerun:';
   }
 
   function requestRerun(page, layout) {
@@ -2127,7 +2132,7 @@ var TrajCompare = (function () {
       requestRerun(page, layout).then(function (body) {
         if (body && body.ok) { say('Opening Rerun… (the window can take a few seconds)'); return; }
         command.textContent = body && body.command ? body.command : rerunCommand(page, layout);
-        say(body && body.error ? body.error : 'Run the command below to open Rerun', !!(body && body.error));
+        say(body && body.command ? body.error : rerunFallbackHelp(), !!(body && body.error));
       });
     };
   }
@@ -3584,7 +3589,7 @@ var TrajCompare = (function () {
     button.onclick = function () {
       var page = state.pages[state.activePage] || state.pages[0];
       var cmd = rerunCommand(page, null);
-      if (!hasRerunHost()) { show('Run this in a terminal to open Rerun:', cmd); return; }
+      if (!hasRerunHost()) { show(rerunFallbackHelp(), cmd); return; }
       show('Opening Rerun…', '');
       requestRerun(page, null).then(function (body) {
         if (body && body.ok) {
@@ -3592,8 +3597,8 @@ var TrajCompare = (function () {
           hideTimer = setTimeout(function () { pop.hidden = true; }, 5000);
           return;
         }
-        var message = body && body.error ? body.error + ' Run this in a terminal:' :
-          'Run this in a terminal to open Rerun:';
+        var message = body && body.error ? body.error + ' ' : '';
+        message += body && body.command ? 'Run this in a terminal:' : rerunFallbackHelp();
         show(message, body && body.command ? body.command : cmd);
       });
     };

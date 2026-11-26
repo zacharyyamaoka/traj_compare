@@ -282,7 +282,7 @@ def _robot_track(robot: RobotDisplay, situation: Situation) -> dict[str, Any]:
     flat = poses.reshape(-1, 4, 4)
     quats = mat_to_quat(flat[:, :3, :3]).reshape(poses.shape[0], poses.shape[1], 4)
     return {
-        "t": _clean(sampled_t),
+        "t": _json_clean(sampled_t),
         "p": _clean(poses[:, :, :3, 3], decimals=5),
         "quat": _clean(quats, decimals=5),
     }
@@ -1093,7 +1093,7 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
             )
             plot.update({key: _clean(on_grid(series)) for key, series in path.items()})
             entry["three"] = {
-                "t": _clean(t),
+                "t": _json_clean(t),
                 "p": _clean(poses[:, :3, 3], decimals=5),
                 "quat": _clean(mat_to_quat(poses[:, :3, :3]), decimals=5),
                 "tp": None,
@@ -1232,7 +1232,8 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
             if comparison.default_sections is not None
             else None
         ),
-        "plot_t": _clean(plot_t) if plot_t is not None else None,
+        # WHY timestamps keep full precision: rounding merges distinct samples and erases short events.
+        "plot_t": _json_clean(plot_t),
         "robots": registry.payloads,
         "situations": payload_situations,
         "statistics": statistics.to_payload(),

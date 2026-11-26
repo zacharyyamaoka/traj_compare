@@ -90,6 +90,49 @@ def _limits(source: dict[str, Any], key: str) -> Tolerances | None:
     return Tolerances(**phases)
 
 
+
+def _last_indices(times: list[float] | None) -> list[int] | None:
+    if times is None:
+        return None
+    steps = np.diff(times)
+    if np.any(steps < 0):
+        raise ValueError("saved report times must be sorted")
+    if not np.any(steps == 0):
+        return None
+    return np.flatnonzero(np.r_[steps != 0, True]).tolist()
+
+
+def _aligned_samples(series: list, keep: list[int], *, preserve_gap: bool = False) -> list:
+    if series and isinstance(series[0], list):
+        return [_aligned_samples(column, keep, preserve_gap=preserve_gap) for column in series]
+    if not preserve_gap:
+        return [series[index] for index in keep]
+    starts = [0, *[index + 1 for index in keep[:-1]]]
+    return [None if None in series[start:stop + 1] else series[stop] for start, stop in zip(starts, keep, strict=True)]
+
+
+def _coalesce_legacy_times(payload: dict[str, Any]) -> None:
+    # Earlier HTML rounded times to microseconds. Submicrosecond spacing
+    # cannot be recovered. Use the final sample consistently across channels
+    # and carry any jerk discontinuity forward.
+    keep = _last_indices(payload["plot_t"])
+    if keep is not None:
+        payload["plot_t"] = [payload["plot_t"][index] for index in keep]
+    for entry in payload["situations"]:
+        if keep is not None:
+            for field in ("plot", "channels"):
+                for name, series in (entry.get(field) or {}).items():
+                    if isinstance(series, list):
+                        entry[field][name] = _aligned_samples(series, keep, preserve_gap=(field, name) == ("plot", "qddd"))
+        for field in ("three", "robot_track"):
+            track = entry.get(field)
+            if track is not None and (rows := _last_indices(track["t"])) is not None:
+                for name in ("t", "p", "quat", "tp", "tquat"):
+                    series = track.get(name)
+                    if series is not None:
+                        track[name] = [series[index] for index in rows]
+
+
 def _comparison(
     payload: dict[str, Any], mesh_library: list[str], source: dict[str, Any], root: Path, directory: Path
 ) -> Comparison:
@@ -199,6 +242,7 @@ def report_recording(
             return output
         raise ValueError(f"incomplete Rerun output at {completed}")
 
+    _coalesce_legacy_times(payload)
     source = payload.get("rerun_source") or {}
     comparison = _comparison(payload, document.get("mesh_library", []), source, root, path.parent)
     cache.mkdir(parents=True, exist_ok=True)

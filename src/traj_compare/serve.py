@@ -31,6 +31,7 @@ import argparse
 import html
 import json
 import re
+import shlex
 import subprocess
 import threading
 from collections.abc import Callable
@@ -327,11 +328,22 @@ def make_handler(
                 # HTTP directory URLs normally serve index.html. A direct
                 # comparison folder can instead contain only report.html.
                 index_page = path / "index.html"
-                path = index_page if index_page.is_file() else path / "report.html"
+                path = (index_page if index_page.is_file() else path / "report.html").resolve()
+                if not path.is_relative_to(root):
+                    raise PermissionError("report is outside the served root")
             index = int((query.get("comparison") or ["0"])[0])
             layout = (query.get("layout") or [None])[0]
-            with build_lock:
-                recording = report_recording(path, index, root=root, layout=layout)
+            try:
+                with build_lock:
+                    recording = report_recording(path, index, root=root, layout=layout)
+            except (PermissionError, FileNotFoundError, KeyError, TypeError, ValueError):
+                raise
+            except Exception as error:  # noqa: BLE001 - report the build failure and a local retry command
+                argv = ["traj-compare-rerun", str(path), "--comparison", str(index), "--open"]
+                if layout is not None:
+                    argv.extend(("--layout", layout))
+                self._json(500, {"ok": False, "error": str(error), "command": shlex.join(argv)})
+                return
             command = viewer_command(recording, layout)
             try:
                 spawn(viewer_argv(recording, layout))

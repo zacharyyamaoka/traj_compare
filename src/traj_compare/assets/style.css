@@ -862,6 +862,13 @@ table.tc-metrics td.wrap { white-space: normal; text-align: left; min-width: 220
   :root:not([data-theme="light"]) .tc-plotcard .ptitle { color: #a8a7a4; }
   :root:not([data-theme="light"]) .tc-plotcard .ptitle .unit { color: #767571; }
   :root:not([data-theme="light"]) .tc-plotcard .ptitle .pnote { color: #767571; }
+  :root:not([data-theme="light"]) .tc-plot-limits { border-color: currentColor; color: inherit; background-color: transparent; }
+  :root:not([data-theme="light"]) .tc-plot-limits::before, :root:not([data-theme="light"]) .tc-plot-trace-stroke { border-top-color: currentColor; }
+  :root:not([data-theme="light"]) .tc-plot-limits[aria-pressed="true"] { color: var(--tc-plot-selected-ink, #839fcb); background-color: #161d24; }
+  :root:not([data-theme="light"]) .tc-plot-limits:focus-visible { outline-color: currentColor; }
+  :root:not([data-theme="light"]) .tc-plot-hover { border-color: #3d3c39; background-color: #282828; color: var(--tc-plot-hover-ink, #d8d7d5); box-shadow: 0 2px 7px #e3e5e418; }
+  :root:not([data-theme="light"]) .tc-plot-hover-time { color: var(--tc-plot-hover-muted, #9c9b98); }
+  :root:not([data-theme="light"]) .tc-plot-hover-more { color: var(--tc-plot-hover-muted, #9c9b98); }
   :root:not([data-theme="light"]) .tc-tableblock.embedded { background-color: transparent; }
   :root:not([data-theme="light"]) .tc-torque-legend .grouplabel { color: #767571; }
   :root:not([data-theme="light"]) .tc-torque-legend .tc-torque-note { color: #767571; }
@@ -1120,6 +1127,13 @@ table.tc-metrics td.wrap { white-space: normal; text-align: left; min-width: 220
 :root[data-theme="dark"] .tc-plotcard .ptitle { color: #a8a7a4; }
 :root[data-theme="dark"] .tc-plotcard .ptitle .unit { color: #767571; }
 :root[data-theme="dark"] .tc-plotcard .ptitle .pnote { color: #767571; }
+:root[data-theme="dark"] .tc-plot-limits { border-color: currentColor; color: inherit; background-color: transparent; }
+:root[data-theme="dark"] .tc-plot-limits::before, :root[data-theme="dark"] .tc-plot-trace-stroke { border-top-color: currentColor; }
+:root[data-theme="dark"] .tc-plot-limits[aria-pressed="true"] { color: var(--tc-plot-selected-ink, #839fcb); background-color: #161d24; }
+:root[data-theme="dark"] .tc-plot-limits:focus-visible { outline-color: currentColor; }
+:root[data-theme="dark"] .tc-plot-hover { border-color: #3d3c39; background-color: #282828; color: var(--tc-plot-hover-ink, #d8d7d5); box-shadow: 0 2px 7px #e3e5e418; }
+:root[data-theme="dark"] .tc-plot-hover-time { color: var(--tc-plot-hover-muted, #9c9b98); }
+:root[data-theme="dark"] .tc-plot-hover-more { color: var(--tc-plot-hover-muted, #9c9b98); }
 :root[data-theme="dark"] .tc-tableblock.embedded { background-color: transparent; }
 :root[data-theme="dark"] .tc-torque-legend .grouplabel { color: #767571; }
 :root[data-theme="dark"] .tc-torque-legend .tc-torque-note { color: #767571; }
