@@ -661,6 +661,87 @@ table.tc-metrics td.wrap { white-space: normal; text-align: left; min-width: 220
   .tc-lane-view { display: none; }
 }
 
+/* sub-tabs and the legend (Zach 2026-11-25, traj compare 3D viewer feedback): fixed graphs; the sub-tab picks which one
+   shows, the legend which series it draws */
+.tc-subtabs-bar { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 8px; }
+.tc-subtab { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 5px 11px 4px;
+             border: 1px solid #dddcd6; border-radius: 6px; background: #fcfcfb; font: inherit; color: #52514e;
+             cursor: pointer; line-height: 1.2; text-align: left; }
+.tc-subtab:hover { border-color: #8a8983; color: #0b0b0b; }
+.tc-subtab.on { background: #eef3fa; border-color: #9dbde4; color: #0b0b0b; box-shadow: inset 0 -2px 0 #2a78d6; }
+.tc-subtab-title { font-size: 13px; font-weight: 600; white-space: nowrap; }
+.tc-subtab-words { font-size: 10.5px; color: #8a8983; white-space: nowrap; }
+.tc-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; margin: 0 0 10px; padding: 5px 8px;
+             border: 1px solid #ebeae5; border-radius: 6px; background: #fcfcfb; }
+.tc-legend-group { display: flex; flex-wrap: wrap; gap: 2px 4px; align-items: center; }
+.tc-legend-group .grouplabel { font-size: 11px; color: #8a8983; text-transform: uppercase; letter-spacing: 0.04em;
+                               margin-right: 2px; }
+.tc-legend-item { display: inline-flex; align-items: center; gap: 6px; padding: 2px 7px; border: 1px solid transparent;
+                  border-radius: 5px; background: transparent; font: inherit; font-size: 12px; color: #22211f;
+                  cursor: pointer; }
+.tc-legend-item:hover { border-color: #dddcd6; }
+.tc-legend-item.off { color: #a8a7a1; }
+.tc-legend-item.off .tc-legend-swatch { opacity: 0.25; }
+.tc-legend-item.lane-off > span:last-child { text-decoration: line-through; }
+.tc-legend-swatch { display: inline-block; width: 18px; height: 0; border-top: 2.5px solid currentColor;
+                    background: transparent !important; }
+.tc-legend-swatch.target { border-top-style: dashed; border-top-width: 2px; }
+.tc-legend-swatch.delta { border-top-style: dotted; border-top-width: 2.5px; }
+.tc-legend-swatch.joint { width: 9px; height: 9px; border: 1.5px solid #8a8983; border-radius: 2px; }
+.tc-legend-item.on .tc-legend-swatch.joint { background: #52514e !important; border-color: #52514e; }
+/* a stacked sub-tab: each joint's cards one under the other, a hairline between joints */
+.tc-joint-row.multi.stack { grid-template-columns: minmax(0, 1fr); padding-bottom: 10px; border-bottom: 1px solid #ebeae5;
+                            border-radius: 0; }
+.tc-timeline .tc-sheet .tc-joint-row.stack { gap: 4px; }
+.tc-timeline .tc-sheet .tc-subtabs-bar, .tc-timeline .tc-sheet .tc-legend { width: fit-content; max-width: 100%; }
+
+/* the pinned Open in Rerun (Zach 2026-11-25, traj compare 3D viewer feedback): a back door to the same data in Rerun,
+   in reach on every tab however far the page scrolls */
+.tc-rerun-pin { position: fixed; top: 10px; right: 12px; z-index: 60; display: flex; flex-direction: column;
+                align-items: flex-end; gap: 6px; pointer-events: none; }
+.tc-rerun-pin > * { pointer-events: auto; }
+.tc-rerun-pin-btn { border: 1px solid #9dbde4; background: #eef3fa; color: #0b0b0b; border-radius: 7px;
+                    padding: 6px 12px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+                    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12); }
+.tc-rerun-pin-btn:hover { border-color: #2a78d6; }
+.tc-rerun-pin-pop { max-width: min(560px, calc(100vw - 24px)); background: #fcfcfb; border: 1px solid #dddcd6;
+                    border-radius: 8px; padding: 8px 10px; font-size: 12px; color: #22211f;
+                    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14); }
+.tc-rerun-pin-pop[hidden], .tc-rerun-pin-pop [hidden] { display: none; }
+.tc-rerun-pin-pop p { margin: 0 0 6px; }
+.tc-rerun-pin-pop code { display: block; padding: 6px 8px; background: #f4f4f2; border: 1px solid #ebeae5;
+                         border-radius: 5px; font-size: 11.5px; overflow-wrap: anywhere; user-select: all; }
+.tc-rerun-pin-row { display: flex; gap: 6px; margin-top: 6px; justify-content: flex-end; }
+.tc-rerun-pin-row button { border: 1px solid #cfcec8; background: #fcfcfb; border-radius: 6px; padding: 3px 9px;
+                           font: inherit; font-size: 12px; cursor: pointer; color: #22211f; }
+
+/* the 3D view's line-style switch (a temporary pick between three proposals, Zach's rule for gated variants: a small
+   drop-down pinned bottom-right that remembers the pick) */
+.tc-style-pick { position: fixed; right: 12px; bottom: 12px; z-index: 61; display: flex; align-items: center; gap: 6px;
+                 padding: 4px 6px 4px 9px; border: 1px solid #dddcd6; border-radius: 7px; background: #fcfcfb;
+                 font-size: 12px; color: #52514e; box-shadow: 0 1px 6px rgba(0, 0, 0, 0.14); }
+.tc-style-pick select { font: inherit; font-size: 12px; padding: 2px 4px; border: 1px solid #cfcec8; border-radius: 5px;
+                        background: #fcfcfb; color: #22211f; }
+
+/* the 3D view's compact legend: what each mark means in the active style */
+.tc-3dlegend { display: flex; flex-wrap: wrap; gap: 3px 12px; align-items: center; margin: 6px 0 2px; font-size: 11.5px;
+               color: #3d3c39; }
+.tc-3dlegend-item { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.tc-3dlegend-line { display: inline-block; width: 20px; height: 0; border-top: 2.5px solid currentColor; }
+.tc-3dlegend-line.thick { height: 6px; border: 0; border-radius: 3px; background: currentColor; opacity: 0.38; }
+.tc-3dlegend-line.faint { opacity: 0.3; }
+.tc-3dlegend-ramp { display: inline-block; width: 64px; height: 7px; border-radius: 3px; }
+.tc-3dlegend-num { font-variant-numeric: tabular-nums; color: #52514e; }
+.tc-3dlegend-arc { display: inline-block; width: 12px; height: 12px; border: 2px solid currentColor; border-radius: 50%;
+                   border-left-color: transparent; border-bottom-color: transparent; transform: rotate(-45deg); }
+.tc-3dlegend-note { flex-basis: 100%; color: #8a8983; font-size: 11px; }
+.tc-3dlabel { position: absolute; pointer-events: none; padding: 1px 5px; border-radius: 4px; background: #fcfcfb;
+              border: 1px solid #cfcec8; font-size: 11.5px; font-weight: 600; color: #22211f; white-space: nowrap;
+              transform: translate(8px, -50%); font-variant-numeric: tabular-nums; }
+.tc-3dlabel.above { transform: translate(8px, -120%); }
+.tc-3dlabel.below { transform: translate(8px, 20%); }
+.tc-3dlabel[hidden] { display: none; }
+
 /* ── dark mode: generated by `python -m traj_compare._theme` from the light rules (and uPlot's for style.css); do not edit below this line ── */
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { color-scheme: dark; } }
 :root[data-theme="dark"] { color-scheme: dark; }
@@ -903,6 +984,33 @@ table.tc-metrics td.wrap { white-space: normal; text-align: left; min-width: 220
   :root:not([data-theme="light"]) .tc-lane-line.ghost { border-left-color: #767571; }
   :root:not([data-theme="light"]) .tc-lane-names-resize::after { background-color: #2f2f2c; }
   :root:not([data-theme="light"]) .tc-lane-names-resize:hover::after, :root:not([data-theme="light"]) .tc-lane-names-resize.dragging::after { background-color: #3c5168; }
+  :root:not([data-theme="light"]) .tc-subtab { border-color: #383834; background-color: #262625; color: #a8a7a4; }
+  :root:not([data-theme="light"]) .tc-subtab:hover { border-color: #767571; color: #f1f1f1; }
+  :root:not([data-theme="light"]) .tc-subtab.on { background-color: #1c1f23; border-color: #3c5168; color: #f1f1f1; box-shadow: inset 0 -2px 0 #2a78d6; }
+  :root:not([data-theme="light"]) .tc-subtab-words { color: #767571; }
+  :root:not([data-theme="light"]) .tc-legend { border-color: #2f2f2c; background-color: #262625; }
+  :root:not([data-theme="light"]) .tc-legend-group .grouplabel { color: #767571; }
+  :root:not([data-theme="light"]) .tc-legend-item { border-color: transparent; background-color: transparent; color: #dad9d7; }
+  :root:not([data-theme="light"]) .tc-legend-item:hover { border-color: #383834; }
+  :root:not([data-theme="light"]) .tc-legend-item.off { color: #5e5e5a; }
+  :root:not([data-theme="light"]) .tc-legend-swatch { border-top-color: currentColor; background-color: transparent !important; }
+  :root:not([data-theme="light"]) .tc-legend-swatch.joint { border-color: #767571; }
+  :root:not([data-theme="light"]) .tc-legend-item.on .tc-legend-swatch.joint { background-color: #a8a7a4 !important; border-color: #a8a7a4; }
+  :root:not([data-theme="light"]) .tc-joint-row.multi.stack { border-bottom-color: #2f2f2c; }
+  :root:not([data-theme="light"]) .tc-rerun-pin-btn { border-color: #3c5168; background-color: #1c1f23; color: #f1f1f1; box-shadow: 0 1px 4px rgba(248, 248, 248, 0.12); }
+  :root:not([data-theme="light"]) .tc-rerun-pin-btn:hover { border-color: #2a78d6; }
+  :root:not([data-theme="light"]) .tc-rerun-pin-pop { background-color: #262625; border-color: #383834; color: #dad9d7; box-shadow: 0 4px 16px rgba(248, 248, 248, 0.14); }
+  :root:not([data-theme="light"]) .tc-rerun-pin-pop code { background-color: #20201f; border-color: #2f2f2c; }
+  :root:not([data-theme="light"]) .tc-rerun-pin-row button { border-color: #42413e; background-color: #262625; color: #dad9d7; }
+  :root:not([data-theme="light"]) .tc-style-pick { border-color: #383834; background-color: #262625; color: #a8a7a4; box-shadow: 0 1px 6px rgba(248, 248, 248, 0.14); }
+  :root:not([data-theme="light"]) .tc-style-pick select { border-color: #42413e; background-color: #262625; color: #dad9d7; }
+  :root:not([data-theme="light"]) .tc-3dlegend { color: #bdbcb9; }
+  :root:not([data-theme="light"]) .tc-3dlegend-line { border-top-color: currentColor; }
+  :root:not([data-theme="light"]) .tc-3dlegend-line.thick { background-color: currentColor; }
+  :root:not([data-theme="light"]) .tc-3dlegend-num { color: #a8a7a4; }
+  :root:not([data-theme="light"]) .tc-3dlegend-arc { border-color: currentColor; border-left-color: transparent; border-bottom-color: transparent; }
+  :root:not([data-theme="light"]) .tc-3dlegend-note { color: #767571; }
+  :root:not([data-theme="light"]) .tc-3dlabel { background-color: #262625; border-color: #42413e; color: #dad9d7; }
 }
 :root[data-theme="dark"] body { background-color: #20201f; color: #f1f1f1; }
 :root[data-theme="dark"] header.tc { background-color: #262625; border-bottom-color: #383834; }
@@ -1134,3 +1242,30 @@ table.tc-metrics td.wrap { white-space: normal; text-align: left; min-width: 220
 :root[data-theme="dark"] .tc-lane-line.ghost { border-left-color: #767571; }
 :root[data-theme="dark"] .tc-lane-names-resize::after { background-color: #2f2f2c; }
 :root[data-theme="dark"] .tc-lane-names-resize:hover::after, :root[data-theme="dark"] .tc-lane-names-resize.dragging::after { background-color: #3c5168; }
+:root[data-theme="dark"] .tc-subtab { border-color: #383834; background-color: #262625; color: #a8a7a4; }
+:root[data-theme="dark"] .tc-subtab:hover { border-color: #767571; color: #f1f1f1; }
+:root[data-theme="dark"] .tc-subtab.on { background-color: #1c1f23; border-color: #3c5168; color: #f1f1f1; box-shadow: inset 0 -2px 0 #2a78d6; }
+:root[data-theme="dark"] .tc-subtab-words { color: #767571; }
+:root[data-theme="dark"] .tc-legend { border-color: #2f2f2c; background-color: #262625; }
+:root[data-theme="dark"] .tc-legend-group .grouplabel { color: #767571; }
+:root[data-theme="dark"] .tc-legend-item { border-color: transparent; background-color: transparent; color: #dad9d7; }
+:root[data-theme="dark"] .tc-legend-item:hover { border-color: #383834; }
+:root[data-theme="dark"] .tc-legend-item.off { color: #5e5e5a; }
+:root[data-theme="dark"] .tc-legend-swatch { border-top-color: currentColor; background-color: transparent !important; }
+:root[data-theme="dark"] .tc-legend-swatch.joint { border-color: #767571; }
+:root[data-theme="dark"] .tc-legend-item.on .tc-legend-swatch.joint { background-color: #a8a7a4 !important; border-color: #a8a7a4; }
+:root[data-theme="dark"] .tc-joint-row.multi.stack { border-bottom-color: #2f2f2c; }
+:root[data-theme="dark"] .tc-rerun-pin-btn { border-color: #3c5168; background-color: #1c1f23; color: #f1f1f1; box-shadow: 0 1px 4px rgba(248, 248, 248, 0.12); }
+:root[data-theme="dark"] .tc-rerun-pin-btn:hover { border-color: #2a78d6; }
+:root[data-theme="dark"] .tc-rerun-pin-pop { background-color: #262625; border-color: #383834; color: #dad9d7; box-shadow: 0 4px 16px rgba(248, 248, 248, 0.14); }
+:root[data-theme="dark"] .tc-rerun-pin-pop code { background-color: #20201f; border-color: #2f2f2c; }
+:root[data-theme="dark"] .tc-rerun-pin-row button { border-color: #42413e; background-color: #262625; color: #dad9d7; }
+:root[data-theme="dark"] .tc-style-pick { border-color: #383834; background-color: #262625; color: #a8a7a4; box-shadow: 0 1px 6px rgba(248, 248, 248, 0.14); }
+:root[data-theme="dark"] .tc-style-pick select { border-color: #42413e; background-color: #262625; color: #dad9d7; }
+:root[data-theme="dark"] .tc-3dlegend { color: #bdbcb9; }
+:root[data-theme="dark"] .tc-3dlegend-line { border-top-color: currentColor; }
+:root[data-theme="dark"] .tc-3dlegend-line.thick { background-color: currentColor; }
+:root[data-theme="dark"] .tc-3dlegend-num { color: #a8a7a4; }
+:root[data-theme="dark"] .tc-3dlegend-arc { border-color: currentColor; border-left-color: transparent; border-bottom-color: transparent; }
+:root[data-theme="dark"] .tc-3dlegend-note { color: #767571; }
+:root[data-theme="dark"] .tc-3dlabel { background-color: #262625; border-color: #42413e; color: #dad9d7; }

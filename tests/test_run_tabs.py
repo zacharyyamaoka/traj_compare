@@ -123,7 +123,7 @@ def test_tabs_for_drops_a_tab_with_nothing_to_show(payloads, shape, tool, torque
     assert [tab["id"] for tab in tabs] == expected_tab_ids(shape, tool, torque)
     by_id = {tab.id: tab for tab in TABS}
     for tab in tabs:
-        assert set(tab) == {"id", "title", "heading", "sections"}
+        assert set(tab) == {"id", "title", "heading", "sections", "subtabs"}
         assert tab["title"] == by_id[tab["id"]].title
         assert tab["heading"] == by_id[tab["id"]].heading
     assert payload["tabs"] == tabs  # the payload carries the already-dropped list

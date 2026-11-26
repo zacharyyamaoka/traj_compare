@@ -10,6 +10,7 @@ tab with nothing to show live here once, so the two viewers cannot drift apart.
 - ``tabs_for(payload)``: the tabs an ``analyze_comparison`` payload can fill (``payload["tabs"]``).
 - ``normalize_parts(joint_names, parts)``: ``Comparison.parts`` as the payload's ``payload["parts"]``.
 - ``resolve_tab(name)``: a tab by id, by title, or by a pre-2026-11-19 title.
+- ``SubTab``: inside a tab, one fixed graph (or fixed group of graphs) the HTML view shows at a time.
 """
 
 from __future__ import annotations
@@ -26,12 +27,32 @@ OTHER_PART = "Other joints"
 
 
 @dataclass(frozen=True)
+class SubTab:
+    """One sub-tab inside a question tab: the fixed graph, or fixed stack of graphs, it shows.
+
+    ``title`` is the short text on the sub-tab ("q / qd / qdd"); ``words`` says it in plain words ("angle, speed and
+    acceleration"); ``sections`` are the report's section ids it draws, top to bottom. Several per-joint sections
+    stack per joint (each joint's q, qd and qdd one under the other, on the same time axis).
+
+    WHY sub-tabs (Zach 2026-11-25, traj compare 3D viewer feedback): the graphs are fixed; you pick which one you look
+    at (the sub-tab) and which series it draws (the legend), instead of toggling graphs on and off with chips.
+    """
+
+    id: str
+    title: str
+    sections: tuple[str, ...]
+    words: str = ""
+
+
+@dataclass(frozen=True)
 class Tab:
     """One question tab: its id, the exact title on the tab, the exact heading inside it, and its HTML sections.
 
     ``html_sections`` are the report's section ids (``model._SECTION_IDS``) the tab holds. ``track`` holds
     none: it carries the page-level blocks (statistics table, verdicts, aggregate cards, Summary / Insights
     pages, worst moment) instead. ``legacy_titles`` are the pre-2026-11-19 Rerun tab names that still open it.
+    ``subtabs`` are the HTML view's sub-tabs, in order; a tab with two or more sections and no ``subtabs`` gets one
+    sub-tab per section (``tabs_for``).
     """
 
     id: str
@@ -39,6 +60,7 @@ class Tab:
     heading: str
     html_sections: tuple[str, ...] = ()
     legacy_titles: tuple[str, ...] = ()
+    subtabs: tuple[SubTab, ...] = ()
 
 
 # WHY these titles (Zach 2026-11-19, traj compare view feedback): tab titles "super descriptive" —
@@ -56,6 +78,10 @@ TABS: tuple[Tab, ...] = (
         heading="Where along the path is the tool off the target, and in which direction?",
         html_sections=("tcp-err", "tcp-pose"),
         legacy_titles=("Where?",),
+        subtabs=(
+            SubTab("error", "Tool error", ("tcp-err",), "position, rotation, off-path and lag error"),
+            SubTab("pose", "Tool pose", ("tcp-pose",), "position and orientation in the world frame"),
+        ),
     ),
     Tab(
         id="joints",
@@ -84,6 +110,17 @@ TABS: tuple[Tab, ...] = (
         heading="Every measured joint signal: angle, speed, acceleration, torque, current",
         html_sections=("joint-q", "joint-qd", "joint-qdd", "joint-tau", "joint-current"),
         legacy_titles=("Signals",),
+        # WHY exactly these six, in this order (Zach 2026-11-25, traj compare 3D viewer feedback): one signal at a time,
+        # then the two stacks he reads together; current, when recorded, after them
+        subtabs=(
+            SubTab("q", "q", ("joint-q",), "joint angle"),
+            SubTab("qd", "qd", ("joint-qd",), "joint speed"),
+            SubTab("qdd", "qdd", ("joint-qdd",), "joint acceleration"),
+            SubTab("tau", "T", ("joint-tau",), "applied torque"),
+            SubTab("q-qd-qdd", "q / qd / qdd", ("joint-q", "joint-qd", "joint-qdd"), "angle, speed and acceleration"),
+            SubTab("q-qd-tau", "q / qd / T", ("joint-q", "joint-qd", "joint-tau"), "angle, speed and torque"),
+            SubTab("current", "Current", ("joint-current",), "motor current"),
+        ),
     ),
 )
 
@@ -140,8 +177,21 @@ def _shown(tab: Tab, payload: Mapping[str, Any], sections: list[str]) -> bool:
     return shown and (not tab.html_sections or bool(sections))
 
 
+def _subtabs(tab: Tab, sections: list[str], titles: Mapping[str, str]) -> list[dict[str, Any]]:
+    """``tab``'s sub-tabs this payload can draw: a sub-tab needs every one of its sections. A tab with two or more
+    sections and no fixed ``subtabs`` gets one per section, titled ``titles[section]`` (a channel's title)."""
+
+    if tab.subtabs:
+        return [{"id": sub.id, "title": sub.title, "words": sub.words, "sections": list(sub.sections)}
+                for sub in tab.subtabs if all(section in sections for section in sub.sections)]
+    if len(sections) < 2:
+        return []
+    return [{"id": section, "title": titles.get(section, section), "words": "", "sections": [section]}
+            for section in sections]
+
+
 def tabs_for(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """The tabs an ``analyze_comparison`` payload fills, in order: ``[{"id", "title", "heading", "sections"}]``.
+    """The tabs an ``analyze_comparison`` payload fills, in order: ``[{"id", "title", "heading", "sections", "subtabs"}]``.
 
     A tab with nothing to show is dropped, in both viewers, by this one rule (NAVIGATION.md Part B):
     ``where`` and ``timing`` need a tool frame, ``joints`` at least two joints (and a joint error to rank),
@@ -149,6 +199,8 @@ def tabs_for(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
     tab's sections this payload can draw (``joint-tau`` only with ``tau``, and so on). ``channels``
     (``CHANNELS_TAB``) follows ``signals`` when any situation, the target included, has a channel
     (``payload["channels"]``), one ``channel-<slug>`` section each (NAVIGATION.md C1).
+    ``subtabs`` (``[{"id", "title", "words", "sections"}]``, ``_subtabs``) are the HTML view's sub-tabs; empty for a
+    tab of fewer than two sections.
     """
 
     available = _available_sections(payload)
@@ -156,13 +208,18 @@ def tabs_for(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
     for tab in TABS:
         sections = [section for section in tab.html_sections if section in available]
         if _shown(tab, payload, sections):
-            shown.append({"id": tab.id, "title": tab.title, "heading": tab.heading, "sections": sections})
+            shown.append({"id": tab.id, "title": tab.title, "heading": tab.heading, "sections": sections,
+                          "subtabs": _subtabs(tab, sections, {})})
     # the channels tab: one section per recorded channel (payload["channels"], analysis.py), right after signals
-    channel_sections = [channel["section"] for channel in payload.get("channels") or ()]
+    channels = list(payload.get("channels") or ())
+    channel_sections = [channel["section"] for channel in channels]
     if channel_sections:
         after = next((index + 1 for index, tab in enumerate(shown) if tab["id"] == "signals"), len(shown))
         tab = CHANNELS_TAB
-        shown.insert(after, {"id": tab.id, "title": tab.title, "heading": tab.heading, "sections": channel_sections})
+        titles = {channel["section"]: str(channel.get("title") or channel.get("name") or channel["section"])
+                  for channel in channels}
+        shown.insert(after, {"id": tab.id, "title": tab.title, "heading": tab.heading, "sections": channel_sections,
+                             "subtabs": _subtabs(tab, channel_sections, titles)})
     return shown
 
 

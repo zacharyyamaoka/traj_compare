@@ -340,7 +340,7 @@ def test_tabs_for_puts_the_channels_tab_right_after_signals_with_one_section_per
     tabs = tabs_for(payload)
     assert [tab["id"] for tab in tabs] == TODAY_IDS + ["channels"]
     channels = tabs[-1]
-    assert set(channels) == {"id", "title", "heading", "sections"}
+    assert set(channels) == {"id", "title", "heading", "sections", "subtabs"}
     assert channels["title"] == CHANNELS_TITLE
     assert channels["heading"] == CHANNELS_HEADING
     # <slug>: lowercase, runs outside [a-z0-9] -> "-", stripped ("__Spindle.Load__ (left)" -> "spindle-load-left")
@@ -470,11 +470,29 @@ async function scrollChannelSections(page) {
   }
 }
 
+// WHY one sub-tab at a time (2026-11-25): a tab of several sections shows one fixed graph per sub-tab (tabs.SubTab), so
+// each channel section is measured with its own sub-tab open and the snapshots are merged
 async function openTab(page, id, colours) {
   await page.click('[data-tc-tabs] [data-tc-tab="' + id + '"]', CLICK);
   await page.waitForTimeout(500);
-  if (id === 'channels') await scrollChannelSections(page);
-  return await page.evaluate(snapshot, colours);
+  if (id !== 'channels') return await page.evaluate(snapshot, colours);
+  const subs = await page.evaluate(() => [...document.querySelectorAll('[data-tc-panel="channels"] [data-tc-subtab]')]
+    .map((button) => button.getAttribute('data-tc-subtab')));
+  if (!subs.length) {
+    await scrollChannelSections(page);
+    return await page.evaluate(snapshot, colours);
+  }
+  let merged = null;
+  for (const sub of subs) {
+    await page.click('[data-tc-panel="channels"] [data-tc-subtab="' + sub + '"]', CLICK);
+    await page.waitForTimeout(300);
+    await scrollChannelSections(page);
+    const snap = await page.evaluate(snapshot, colours);
+    if (!merged) { merged = snap; continue; }
+    merged.sections = merged.sections.map((section) => section.id === sub
+      ? (snap.sections.filter((other) => other.id === sub)[0] || section) : section);
+  }
+  return merged;
 }
 
 async function comparisonJob(browser, job, errors) {
@@ -496,8 +514,8 @@ async function drillJob(browser, job, errors) {
   await attempt(out, 'signals', async () => {
     let snap = await openTab(page, 'signals', job.colours);
     const shown = snap.current && snap.current.rect.w > 0 && snap.current.rect.h > 0;
-    if (!shown) {  // a section that starts off: its chip in the signals tab turns it on
-      const chip = page.locator('[data-tc-panel="signals"] button', { hasText: /current/i }).first();
+    if (!shown) {  // a section on its own sub-tab (2026-11-25: "Current"): open it
+      const chip = page.locator('[data-tc-panel="signals"] [data-tc-subtab="current"]').first();
       if (await chip.count()) {
         await chip.click(CLICK);
         await page.waitForTimeout(600);
@@ -971,7 +989,7 @@ def test_html_drill_down_draws_motor_current_one_row_per_reference_joint(workspa
     current = snapshot["current"]
     assert current, 'no [data-tc-section="joint-current"] in the drill-down'
     assert current["inSignals"], 'joint-current is not in the "Raw signals per joint" tab'
-    assert area(current["rect"]) > 0, "joint-current never shows (not even from its chip)"
+    assert area(current["rect"]) > 0, "joint-current never shows (not even on its Current sub-tab)"
     rows = current["rows"]
     assert [row["joint"] for row in rows] == list(JOINTS), f"rows {[row['joint'] for row in rows]}"
     for row in rows:

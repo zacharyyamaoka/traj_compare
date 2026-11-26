@@ -474,13 +474,16 @@ var TrajCompare = (function () {
     var titleEl = el('div', 'ptitle', card);
     var chartEl = el('div', '', card);
 
+    var panelEl = card.closest ? card.closest('[data-tc-panel]') : null;
     var chart = {
       page: page, card: card, spec: spec, titleEl: titleEl, chartEl: chartEl, u: null,
+      tabId: panelEl ? panelEl.getAttribute('data-tc-panel') : null,
     };
 
-    // A series is drawn while its situation is on and, on a torque card, while its component is on too.
+    // A series is drawn while its situation is on (the lane's eye, every tab), its tab's legend draws it, and, on a
+    // torque card, while its component is on too.
     function seriesShown(entry) {
-      if (page.visible[entry.sit.name] === false) return false;
+      if (!runShownIn(page, chart.tabId, entry.sit.name)) return false;
       return !entry.component || page.torqueOn[entry.component] !== false;
     }
 
@@ -522,7 +525,7 @@ var TrajCompare = (function () {
           width: entry.sit.role === 'target' ? 1.4 : 1.7,
           dash: entry.sit.role === 'target' ? [7, 4] : undefined,
           points: { show: false },
-          show: page.visible[entry.sit.name] !== false,
+          show: runShownIn(page, chart.tabId, entry.sit.name),
         });
       });
       return opts;
@@ -559,7 +562,7 @@ var TrajCompare = (function () {
 
     chart.build = function () {
       paintTitle();
-      if (spec.situation && page.visible[spec.situation] === false) card.style.display = 'none';
+      if (spec.situation && !runShownIn(page, chart.tabId, spec.situation)) card.style.display = 'none';
       var opts = {
         width: width(),
         height: PLOT_HEIGHT,
@@ -625,13 +628,14 @@ var TrajCompare = (function () {
     // torque breakdown: ``spec.situation``) is hidden whole with its run.
     chart.setSituation = function (name, show) {
       if (!chart.u) return;
+      show = runShownIn(page, chart.tabId, name);  // the lane's eye and this tab's legend
       if (spec.situation === name) {
         var wasHidden = card.style.display === 'none';
         card.style.display = show ? '' : 'none';
         if (show && wasHidden) chart.resize();  // built or last sized while hidden
       }
       spec.series.forEach(function (entry, index) {
-        if (entry.sit.name === name && !entry.error) chart.u.setSeries(index + 1, { show: show && seriesShown(entry) });
+        if (entry.sit.name === name && !entry.error) chart.u.setSeries(index + 1, { show: seriesShown(entry) });
       });
     };
 
@@ -965,22 +969,51 @@ var TrajCompare = (function () {
     if (section.on && section.tab && section.tab.id === page.activeTab) view.build(page.part);
   }
 
+  function jointCard(page, host, sits, field, kind, titleSuffix, jointName, dof) {
+    var series = sits.map(function (sit) {
+      return { sit: sit, values: sit.plot[field][dof] };
+    });
+    if (!series.length) return;
+    // q has a native-grid error channel already; reuse it so the overlay
+    // and the Joint error section can never disagree.
+    var precomputed = field !== 'q' ? null : function (sit) {
+      return sit.plot.err_q ? sit.plot.err_q[dof] : null;
+    };
+    makeChart(page, el('div', 'tc-plotcard', host),
+      { title: jointName + ': ' + titleSuffix, kind: kind,
+        series: withErrors(series, precomputed) });
+  }
+
   function jointSectionBuilder(field, kind, titleSuffix) {
     return function (page, body, section) {
       var sits = sitsWith(page, field);
       partView(page, section, body, function (page, host, jointName, dof) {
-        var series = sits.map(function (sit) {
-          return { sit: sit, values: sit.plot[field][dof] };
+        jointCard(page, host, sits, field, kind, titleSuffix, jointName, dof);
+      });
+    };
+  }
+
+  // the per-joint signal sections a sub-tab can stack: section id -> [field, unit kind, title suffix]
+  var JOINT_SIGNALS = {
+    'joint-q': ['q', 'angle', 'joint angle q'],
+    'joint-qd': ['qd', 'angle_rate', 'joint speed q̇'],
+    'joint-qdd': ['qdd', 'angle_acc', 'joint acceleration q̈'],
+    'joint-tau': ['tau', 'Nm', 'applied torque τ'],
+    'joint-current': ['current', 'A', 'motor current i'],
+  };
+
+  /* A stacked sub-tab ("q / qd / qdd"): per joint, one card per signal, one under the other on the shared time axis.
+     WHY per joint and not section after section (Zach 2026-11-25, traj compare 3D viewer feedback: "three stacked,
+     time-synced plots"): a joint's angle, speed and acceleration read together, so they sit together. */
+  function stackBuilder(ids) {
+    return function (page, body, section) {
+      var signals = ids.map(function (id) { return JOINT_SIGNALS[id]; });
+      var sits = signals.map(function (signal) { return sitsWith(page, signal[0]); });
+      partView(page, section, body, function (page, host, jointName, dof) {
+        host.classList.add('stack');
+        signals.forEach(function (signal, index) {
+          jointCard(page, host, sits[index], signal[0], signal[1], signal[2], jointName, dof);
         });
-        if (!series.length) return;
-        // q has a native-grid error channel already; reuse it so the overlay
-        // and the Joint error section can never disagree.
-        var precomputed = field !== 'q' ? null : function (sit) {
-          return sit.plot.err_q ? sit.plot.err_q[dof] : null;
-        };
-        makeChart(page, el('div', 'tc-plotcard', host),
-          { title: jointName + ': ' + titleSuffix, kind: kind,
-            series: withErrors(series, precomputed) });
       });
     };
   }
@@ -2208,14 +2241,6 @@ var TrajCompare = (function () {
     if (section.def.id === 'viewer3d') paintStage(page);
   }
 
-  function setSection(page, section, on, remember) {
-    section.on = on;
-    // WHY a new key (2026-11-19): "section:<id>" choices were made to shorten one long page; in tabs they would
-    // hide a tab's plots for no reason, so the tabbed view starts from each section's own default
-    if (remember) state.prefs.set('tabsection:' + section.def.id, on);
-    paintSection(page, section);
-  }
-
   /* ---- parts: ranking, selector ---- */
 
   function paintPartButtons(page) {
@@ -2350,6 +2375,7 @@ var TrajCompare = (function () {
     showPart(page, partIndexOf(page, joint));
     var tab = activeTab(page);
     if (!tab) return;
+    if (tab.showJoint) tab.showJoint(joint);
     var target = null;
     tab.panel.querySelectorAll('[data-tc-joint]').forEach(function (node) {
       if (!target && node.getAttribute('data-tc-joint') === joint && node.offsetParent !== null) target = node;
@@ -2541,18 +2567,10 @@ var TrajCompare = (function () {
     if (page.derived.fd && ids.some(function (id) { return id === 'joint-qd' || id === 'joint-qdd'; })) notes.push(page.derived.fd);
     if (page.derived.torque && ids.indexOf('joint-torque') !== -1) notes.push(page.derived.torque);
     if (notes.length) el('div', 'tc-derived', panel, notes.join(' · '));
-    var toggles = tab.sections.filter(function (section) { return section.toggle; });
-    if (toggles.length) {
-      var chips = el('div', 'tc-panel-chips', panel);
-      el('span', 'grouplabel', chips, 'Plots in this tab');
-      toggles.forEach(function (section) {
-        section.chip = el('button', 'chip', chips);
-        var paintChip = function () { section.chip.textContent = sectionTitle(section.def); };
-        paintChip();
-        page.unitRepaints.push(paintChip);
-        section.chip.onclick = function () { setSection(page, section, !section.on, true); };
-      });
-    }
+    // WHY sub-tabs and a legend, not "Plots in this tab" chips (Zach 2026-11-25, traj compare 3D viewer feedback): the
+    // graphs are fixed; the sub-tab picks which one you look at, the legend which series it draws
+    buildSubtabStrip(page, tab, panel);
+    buildLegend(page, tab, panel);
     if (tab.id === 'joints') buildRanking(page, panel, 'error');
     if (tab.id === 'torque') buildRanking(page, panel, 'fbshare');
     if (ids.some(function (id) { return PER_JOINT_SECTIONS.indexOf(id) !== -1; })) buildPartBar(page, panel);
@@ -2575,6 +2593,7 @@ var TrajCompare = (function () {
     page.hoverChart = null;
     if (page.transport) page.transport.setHover(null);
     if (!tab.built) buildPanel(page, tab);
+    if (tab.paintLegend) tab.paintLegend();
     page.partViews.forEach(function (view) { syncPartView(page, view); });
     // WHY (measured 2026-11-19): a chart drawn or last sized while its panel was hidden keeps that width; size every
     // chart of the shown panel to it, and put the shared time cursor on the newly drawn ones
@@ -2591,6 +2610,248 @@ var TrajCompare = (function () {
       state.prefs.set('tab', tab.id);
       writeHash(tab.id);
     }
+  }
+
+  /* ---- sub-tabs and the legend (Zach 2026-11-25, traj compare 3D viewer feedback) ----
+
+     A question tab's graphs are fixed. Its sub-tabs (tabs.py ``SubTab``, ``payload.tabs[i].subtabs``) pick which graph,
+     or fixed stack of graphs, shows; its legend picks which series those graphs draw: the runs (and the target), the
+     Δ curves (the lane's own Δ, one state for both) and, on a per-joint tab, the joints. Both are remembered per tab
+     (prefs: ``subtab:<tab>``, ``legend:<tab>:<key>``). */
+
+  function subtabsOf(page, tab, record, byId) {
+    var subs = Array.isArray(tab.subtabs) ? tab.subtabs : null;
+    if (!subs) {
+      // a payload from before sub-tabs: one per section when there are several
+      subs = record.sections.length < 2 ? [] : record.sections.map(function (section) {
+        return { id: section.def.id, title: section.def.label, words: '', sections: [section.def.id] };
+      });
+    }
+    return subs.map(function (sub) {
+      var held = sub.sections.map(function (id) { return byId[id]; }).filter(Boolean);
+      // the units the sub-tab's graphs read in, repainted with the deg / rad toggle: "[°]", "[°, °/s, °/s²]"
+      var unitSources = held.slice();
+      var units = function () {
+        var parts = unitSources.map(function (section) {
+          return section.def.units ? section.def.units().replace(/^\s*\[|\]\s*$/g, '') : '';
+        }).filter(Boolean);
+        return parts.length ? '[' + parts.join(', ') + ']' : '';
+      };
+      var stacked = held.length > 1 && held.every(function (section) { return JOINT_SIGNALS[section.def.id]; });
+      if (stacked) {
+        // a stack is one more section of the tab: one card per signal under each joint
+        var labels = held.map(function (section) { return JOINT_SIGNALS[section.def.id][2]; });
+        var stack = {
+          def: { id: 'stack-' + sub.id, label: 'Per joint: ' + labels.join(', '), on: false,
+                 build: stackBuilder(sub.sections) },
+          on: false, defaultOn: false, toggle: false, tab: record, built: false, chip: null, el: null, body: null,
+        };
+        page.sections.push(stack);
+        record.sections.push(stack);
+        held = [stack];
+      }
+      return { id: sub.id, title: sub.title, words: sub.words || '', units: units, sections: held };
+    });
+  }
+
+  function subtabHolds(record, id, section) {
+    var sub = record.subtabs.filter(function (candidate) { return candidate.id === id; })[0];
+    return !!sub && sub.sections.indexOf(section) !== -1;
+  }
+
+  function selectSubtab(page, tab, id, remember) {
+    if (!tab.subtabs.length) return;
+    if (!tab.subtabs.some(function (sub) { return sub.id === id; })) id = tab.subtabs[0].id;
+    tab.subtab = id;
+    if (remember) state.prefs.set('subtab:' + tab.id, id);
+    (tab.subButtons || []).forEach(function (button) {
+      var on = button.getAttribute('data-tc-subtab') === id;
+      button.setAttribute('aria-selected', on ? 'true' : 'false');
+      button.tabIndex = on ? 0 : -1;
+      button.className = 'tc-subtab' + (on ? ' on' : '');
+    });
+    if (!tab.built) return;
+    tab.sections.forEach(function (section) {
+      section.on = subtabHolds(tab, id, section);
+      paintSection(page, section);
+    });
+    if (tab.paintLegend) tab.paintLegend();
+    resizeChartsIn(page, tab.panel);
+    if (page.transport && page.transport.t !== null) paintCursors(page, page.transport.t);
+    if (page.transport) { paintPlayheads(page); restoreCursors(page); }
+    if (page.timeline) page.timeline.queue();
+  }
+
+  function buildSubtabStrip(page, tab, panel) {
+    if (!tab.subtabs.length) return;
+    var strip = el('div', 'tc-subtabs-bar', panel);
+    strip.setAttribute('data-tc-subtabs', '');
+    strip.setAttribute('role', 'tablist');
+    strip.setAttribute('aria-label', tab.title + ': which graph');
+    tab.subButtons = tab.subtabs.map(function (sub) {
+      var button = el('button', 'tc-subtab', strip);
+      button.setAttribute('data-tc-subtab', sub.id);
+      button.setAttribute('role', 'tab');
+      el('span', 'tc-subtab-title', button, sub.title).setAttribute('data-tc-subtab-title', '');
+      if (sub.words || sub.units()) {
+        var words = el('span', 'tc-subtab-words', button);
+        var paintWords = function () { words.textContent = [sub.words, sub.units()].filter(Boolean).join(' '); };
+        paintWords();
+        page.unitRepaints.push(paintWords);
+      }
+      button.title = sub.sections.map(function (section) { return sectionTitle(section.def); }).join(' · ');
+      button.onclick = function () { selectSubtab(page, tab, sub.id, true); };
+      return button;
+    });
+    strip.addEventListener('keydown', function (event) {
+      var ids = tab.subtabs.map(function (sub) { return sub.id; });
+      var index = ids.indexOf(tab.subtab);
+      var next = { ArrowRight: index + 1, ArrowLeft: index - 1, Home: 0, End: ids.length - 1 }[event.key];
+      if (next === undefined) return;
+      event.preventDefault();
+      var id = ids[(next + ids.length) % ids.length];
+      selectSubtab(page, tab, id, true);
+      tab.subButtons[ids.indexOf(id)].focus();
+    });
+    selectSubtab(page, tab, tab.subtab, false);
+  }
+
+  function legendKey(tabId, key) { return 'legend:' + tabId + ':' + key; }
+
+  // A run is drawn on a chart of tab ``tabId`` while the lane's eye shows it and that tab's legend draws it.
+  function runShownIn(page, tabId, name) {
+    if (page.visible[name] === false) return false;
+    if (!tabId || !page.legendTabs || !page.legendTabs[tabId]) return true;
+    return state.prefs.get(legendKey(tabId, 'run:' + name), true) !== false;
+  }
+
+  function tabSectionIds(tab) {
+    var ids = [];
+    tab.sections.forEach(function (section) {
+      if (section.def.id.indexOf('stack-') === 0) return;
+      ids.push(section.def.id);
+    });
+    return ids;
+  }
+
+  function buildLegend(page, tab, panel) {
+    var data = page.data;
+    var ids = tabSectionIds(tab);
+    if (!ids.length) return;
+    var legend = el('div', 'tc-legend', panel);
+    legend.setAttribute('data-tc-legend', '');
+    legend.setAttribute('aria-label', 'What the graphs draw');
+    page.legendTabs = page.legendTabs || {};
+    page.legendTabs[tab.id] = true;
+    var items = [];
+
+    function item(group, key, label, swatchClass, color, title) {
+      var button = el('button', 'tc-legend-item', group);
+      button.setAttribute('data-tc-legend-item', key);
+      var swatch = el('span', 'tc-legend-swatch ' + (swatchClass || ''), button);
+      if (color) { swatch.style.background = color; swatch.style.color = color; }
+      el('span', '', button, label);
+      if (title) button.title = title;
+      return button;
+    }
+
+    // runs (the target first, as everywhere)
+    var runs = data.situations.filter(function (sit) { return sit.has_data && sit.plot; });
+    if (runs.length) {
+      var runGroup = el('div', 'tc-legend-group', legend);
+      el('span', 'grouplabel', runGroup, 'Runs');
+      runs.forEach(function (sit) {
+        var key = 'run:' + sit.name;
+        var button = item(runGroup, key, sit.title, sit.role === 'target' ? 'target' : 'run', sit.color,
+          'draw ' + sit.title + ' on this tab’s graphs');
+        button.onclick = function () {
+          if (page.visible[sit.name] === false) {
+            // hidden by the lane's eye (every tab): the legend shows it again, here and everywhere
+            state.prefs.set(legendKey(tab.id, key), true);
+            var chip = (page.sitChips || []).filter(function (entry) { return entry.sit.name === sit.name; })[0];
+            if (chip) chip.apply(true, true);
+          } else {
+            state.prefs.set(legendKey(tab.id, key), !runShownIn(page, tab.id, sit.name));
+          }
+          page.charts.forEach(function (chart) { if (chart.tabId === tab.id) chart.setSituation(sit.name); });
+          paint();
+        };
+        items.push(function () {
+          var lane = page.visible[sit.name] !== false;
+          var on = runShownIn(page, tab.id, sit.name);
+          button.className = 'tc-legend-item' + (on ? ' on' : ' off') + (lane ? '' : ' lane-off');
+          button.setAttribute('aria-pressed', on ? 'true' : 'false');
+          button.title = lane ? 'draw ' + sit.title + ' on this tab’s graphs'
+            : sit.title + ' is hidden on every graph by its eye in the time lane; click to show it again';
+        });
+      });
+    }
+
+    // Δ: the same state as the lane's Δ toggle (page.errorOn), offered where a Δ curve is drawn
+    var deltaHere = ids.some(function (id) { return DELTA_SECTIONS.indexOf(id) !== -1; });
+    var errChips = page.errChips || [];
+    if (deltaHere && errChips.length) {
+      var deltaGroup = el('div', 'tc-legend-group', legend);
+      el('span', 'grouplabel', deltaGroup, isRunReference(data) ? 'Error vs ' + referenceTitle(data) : 'Error vs target');
+      errChips.forEach(function (entry) {
+        var button = item(deltaGroup, 'delta:' + entry.sit.name, 'Δ ' + entry.sit.title, 'delta', entry.sit.color,
+          referenceTitle(data) + ' − ' + entry.sit.title + ', dotted, on every graph that has it');
+        button.onclick = function () { entry.apply(!page.errorOn[entry.sit.name], true); paint(); };
+        items.push(function () {
+          var on = !!page.errorOn[entry.sit.name];
+          button.className = 'tc-legend-item' + (on ? ' on' : ' off');
+          button.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+      });
+    }
+
+    // joints, on a per-joint tab: a hidden joint's rows are hidden by a rule, so rows built later obey it too
+    var perJoint = ids.some(function (id) { return PER_JOINT_SECTIONS.indexOf(id) !== -1; });
+    var rule = null;
+    if (perJoint && data.joint_names.length >= 2) {
+      var jointGroup = el('div', 'tc-legend-group', legend);
+      el('span', 'grouplabel', jointGroup, 'Joints');
+      rule = el('style', '', legend);
+      data.joint_names.forEach(function (joint) {
+        var key = 'joint:' + joint;
+        var button = item(jointGroup, key, joint, 'joint', null, 'show ' + joint + '’s graphs in this tab');
+        button.onclick = function () {
+          var on = state.prefs.get(legendKey(tab.id, key), true) !== false;
+          state.prefs.set(legendKey(tab.id, key), !on);
+          paint();
+          resizeChartsIn(page, tab.panel);
+          if (page.transport) { paintPlayheads(page); restoreCursors(page); }
+          if (page.timeline) page.timeline.queue();
+        };
+        items.push(function () {
+          var on = state.prefs.get(legendKey(tab.id, key), true) !== false;
+          button.className = 'tc-legend-item' + (on ? ' on' : ' off');
+          button.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+      });
+    }
+
+    function paint() {
+      items.forEach(function (paintItem) { paintItem(); });
+      if (rule) {
+        var hidden = data.joint_names.filter(function (joint) {
+          return state.prefs.get(legendKey(tab.id, 'joint:' + joint), true) === false;
+        });
+        var escape = window.CSS && CSS.escape ? CSS.escape : function (text) { return String(text).replace(/["\\]/g, '\\$&'); };
+        rule.textContent = hidden.map(function (joint) {
+          return '[data-tc-panel="' + escape(tab.id) + '"] [data-tc-joint="' + escape(joint) + '"]';
+        }).join(',\n') + (hidden.length ? ' { display: none; }' : '');
+      }
+    }
+    tab.paintLegend = paint;
+    tab.showJoint = function (joint) {
+      if (!rule || state.prefs.get(legendKey(tab.id, 'joint:' + joint), true) !== false) return;
+      state.prefs.set(legendKey(tab.id, 'joint:' + joint), true);
+      paint();
+      resizeChartsIn(page, tab.panel);
+    };
+    page.selectionRepaints.push(paint);
+    paint();
   }
 
   function buildTabStrip(page, strip, column, tabs, byId) {
@@ -2616,14 +2877,16 @@ var TrajCompare = (function () {
         section.tab = record;
         record.sections.push(section);
       });
-      // A lone section is the tab's content: always on, no chip. Several start as the caller asked
-      // (default_sections) or as last toggled, and never all off.
-      var lone = record.sections.length < 2;
+      record.subtabs = subtabsOf(page, tab, record, byId);
+      // A lone section is the tab's content: always on. With sub-tabs, the open sub-tab's sections are on.
+      if (record.subtabs.length) {
+        var wanted = state.prefs.get('subtab:' + tab.id, null);
+        record.subtab = record.subtabs.some(function (sub) { return sub.id === wanted; }) ? wanted : record.subtabs[0].id;
+      }
       record.sections.forEach(function (section) {
-        section.toggle = !lone;
-        section.on = lone ? true : !!state.prefs.get('tabsection:' + section.def.id, section.defaultOn);
+        section.toggle = false;
+        section.on = !record.subtabs.length || subtabHolds(record, record.subtab, section);
       });
-      if (!lone && !record.sections.some(function (section) { return section.on; })) record.sections[0].on = true;
       return record;
     });
     strip.addEventListener('keydown', function (event) {
@@ -2766,6 +3029,7 @@ var TrajCompare = (function () {
           if (remember) state.prefs.set('err:' + sit.name, show);
           page.charts.forEach(function (chart) { chart.setError(sit.name, show); });
           if (page.timeline) page.timeline.paintSelection();
+          (page.tabs || []).forEach(function (tab) { if (tab.paintLegend) tab.paintLegend(); });
         }
         page.errChips.push({ sit: sit, apply: apply });
         chip.onclick = function () { apply(!page.errorOn[sit.name], true); };
@@ -2847,10 +3111,14 @@ var TrajCompare = (function () {
     /* Pull in choices made on another scenario tab. Pages are built lazily,
        so this is what keeps an already-built page in step. */
     page.applyShared = function () {
-      page.sections.forEach(function (section) {
-        if (!section.toggle) return;
-        var want = !!state.prefs.get('tabsection:' + section.def.id, section.defaultOn);
-        if (want !== section.on) setSection(page, section, want, false);
+      page.tabs.forEach(function (tab) {
+        if (!tab.subtabs.length) return;
+        var want = state.prefs.get('subtab:' + tab.id, tab.subtab);
+        if (want !== tab.subtab) selectSubtab(page, tab, want, false);
+        if (tab.paintLegend) tab.paintLegend();
+      });
+      page.charts.forEach(function (chart) {
+        page.data.situations.forEach(function (sit) { chart.setSituation(sit.name); });
       });
       page.sitChips.forEach(function (entry) {
         var want = sitWanted(page, entry.sit);
@@ -3064,6 +3332,74 @@ var TrajCompare = (function () {
     });
 
     activatePage(0);
+    if (state.pages.length) buildRerunPin();
+  }
+
+  /* The pinned Open in Rerun, top right on every tab and however far the page scrolls.
+     WHY (Zach 2026-11-25, traj compare 3D viewer feedback): Rerun is the back door to the same data, so it is always in
+     reach. It reuses the bar's mechanism: served by ``python -m traj_compare.serve`` it asks the server to start the
+     pinned viewer; anywhere else (file://, a plain static server) it shows the one-line command to run instead, and a
+     page written without a recording says how to write one, never failing silently. */
+  function buildRerunPin() {
+    var pin = el('div', 'tc-rerun-pin', document.body);
+    pin.setAttribute('data-tc-rerun-pin', '');
+    var button = el('button', 'tc-rerun-pin-btn', pin, 'Open in Rerun');
+    button.setAttribute('data-tc-rerun-pin-open', '');
+    var pop = el('div', 'tc-rerun-pin-pop', pin);
+    pop.setAttribute('data-tc-rerun-pin-pop', '');
+    pop.hidden = true;
+    var message = el('p', '', pop);
+    var command = el('code', '', pop);
+    var row = el('div', 'tc-rerun-pin-row', pop);
+    var copy = el('button', '', row, 'Copy command');
+    var close = el('button', '', row, 'Close');
+    close.onclick = function () { pop.hidden = true; };
+    var hideTimer = null;
+
+    function show(text, cmd) {
+      clearTimeout(hideTimer);
+      message.textContent = text;
+      command.textContent = cmd || '';
+      command.hidden = !cmd;
+      copy.hidden = !cmd;
+      pop.hidden = false;
+    }
+    copy.onclick = function () {
+      Promise.resolve(copyText(command.textContent)).then(function (ok) {
+        copy.textContent = ok ? 'Copied' : 'Select it above';
+        setTimeout(function () { copy.textContent = 'Copy command'; }, 1600);
+      });
+    };
+    button.onclick = function () {
+      var page = state.pages[state.activePage] || state.pages[0];
+      var info = page && page.data.rerun;
+      if (!info) {
+        show('This page was written without a Rerun recording. Write it with one, then reopen the page:',
+          'write_comparison_report(..., rerun=True)');
+        return;
+      }
+      var layout = (info.layouts || [])[0] || null;
+      var cmd = layout ? layout.command : info.command;
+      var served = location.protocol === 'http:' || location.protocol === 'https:';
+      if (!served) { show('No Rerun launcher behind a file. Run this in a terminal:', cmd); return; }
+      show('Opening Rerun…', '');
+      var rrdUrl = new URL(info.rrd, location.href);
+      var relative = decodeURIComponent(rrdUrl.pathname.replace(/^\//, ''));
+      var query = '?rrd=' + encodeURIComponent(relative) + (layout ? '&layout=' + encodeURIComponent(layout.name) : '');
+      fetch(location.origin + '/__rerun/open' + query, { method: 'POST' }).then(function (response) {
+        return response.text().then(function (text) {
+          var body = null;
+          try { body = JSON.parse(text); } catch (error) { body = null; }
+          if (body && body.ok) {
+            show('Opening Rerun… the window can take a few seconds.', '');
+            hideTimer = setTimeout(function () { pop.hidden = true; }, 5000);
+            return;
+          }
+          if (body && body.error) { show(body.error + ' Run this in a terminal instead:', cmd); return; }
+          show('No Rerun launcher on this server. Run this in a terminal:', cmd);
+        });
+      }, function () { show('No Rerun launcher reachable. Run this in a terminal:', cmd); });
+    };
   }
 
   /* The dataset view (dataset.py) draws a Summary ReportPage with this same renderer. */
