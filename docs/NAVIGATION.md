@@ -446,6 +446,20 @@ UR5e landing page was 206,472 px tall at 1440 px wide (229 screens). Acceptance:
   `?cfg=`, a config's worst targets (E3). Runs: Part A's `runs` view, unchanged.
 - No tab is taller than ~3 screens at 1440 x 900; the league lies above the fold.
 
+#### Fixed speed-sweep reports
+
+- A `Sweep` can set `x_domain=(0, 1)` and `x_step=0.1`. The chart axis runs from 0 to 1.
+  The bins `(0, 0.1]`, `(0.1, 0.2]` and so on are labeled by their upper edge. Zero is
+  an axis tick and has no bin. Missing bins interrupt the curve.
+- `SweepObservation(series, target, x, value)` supplies a reporting measurement for an
+  existing Dataset target key. A named series can appear solely in the sweep. Pass
+  `value=None` to record an unavailable measurement. The table counts target paths with
+  values and shows the expected path count. A median and quartiles require the same
+  complete target set for every series and bin within the facet.
+- Explicit observations change the primary sweep chart and its table. Qualifying detail
+  links open the underlying target path. The Overview league, extra metrics, Targets and
+  run reports still use the ordinary recorded runs.
+
 ### E2. The league (`[data-tc-league]`)
 
 - **KPIs** come from run tags: the sweep's `y`, then `Sweep.metrics` (`Metric(tag, label, unit, log, better)`). A tag may

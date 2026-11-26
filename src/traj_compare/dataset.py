@@ -67,6 +67,7 @@ from array import array
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -175,6 +176,30 @@ class Metric:
 
 
 @dataclass(frozen=True)
+class SweepObservation:
+    """One sweep value for a named series and an existing Dataset target key.
+
+    Use ``None`` for an unavailable value. Observations supply statistics only
+    and do not stand in for a corresponding trajectory recording.
+    """
+
+    series: str
+    target: str
+    x: float
+    value: float | None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.series, str) or not self.series.strip():
+            raise ValueError("a sweep observation needs a non-empty series name")
+        if not isinstance(self.target, str) or not self.target.strip():
+            raise ValueError("a sweep observation needs a non-empty target key")
+        if _sweep_number(self.x) is None:
+            raise ValueError("a sweep observation needs a finite numeric x")
+        if self.value is not None and _sweep_number(self.value) is None:
+            raise ValueError("a sweep observation value must be finite numeric or None")
+
+
+@dataclass(frozen=True)
 class Sweep:
     """The speed-sweep overview on the Dataset level: one numeric run tag swept (``x``, e.g. the time scaling) against
     another it scores (``y``, e.g. tool tracking RMS), per config, optionally split into chips by ``facet_by``.
@@ -187,6 +212,12 @@ class Sweep:
     The outer view's league table (NAVIGATION.md Part E) ranks configs by ``y`` and ``metrics`` (more ``Metric`` KPIs).
     ``facet_by`` may be a tuple of tags (a facet is their values joined by " · ", e.g. dataset and split); ``y`` and a
     metric's tag may hold ``{series}`` so each measured series reads its own tag (sim and real scored apart).
+
+    ``x_domain`` fixes the chart range and ``x_step`` bins values by the upper edge of each interval,
+    excluding the domain's lower bound from the grid. For example, ``(0, 1)`` and ``0.1`` plot
+    nominal speeds at ``0.1, ..., 1.0``. Explicit ``observations`` replace the primary Sweep
+    chart's run tags. Each point requires a value for every Dataset target in its facet.
+    The Overview and drill-down reports still read the ordinary runs.
     """
 
     x: str
@@ -197,6 +228,9 @@ class Sweep:
     unit: str = ""
     log_y: bool = False
     metrics: tuple[Metric, ...] = ()
+    x_domain: tuple[float, float] | None = None
+    x_step: float | None = None
+    observations: Sequence[SweepObservation] | None = None
 
     def __post_init__(self) -> None:
         if self.x_label is None:
@@ -209,6 +243,24 @@ class Sweep:
         if not all(isinstance(metric, Metric) for metric in metrics):
             raise TypeError("Sweep.metrics holds Metric(tag, ...) items")
         object.__setattr__(self, "metrics", metrics)
+        if self.x_domain is not None:
+            lo, hi = (_sweep_number(edge) for edge in self.x_domain)
+            if lo is None or hi is None or lo >= hi:
+                raise ValueError("Sweep.x_domain needs two finite bounds in increasing order")
+            object.__setattr__(self, "x_domain", (lo, hi))
+        if self.x_step is not None:
+            step = _sweep_number(self.x_step)
+            if self.x_domain is None or step is None or step <= 0:
+                raise ValueError("Sweep.x_step needs a fixed domain and a positive finite step")
+            lo, hi = map(lambda edge: Decimal(str(edge)), self.x_domain)
+            if (hi - lo) % Decimal(str(step)) != 0:
+                raise ValueError("Sweep.x_step must divide the fixed domain into whole bins")
+            object.__setattr__(self, "x_step", step)
+        if self.observations is not None:
+            observations = tuple(self.observations)
+            if not all(isinstance(row, SweepObservation) for row in observations):
+                raise TypeError("Sweep.observations holds SweepObservation items")
+            object.__setattr__(self, "observations", observations)
 
 
 def _checked_torques(
@@ -1050,11 +1102,110 @@ def _sweep_facet(sweep: Sweep, tags: Mapping[str, Any]) -> str:
     return " · ".join(str(_tag_value(tags[name])) if name in tags else f"no {name}" for name in names)
 
 
+def _sweep_grid(sweep: Sweep) -> list[float]:
+    if sweep.x_domain is None or sweep.x_step is None:
+        return []
+    lo, hi = (Decimal(str(edge)) for edge in sweep.x_domain)
+    step = Decimal(str(sweep.x_step))
+    return [float(lo + step * index) for index in range(1, int((hi - lo) / step) + 1)]
+
+
+def _sweep_x(sweep: Sweep, grid: Sequence[float], value: Any) -> float | None:
+    x = _sweep_number(value)
+    if x is None or sweep.x_domain is None:
+        return x
+    lo, hi = sweep.x_domain
+    if not lo <= x <= hi:
+        return None
+    if sweep.x_step is None:
+        return x
+    if x == lo:
+        return None
+    # Values at a nominal boundary can arrive a few ulps above it via float arithmetic.
+    offset = (x - lo) / sweep.x_step
+    index = max(1, math.ceil(offset - 8 * math.ulp(offset)))
+    return grid[min(index, len(grid)) - 1]
+
+
+def _sweep_point(
+    x: float, per_target: Mapping[int, Sequence[tuple[float, str | None]]],
+    targets: Sequence[_Target], slugs: Mapping[str, str], expected: int | None = None,
+) -> dict[str, Any]:
+    rows = []
+    for index in sorted(per_target):
+        repeats = per_target[index]
+        value = float(np.median([y for y, _ in repeats]))
+        _, run = min(repeats, key=lambda item: abs(item[0] - value))  # first on ties
+        rows.append({"target": targets[index].slug, "title": targets[index].title, "value": value,
+                     "run": slugs[run] if run is not None else None})
+    complete = bool(rows) and (expected is None or len(rows) == expected)
+    values = [row["value"] for row in rows]
+    return {
+        "x": x, "median": float(np.median(values)) if complete else None,
+        "q1": float(np.percentile(values, 25)) if complete else None,
+        "q3": float(np.percentile(values, 75)) if complete else None,
+        "n": len(rows), "worst": sorted(rows, key=lambda row: -row["value"])[:_SWEEP_WORST],
+    }
+
+
+def _observation_sweep(
+    sweep: Sweep, targets: Sequence[_Target], config_colours: Mapping[str, str], grid: Sequence[float],
+) -> tuple[list[dict[str, Any]], int]:
+    indices = {target.key: index for index, target in enumerate(targets)}
+    expected = {"all": len(targets)}
+    membership = []
+    for target in targets:
+        facets = ["all"]
+        if sweep.facet_by is not None:
+            values = {_sweep_facet(sweep, run.tags) for run in target.runs}
+            if len(values) != 1:
+                raise ValueError(f"sweep target {target.key!r} has inconsistent facet tags")
+            value = values.pop()
+            if value != "all":
+                facets.append(value)
+                expected[value] = expected.get(value, 0) + 1
+        membership.append(facets)
+
+    observations = sweep.observations or ()
+    names = list(dict.fromkeys(row.series for row in observations))
+    colours = {name: config_colours[name] for name in names if name in config_colours}
+    missing_colours = [name for name in names if name not in colours]
+    palette = _config_hues(len(config_colours) + len(missing_colours))
+    in_use = set(colours.values())
+    extra_colours = (colour for colour in palette if colour not in in_use)
+    for name in missing_colours:
+        colours[name] = next(extra_colours)
+    cells: dict[tuple[str, str], dict[float, dict[int, list[tuple[float, str | None]]]]] = {}
+    skipped = 0
+    for row in observations:
+        if row.target not in indices:
+            raise ValueError(f"sweep observation names unknown target {row.target!r}")
+        x = _sweep_x(sweep, grid, row.x)
+        if x is None:
+            skipped += 1
+            continue
+        index = indices[row.target]
+        for facet in membership[index]:
+            point = cells.setdefault((facet, row.series), {}).setdefault(x, {})
+            if row.value is not None:
+                point.setdefault(index, []).append((float(row.value), None))
+
+    facets_out = []
+    for facet, count in expected.items():
+        configs = []
+        for name in names:
+            points = cells.get((facet, name), {})
+            configs.append({"name": name, "color": colours[name],
+                            "points": [_sweep_point(x, points[x], targets, {}, count) for x in sorted(points)]})
+        facets_out.append({"value": facet, "expected": count, "configs": configs})
+    return facets_out, skipped
+
+
 def _sweep_payload(
     sweep: Sweep, targets: Sequence[_Target], slugs: Mapping[str, str], config_tag: str | None,
     config_rows: Sequence[Mapping[str, Any]], series_order: Sequence[str] = (),
 ) -> dict[str, Any]:
-    """``payload["sweep"]``, from run tags only (never a trajectory, so a reused or lazy write costs nothing more).
+    """``payload["sweep"]`` from run tags or explicit observations, without loading any trajectories.
 
     One value per (target, config, x): the median of y over that config's runs of the target at that x (its repeats).
     A point per (facet, config, x): the median over targets of those values, ``q1`` / ``q3`` their numpy-linear 25th /
@@ -1069,16 +1220,17 @@ def _sweep_payload(
     config alone. ``metrics`` are copied for the page, which scores them the same way (NAVIGATION.md Part E).
     """
     colours = {row["name"]: row["color"] for row in config_rows}
+    grid = _sweep_grid(sweep)
     templated = SERIES_FIELD in sweep.y
     facet_order: list[str] = ["all"]
     # (facet, (config, series), x) -> target index -> [(y, run name)] in run order; series is "" for a plain y
-    cells: dict[tuple[str, tuple[str, str], float], dict[int, list[tuple[float, str]]]] = {}
+    cells: dict[tuple[str, tuple[str, str], float], dict[int, list[tuple[float, str | None]]]] = {}
     config_seen: list[str] = []
     series_seen: list[str] = []
     skipped = 0
     for index, target in enumerate(targets):
         for run in target.runs:
-            x = _sweep_number(run.tags.get(sweep.x))
+            x = _sweep_x(sweep, grid, run.tags.get(sweep.x))
             readings = ([(series, _sweep_number(run.tags.get(sweep.y.replace(SERIES_FIELD, series)))) for series in run.measured]
                         if templated else [("", _sweep_number(run.tags.get(sweep.y)))])
             readings = [(series, y) for series, y in readings if y is not None]
@@ -1110,41 +1262,34 @@ def _sweep_payload(
     series_ranked = [name for name in series_order if name in series_seen] + [name for name in series_seen if name not in series_order]
     split = templated and len(series_seen) > 1 and config_tag is not None
     keys = [(config, series) for config in config_order for series in (series_ranked if templated else [""])]
-    facets_out = []
-    for facet in facet_order:
-        configs_out = []
-        for key in keys:
-            config, series = key
-            xs = sorted(x for (f, k, x) in cells if f == facet and k == key)
-            points = []
-            for x in xs:
-                per_target = cells[(facet, key, x)]
-                rows = []
-                for index in sorted(per_target):
-                    repeats = per_target[index]
-                    value = float(np.median([y for y, _ in repeats]))
-                    closest = min(repeats, key=lambda item: abs(item[0] - value))  # min keeps the first on ties
-                    rows.append({"target": targets[index].slug, "title": targets[index].title, "value": value,
-                                 "run": slugs[closest[1]]})
-                values = np.array([row["value"] for row in rows])
-                worst = sorted(rows, key=lambda row: -row["value"])[:_SWEEP_WORST]  # stable: ties keep target order
-                points.append({
-                    "x": x, "median": float(np.median(values)), "q1": float(np.percentile(values, 25)),
-                    "q3": float(np.percentile(values, 75)), "n": len(rows), "worst": worst,
-                })
-            if points:
-                name = f"{config} · {series}" if split else config
-                entry = {"name": name, "color": colours.get(config, _TWIN_GREY), "points": points}
-                if series:
-                    entry.update({"config": config, "series": series})
-                configs_out.append(entry)
-        facets_out.append({"value": facet, "configs": configs_out})
+    if sweep.observations is not None:
+        facets_out, skipped = _observation_sweep(sweep, targets, colours, grid)
+    else:
+        facets_out = []
+        for facet in facet_order:
+            configs_out = []
+            for key in keys:
+                config, series = key
+                xs = sorted(x for (f, k, x) in cells if f == facet and k == key)
+                points = [_sweep_point(x, cells[(facet, key, x)], targets, slugs) for x in xs]
+                if points:
+                    name = f"{config} · {series}" if split else config
+                    entry = {"name": name, "color": colours.get(config, _TWIN_GREY), "points": points}
+                    if series:
+                        entry.update({"config": config, "series": series})
+                    configs_out.append(entry)
+            facets_out.append({"value": facet, "configs": configs_out})
     facet_by = sweep.facet_by if sweep.facet_by is None or isinstance(sweep.facet_by, str) else list(sweep.facet_by)
-    return _clean({
+    payload = {
         "x": sweep.x, "y": sweep.y, "facet_by": facet_by, "x_label": sweep.x_label, "y_label": sweep.y_label,
         "unit": sweep.unit, "log_y": bool(sweep.log_y), "skipped": skipped, "facets": facets_out,
         "metrics": [metric.to_payload() for metric in sweep.metrics], "split_series": split,
-    })
+    }
+    if sweep.x_domain is not None:
+        payload.update(x_domain=sweep.x_domain, x_buckets=grid)
+    if sweep.observations is not None:
+        payload["observations"] = True
+    return _clean(payload)
 
 
 def _fb_share_median(lines: Sequence[Mapping[str, Any]]) -> float | None:
@@ -2024,8 +2169,9 @@ def write_dataset_report(
     - ``sweep``: a ``Sweep(x, y, facet_by=None, x_label, y_label, unit, log_y)`` adds the speed-sweep overview, the
       Dataset level's first view: per config, the median over targets of each target's median y over its repeats at each
       x, with q1 / q3, n and the worst targets per point (each linking its Target level and one run's report); facet
-      chips split it by ``facet_by``. Computed from run tags only (``_sweep_payload``), so reused and lazy writes keep it
-      exact; a run without a numeric x or y is skipped and counted. ``None`` (the default): no sweep view, today's page.
+      chips split it by ``facet_by``. A fixed ``x_domain`` and ``x_step`` mark the expected buckets. Explicit
+      ``SweepObservation`` rows replace the primary chart's run tags for reporting-only measurements, with the
+      median drawn only when all targets in the facet have data. ``None`` (the default): no sweep view.
     - ``coverage``: also write ``output_dir/coverage/index.html`` + ``coverage.json`` (``traj_compare.coverage``, contract
       docs/COVERAGE.md): how much of the joint limits, workspace and tool directions the site's targets visit, each
       target's reference once, the tool from ``poses`` when given. The Dataset level's tab bar then ends with a

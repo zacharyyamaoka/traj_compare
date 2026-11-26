@@ -333,9 +333,12 @@ body.ds-resizing { cursor: col-resize; user-select: none; }
 .ds-sweep-facets { margin: 10px 0 4px; }
 .ds-sweep-keys { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 8px 0 4px; }
 .ds-sweep-chart { min-height: 300px; }
+.ds-sweep-chart[data-empty] { min-height: 0; }
 .ds-sweep-scroll { max-height: none; margin-top: 8px; }
 table.ds-sweep-table { width: auto; min-width: 50%; }
+.ds-sweep-table th:nth-child(3) { width: auto; min-width: 0; }
 .ds-sweep-table td { padding: 2px 4px; }
+.ds-sweep-count { white-space: nowrap; }
 .ds-sweep-cell { border: 1px solid transparent; border-radius: 5px; background: transparent; font: inherit; font-size: 12px;
                  color: #22211f; padding: 3px 7px; cursor: pointer; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ds-sweep-cell:hover { background: #f1f0ec; }

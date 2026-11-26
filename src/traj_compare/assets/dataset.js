@@ -1695,6 +1695,7 @@
     return facets.filter(function (facet) { return facet.value === V.sweepFacet; })[0] || facets[0] || { value: 'all', configs: [] };
   }
   function sweepXs(facet) {
+    if (SW.x_buckets && SW.x_buckets.length) return SW.x_buckets;
     var seen = {};
     facet.configs.forEach(function (config) { config.points.forEach(function (point) { seen[point.x] = point.x; }); });
     return Object.keys(seen).map(function (key) { return seen[key]; }).sort(function (a, b) { return a - b; });
@@ -1703,26 +1704,45 @@
     var config = facet.configs.filter(function (item) { return item.name === configName; })[0];
     return config ? config.points.filter(function (point) { return point.x === x; })[0] || null : null;
   }
+  function sweepXScale() {
+    return SW.x_domain ? { time: false, range: SW.x_domain } : { time: false };
+  }
+  function sweepXValues(u, values) {
+    return values.map(function (value) { return Number(value.toPrecision(12)).toString(); });
+  }
+  function sweepXTicks() {
+    return SW.x_buckets && SW.x_buckets.length
+      ? { splits: function () { return [SW.x_domain[0]].concat(SW.x_buckets); }, values: sweepXValues }
+      : { values: sweepXValues };
+  }
+  function sweepCount(facet, point) {
+    var n = point ? point.n : 0;
+    return SW.observations ? n + '/' + facet.expected + ' paths' : 'n ' + n;
+  }
   function renderSweep() {
     destroyCharts('sweep');
     var holder = $('ds-view-sweep');
     var facet = sweepFacet();
     V.sweepFacet = facet.value;
     var xs = sweepXs(facet);
-    if (V.sweepPick && !sweepPoint(facet, V.sweepPick.config, V.sweepPick.x)) V.sweepPick = null;
+    var pickedPoint = V.sweepPick ? sweepPoint(facet, V.sweepPick.config, V.sweepPick.x) : null;
+    if (!pickedPoint || pickedPoint.median === null) V.sweepPick = null;
     if (!V.sweepPick) {  // open on the worst point, so the drill list answers something before any click
       facet.configs.forEach(function (config) {
         config.points.forEach(function (point) {
+          if (point.median === null) return;
           var current = V.sweepPick ? sweepPoint(facet, V.sweepPick.config, V.sweepPick.x) : null;
           if (!current || point.median > current.median) V.sweepPick = { config: config.name, x: point.x };
         });
       });
     }
     var axisText = esc(SW.y_label) + (SW.unit ? ' [' + esc(SW.unit) + ']' : '') + ' vs ' + esc(SW.x_label);
+    var summary = SW.observations
+      ? 'Median over the same target paths at each speed · band q1–q3'
+      : 'Per config: median over targets of each target’s median over its repeats · band q1–q3';
+    if (SW.skipped) summary += ' · ' + SW.skipped + (SW.observations ? ' observations outside the sweep range' : ' runs excluded from the sweep');
     var html = '<section class="ds-card ds-sweep" data-tc-sweep><h2>How does ' + esc(SW.y_label) + ' scale with ' + esc(SW.x_label) +
-      '? <span class="ds-hint">per config: the median over targets of each target’s median over its repeats · band q1–q3' +
-      (SW.skipped ? ' · ' + SW.skipped + ' run' + (SW.skipped === 1 ? '' : 's') + ' without a numeric ' + esc(SW.x) + ' or ' + esc(SW.y) + ' left out' : '') +
-      '</span></h2>';
+      '? <span class="ds-hint">' + esc(summary) + '</span></h2>';
     if ((SW.facets || []).length > 1) {
       html += '<div class="ds-bar ds-sweep-facets"><span class="ds-k">' + esc([].concat(SW.facet_by || 'facet').join(' · ')) + '</span><div class="ds-seg">';
       SW.facets.forEach(function (item) {
@@ -1736,8 +1756,12 @@
     facet.configs.forEach(function (config) { html += '<span class="ds-chip">' + swatch(config.color, simKey(config)) + esc(config.name) + '</span>'; });
     html += '<span class="ds-hint">' + axisText + (SW.log_y ? ' · log y' : '') + ' · click a point or a cell for its worst targets</span></div>' +
       '<div class="ds-plot ds-sweep-chart" data-tc-sweep-chart></div><div class="ds-readout" id="ds-sweep-readout">&nbsp;</div>';
-    html += '<div class="ds-scroll ds-sweep-scroll"><table class="ds-league ds-sweep-table" data-tc-sweep-table><thead><tr><th>config</th>';
-    xs.forEach(function (x) { html += '<th>' + esc(SW.x_label) + ' ' + esc(String(x)) + '</th>'; });
+    html += '<div class="ds-scroll ds-sweep-scroll" tabindex="0" role="region" aria-label="Sweep measurements">' +
+      '<table class="ds-league ds-sweep-table" data-tc-sweep-table><thead><tr><th scope="col">' + (SW.observations ? 'Series' : 'config') + '</th>';
+    xs.forEach(function (x) {
+      var label = esc(SW.x_label) + ' ' + esc(String(x));
+      html += SW.observations ? '<th scope="col" aria-label="' + label + '">' + esc(String(x)) + '</th>' : '<th scope="col">' + label + '</th>';
+    });
     html += '</tr></thead><tbody>';
     var best = {};
     xs.forEach(function (x) {
@@ -1747,15 +1771,20 @@
       });
     });
     facet.configs.forEach(function (config) {
-      html += '<tr><th class="ds-text">' + swatch(config.color, simKey(config)) + esc(config.name) + '</th>';
+      html += '<tr><th scope="row" class="ds-text">' + swatch(config.color, simKey(config)) + esc(config.name) + '</th>';
       xs.forEach(function (x) {
         var point = sweepPoint(facet, config.name, x);
-        if (!point) { html += '<td class="ds-mut">–</td>'; return; }
+        if (!point || point.median === null) {
+          html += '<td class="ds-mut" data-tc-sweep-missing>–' +
+            (SW.observations ? ' <span class="ds-sweep-count">' + esc(sweepCount(facet, point)) + '</span>' : '') + '</td>';
+          return;
+        }
         var isBest = best[x] && best[x].config === config.name;
         var picked = V.sweepPick && V.sweepPick.config === config.name && V.sweepPick.x === x;
         html += '<td><button type="button" class="ds-sweep-cell' + (picked ? ' on' : '') + '" data-tc-sweep-cell data-config="' + esc(config.name) +
           '" data-x="' + esc(String(x)) + '"' + (isBest ? ' data-best="1"' : '') + ' title="q1 ' + sweepNumber(point.q1) + ' · q3 ' + sweepNumber(point.q3) +
-          sweepUnit() + '"><b>' + sweepNumber(point.median) + '</b>' + esc(sweepUnit()) + ' <span class="ds-mut">n ' + point.n + '</span>' +
+          sweepUnit() + '"><b>' + sweepNumber(point.median) + '</b>' + esc(sweepUnit()) +
+          ' <span class="ds-mut ds-sweep-count">' + esc(sweepCount(facet, point)) + '</span>' +
           (isBest ? ' <span class="ds-sweep-best">best</span>' : '') + '</button></td>';
       });
       html += '</tr>';
@@ -1773,30 +1802,42 @@
     Array.prototype.forEach.call(document.querySelectorAll('[data-tc-sweep-cell]'), function (cell) {
       cell.classList.toggle('on', !!point && cell.getAttribute('data-config') === V.sweepPick.config && cell.getAttribute('data-x') === String(V.sweepPick.x));
     });
-    if (!point) { host.innerHTML = '<p class="ds-hint">Click a cell or a point to list its worst targets.</p>'; return; }
-    var config = configOf[V.sweepPick.config] || configOf[(sweepConfig(V.sweepPick.config) || {}).config];
+    if (!point) { host.innerHTML = ''; return; }
+    var config = sweepConfig(V.sweepPick.config) || configOf[V.sweepPick.config];
     var html = '<h3>Worst targets · ' + (config ? swatch(config.color) : '') + esc(V.sweepPick.config) + ' at ' + esc(SW.x_label) + ' ' +
       esc(String(point.x)) + (facet.value !== 'all' ? ' · ' + esc(facet.value) : '') + ' <span class="ds-hint">' + point.worst.length + ' of ' + point.n +
-      ' targets, highest ' + esc(SW.y_label) + ' first · the run is the repeat closest to the target’s median</span></h3><ol class="ds-sweep-list">';
+      ' targets, highest ' + esc(SW.y_label) + ' first' +
+      (SW.observations ? ' · target links open available recordings' : ' · the run is the repeat closest to the target’s median') +
+      '</span></h3><ol class="ds-sweep-list">';
     point.worst.forEach(function (row) {
       html += '<li data-tc-sweep-worst-row><a href="#/target/' + encodeURIComponent(row.target) + '">' + esc(row.title) + '</a>' +
         '<span class="ds-num"><b>' + sweepNumber(row.value) + '</b>' + esc(sweepUnit()) + '</span>' +
-        '<a class="ds-sweep-run" href="runs/' + encodeURIComponent(row.run) + '/report.html" title="open this run’s report">' + esc(row.run) + ' ↗</a></li>';
+        (row.run ? '<a class="ds-sweep-run" href="runs/' + encodeURIComponent(row.run) + '/report.html" title="open this run’s report">' + esc(row.run) + ' ↗</a>' : '') + '</li>';
     });
     host.innerHTML = html + '</ol>';
   }
   function drawSweepChart(host, facet, xs) {
-    if (!xs.length || !facet.configs.length) { host.innerHTML = '<p class="ds-hint">No run has a numeric ' + esc(SW.x) + ' and ' + esc(SW.y) + '.</p>'; return; }
     var positive = function (value) { return value === null || value === undefined || (SW.log_y && value <= 0) ? null : value; };
+    var hasValue = facet.configs.some(function (config) {
+      return config.points.some(function (point) { return positive(point.median) !== null; });
+    });
+    if (!hasValue) {
+      host.setAttribute('data-empty', '');
+      host.innerHTML = '<p class="ds-hint" data-tc-sweep-empty>' +
+        (SW.observations ? 'No speed has measurements for the complete target path set.' :
+          'No run has a plottable ' + esc(SW.x_label) + ' and ' + esc(SW.y_label) + '.') + '</p>';
+      return;
+    }
     var data = [xs], series = [{}], bands = [], owners = [null];
+    var spanGaps = !(SW.observations || (SW.x_buckets && SW.x_buckets.length));
     facet.configs.forEach(function (config) {
       var at = function (key) { return xs.map(function (x) { var point = sweepPoint(facet, config.name, x); return point ? positive(point[key]) : null; }); };
       var high = series.length;
-      data.push(at('q3')); series.push({ stroke: 'transparent', width: 0, points: { show: false }, spanGaps: true }); owners.push(null);
-      data.push(at('q1')); series.push({ stroke: 'transparent', width: 0, points: { show: false }, spanGaps: true }); owners.push(null);
+      data.push(at('q3')); series.push({ stroke: 'transparent', width: 0, points: { show: false }, spanGaps: spanGaps }); owners.push(null);
+      data.push(at('q1')); series.push({ stroke: 'transparent', width: 0, points: { show: false }, spanGaps: spanGaps }); owners.push(null);
       bands.push({ series: [high, high + 1], fill: config.color + '22' });
       data.push(at('median'));
-      series.push({ label: config.name, stroke: config.color, width: 2, dash: simKey(config) ? [6, 4] : undefined, spanGaps: true, points: { show: true, size: 8, fill: config.color, stroke: ink('#fcfcfb'), width: 1.5 } });
+      series.push({ label: config.name, stroke: config.color, width: 2, dash: simKey(config) ? [6, 4] : undefined, spanGaps: spanGaps, points: { show: true, size: 8, fill: config.color, stroke: ink('#fcfcfb'), width: 1.5 } });
       owners.push(config);
     });
     var font = '10.5px -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif';
@@ -1814,11 +1855,11 @@
       return best;
     }
     var chart = new uPlot({
-      width: Math.max(320, host.clientWidth), height: 300, legend: { show: false },
+      width: host.clientWidth || 320, height: 300, legend: { show: false },
       cursor: { drag: { x: false, y: false }, points: { show: false } },
-      scales: { x: { time: false }, y: SW.log_y ? { distr: 3 } : { auto: true } },
+      scales: { x: sweepXScale(), y: SW.log_y ? { distr: 3 } : { auto: true } },
       axes: [
-        Object.assign({}, axis, { label: SW.x_label, labelSize: 18, size: 30, values: function (u, values) { return values.map(function (v) { return String(+v.toFixed(4)); }); } }),
+        Object.assign({}, axis, sweepXTicks(), { label: SW.x_label, labelSize: 18, size: 30 }),
         Object.assign({}, axis, { label: SW.y_label + (SW.unit ? ' [' + SW.unit + ']' : ''), labelSize: 18, size: 54,
           values: function (u, values) { return values.map(function (v) { return v === null ? '' : sweepNumber(v); }); } }),
       ],
@@ -1829,7 +1870,11 @@
           if (index === null || index === undefined) { readout.innerHTML = '&nbsp;'; return; }
           var parts = [esc(SW.x_label) + ' ' + esc(String(xs[index]))];
           owners.forEach(function (config, k) {
-            if (config && data[k][index] !== null) parts.push('<span style="color:' + config.color + '">■</span> ' + esc(config.name) + ' <b>' + sweepNumber(data[k][index]) + '</b>' + esc(sweepUnit()));
+            if (config && data[k][index] !== null) {
+              var count = sweepCount(facet, sweepPoint(facet, config.name, xs[index]));
+              parts.push('<span style="color:' + config.color + '">■</span> ' + esc(config.name) + ' <b>' +
+                sweepNumber(data[k][index]) + '</b>' + esc(sweepUnit()) + ' <span class="ds-hint">' + esc(count) + '</span>');
+            }
           });
           readout.innerHTML = parts.join(' · ');
         }],
@@ -1843,7 +1888,7 @@
       renderSweepWorst();
     });
     var observer = new ResizeObserver(function () {
-      var width = Math.max(320, host.clientWidth);
+      var width = host.clientWidth;
       if (host.clientWidth > 0 && Math.abs(width - chart.width) > 1) chart.setSize({ width: width, height: 300 });
     });
     observer.observe(host);
@@ -2356,10 +2401,10 @@
         return xs.map(function (x) { var c = aggregate(model, k, facet, key.key, x); return c && (!kpi.log || c.median > 0) ? c.median : null; });
       }));
       var chart = new uPlot({
-        width: Math.max(300, host.clientWidth || 600), height: 200, legend: { show: true, live: true },
+        width: host.clientWidth || 600, height: 200, legend: { show: true, live: true },
         cursor: { y: false, drag: { x: false, y: false } },
-        scales: { x: { time: false }, y: kpi.log ? { distr: 3 } : { auto: true } },
-        axes: [Object.assign({}, axis, { size: 28, values: function (u, values) { return values.map(function (v) { return String(+v.toFixed(4)); }); } }),
+        scales: { x: sweepXScale(), y: kpi.log ? { distr: 3 } : { auto: true } },
+        axes: [Object.assign({}, axis, sweepXTicks(), { size: 28 }),
           // WHY exponents below 1e-3: a sim's stop error reaches 1e-9 mm, and fixed digits made the axis an unreadable smear
           Object.assign({}, axis, { size: 54, values: function (u, values) { return values.map(function (v) { return v === null ? '' : v !== 0 && Math.abs(v) < 1e-3 ? v.toExponential(0) : num3(v); }); } })],
         series: [{ label: model.xLabel }].concat(keys.map(function (key) {
@@ -2368,7 +2413,7 @@
         })),
       }, data, host);
       var observer = new ResizeObserver(function () {
-        var width = Math.max(300, host.clientWidth);
+        var width = host.clientWidth;
         if (host.clientWidth > 0 && Math.abs(width - chart.width) > 1) chart.setSize({ width: width, height: 200 });
       });
       observer.observe(host);
