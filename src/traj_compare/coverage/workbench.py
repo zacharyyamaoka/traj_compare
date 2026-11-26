@@ -50,11 +50,28 @@ from . import analysis as cov
 
 DATA_UI = Path(os.environ.get("TRAJ_COMPARE_DATA_UI", "/home/bam/data-ui"))
 DEG = 180.0 / math.pi
-WORDS = {"q": "position", "qd": "speed", "qdd": "acceleration", "qddd": "jerk"}
+WORDS = {"q": "position", "qd": "speed", "qdd": "acceleration", "qddd": "jerk", "tau": "torque"}
 DISPLAY_UNITS = {
-    "revolute": {"q": "°", "qd": "°/s", "qdd": "°/s²", "qddd": "°/s³"},
-    "prismatic": {"q": "mm", "qd": "mm/s", "qdd": "mm/s²", "qddd": "mm/s³"},
+    "revolute": {"q": "°", "qd": "°/s", "qdd": "°/s²", "qddd": "°/s³", "tau": "N·m"},
+    "prismatic": {"q": "mm", "qd": "mm/s", "qdd": "mm/s²", "qddd": "mm/s³", "tau": "N"},
 }
+SOURCE_WORDS = {"computed": " (computed)", "mixed": " (partly computed)"}
+
+
+def signal_word(payload: Mapping, signal: str, kind: str = "revolute") -> str:
+    """A signal's plain word, saying when it was computed rather than recorded (payload["signal_source"]).
+
+    WHY (Zach, 2026-11-26: "if it has the information than you can display it... if it doesn't then there should be an
+    option to calculate and display"): jerk is always a slope (robot_msgs has no jerk field), so it reads
+    "jerk (computed)", never as a measurement; a prismatic joint's effort is a force."""
+    if signal == "tau":  # never computed: a trajectory without effort simply adds no samples
+        return "force" if kind == "prismatic" else WORDS[signal]
+    return WORDS[signal] + SOURCE_WORDS.get((payload.get("signal_source") or {}).get(signal, "recorded"), "")
+
+
+def signal_scale(joint_info: Mapping, signal: str) -> float:
+    """Display scale of one signal: the joint's (degrees or mm) for q..qddd, 1 for the effort (N·m, N)."""
+    return 1.0 if signal == "tau" else joint_info["display"]["scale"]
 # WHY these slots: data-ui's series 4 is amber, 6 green and 8 red, which read as a status (CONTRACT §32); a dataset is
 # a family, never a verdict (the round's P1/P5 measured 1, 2, 3, 7 on the four UR5e datasets)
 SLOTS = (1, 2, 3, 7, 5)
@@ -96,7 +113,7 @@ def workbench_rows(coverage, trajectories, *, tool=None,
 
     trajectory_rows, parts = [], []
     for k, (name, trajectory) in enumerate(named):
-        signals = dict(zip(cov.SIGNALS, cov._signals(trajectory), strict=True))
+        signals = cov.trajectory_signals(trajectory)
         source = payload["trajectories"][k]
         row = {"id": name, "name": name, **source["tags"]}
         if rrd is not None and rrd(name):
@@ -106,6 +123,8 @@ def workbench_rows(coverage, trajectories, *, tool=None,
             row.update({field: source.get(field) for field in SPEED_SCALE_FIELDS})
         for joint in joints:
             row[f"q_range_{joint['name']}_pct"] = source["span_pct"][joint["name"]]["q"]
+        if "tau" in payload["signals"]:
+            row["tau_peak_pct"] = source.get("tau_peak_pct")
         trajectory_rows.append(row)
         parts += _joint_parts(payload, name, signals, groups[k])
 
@@ -200,12 +219,13 @@ def _joint_parts(payload: Mapping, name: str, signals: dict[str, np.ndarray], gr
             stated = (planner.get(joint) or {}).get(signal) or {}
             row = {
                 "id": f"{name}|{joint}.{signal}", "kind": "hist", "grid": f"{joint}.{signal}", "trajectory": name,
-                "joint": joint, "joint_order": j, "signal": signal, "signal_order": s, "signal_word": WORDS[signal],
+                "joint": joint, "joint_order": j, "signal": signal, "signal_order": s,
+                "signal_word": signal_word(payload, signal, joint_info["kind"]),
                 "label": f"{joint} {signal}", "lo": low, "hi": high, "bins": bins, "counts": counts,
                 "low": limit["low"], "high": limit["high"], "limit_source": limit["source"],
                 "planner_low": stated.get("low"), "planner_high": stated.get("high"),
                 "outside": cov._beyond(values, cov._Bound(limit["low"], limit["high"], limit["source"])),
-                "scale": scale, "unit": units[signal],
+                "scale": signal_scale(joint_info, signal), "unit": units[signal],
             }
             if group is not None:
                 row.update(groups=[group], group_counts=[counts])
@@ -430,6 +450,11 @@ def _trajectory_properties(payload: Mapping, rows: list[dict], labels: Mapping[s
         properties[f"q_range_{joint['name']}_pct"] = {
             "type": "number", "label": f"{joint['name']} range used", "unitText": "%", "decimals": 1,
             "description": "p0.1 to p99.9 of its position, as a share of the joint's limits"}
+    if "tau" in payload["signals"]:
+        properties["tau_peak_pct"] = {
+            "type": "number", "label": "Peak torque", "unitText": "%", "decimals": 1,
+            "description": "the largest recorded |torque| of its hardest joint, as a share of that joint's effort limit "
+                           "(empty: this trajectory recorded no torque)"}
     if payload["tool"] is not None:
         properties.update({
             "tool_path_m": {"type": "number", "label": "Tool path", "unitText": "m", "decimals": 2},
@@ -584,7 +609,10 @@ def _pages(joints: list[str], tool: bool, *, speed_scale: bool) -> list[dict]:
         ], datasets={"parts": {
             "facets": [{"property": "joint", "as": "select", "label": "Joint", "dropdown": True, "order": joints}],
             "filters": f'joint == "{joints[0]}"'}}),
-        _page("Limits", [{"view": "Every joint, every signal", "w": 12, "h": 7, "style": {"title": "none"}}]),
+        # WHY a ridgeline of every signal first: jerk (and torque, when recorded) one glance away on its own tab,
+        # while the Overview keeps the calm q / qd / qdd (Zach, 2026-11-26)
+        _page("Limits", [{"view": "Every joint, every signal, against its limit", "w": 12, "h": 4},
+                         {"view": "Every joint, every signal", "w": 12, "h": 7, "style": {"title": "none"}}]),
     ]
     if tool:
         pages += [
@@ -667,6 +695,9 @@ def _views(payload: Mapping, rows: list[dict], *, dataset: str, facets: Sequence
         _parts_view("coverage-plane", "Position × speed", 'kind == "q_qd"'),
         _parts_view("coverage-plane", "Speed × acceleration", 'kind == "qd_qdd"'),
         _parts_view("coverage-plane", "Position × acceleration", 'kind == "q_qdd"'),
+        _parts_view("coverage-hist", "Every joint, every signal, against its limit", 'kind == "hist"',
+                    {"layout": "ridgeline", "card": "joint", "signals": list(payload["signals"])},
+                    ["joint_order", "signal_order"]),
         _parts_view("coverage-hist", "Against the limits", 'kind == "hist"', {"card": "joint", "columns": 1},
                     ["signal_order"]),
         _parts_view("coverage-hist", "Every joint, every signal", 'kind == "hist"', {"card": "joint"},
@@ -689,7 +720,7 @@ def _views(payload: Mapping, rows: list[dict], *, dataset: str, facets: Sequence
     # per trajectory as the hand-rolled page's trajectory table, the columns the rail filters on first
     tag_keys = [key for row in payload["trajectories"] for key in row["tags"]]
     order = [key for key in ("name", dataset, *facets, "speed_scale", "duration_s", "speed_scale_motion_s",
-                             "samples", "new_cells", "tool_path_m",
+                             "samples", "new_cells", "tau_peak_pct", "tool_path_m",
                              "tool_speed_max_m_s", "tool_tilt_max_deg", *tag_keys) if key in present]
     display = {key: "badge" for key in (dataset, "split") if key in present}
     display["new_cells"] = "bar"
@@ -873,10 +904,13 @@ def write_trajectory_rrd(path: Path | str, name: str, trajectory: JointTrajector
     recording.save(str(path))
     t = np.asarray(trajectory.t, float)
     times = [rr.TimeColumn("t", duration=t - (t[0] if t.size else 0.0))]
-    signals = dict(zip(cov.SIGNALS, cov._signals(trajectory), strict=True))
-    for signal in ("q", "qd", "qdd"):
+    signals = cov.trajectory_signals(trajectory)
+    # WHY jerk and the recorded effort too (Zach, 2026-11-26): the record shows what the coverage bins
+    shown = ("q", "qd", "qdd", "qddd", *(("tau",) if trajectory.effort is not None else ()))
+    for signal in shown:
         for j, joint in enumerate(trajectory.joint_names):
             scale, unit = (1000.0, DISPLAY_UNITS["prismatic"]) if joint in prismatic else (DEG, DISPLAY_UNITS["revolute"])
+            scale = 1.0 if signal == "tau" else scale
             recording.log(f"joints/{signal}/{joint}", rr.SeriesLines(names=f"{joint} {signal} ({unit[signal]})"), static=True)
             recording.send_columns(f"joints/{signal}/{joint}", indexes=times,
                                    columns=rr.Scalars.columns(scalars=signals[signal][:, j] * scale))

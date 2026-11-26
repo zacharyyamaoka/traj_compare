@@ -97,7 +97,9 @@ def test_without_robot_the_recording_is_the_one_the_tracking_agent_ships(tmp_pat
     joint, tool = move()
     path = write_trajectory_rrd(tmp_path / "b.rrd", "b", joint, tool=tool)
     found, recordings, _ = read(path)
-    expected = {f"/joints/{signal}/{name}" for signal in ("q", "qd", "qdd") for name in JOINTS} | {"/tool/path", "/tool/now"}
+    # qddd since 2026-11-26 (Zach: jerk "if it doesn't [have it] ... calculate and display"); added, nothing removed
+    expected = ({f"/joints/{signal}/{name}" for signal in ("q", "qd", "qdd", "qddd") for name in JOINTS}
+                | {"/tool/path", "/tool/now"})
     assert {entity for entity in found if not entity.startswith("/__")} == expected
     np.testing.assert_allclose(scalars(path, "/joints/q/elbow"), np.degrees(joint.positions[:, 2]))
     assert recordings[0].recording_id == "b"

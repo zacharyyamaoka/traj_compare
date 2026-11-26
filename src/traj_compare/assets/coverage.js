@@ -34,7 +34,15 @@
   // WHY no orange/amber/red among the group colours: amber and red mean "a problem" on this page (and red = a limit)
   const GROUP_COLOURS = ['#2a78d6', '#2f9e44', '#8e5bd1', '#17a2b8', '#6b7a8f', '#c22f6e'];
   const POWER = { q: '', qd: '/s', qdd: '/s²', qddd: '/s³' };
-  const WORD = { q: 'position', qd: 'speed', qdd: 'acceleration', qddd: 'jerk' };
+  const WORD = { q: 'position', qd: 'speed', qdd: 'acceleration', qddd: 'jerk', tau: 'torque' };
+  // WHY said on every label (Zach, 2026-11-26: "if it doesn't then there should be an option to calculate and display
+  // the information"): a computed jerk (robot_msgs has no jerk field) must never read as a measurement
+  const SOURCE_WORDS = { computed: ' (computed)', mixed: ' (partly computed)' };
+  function wordOf(signal) {
+    if (signal === 'tau') return WORD.tau;
+    const source = payload.signal_source ? payload.signal_source[signal] : null;
+    return WORD[signal] + (SOURCE_WORDS[source] || '');
+  }
   const SCALE_NOTES = {
     linear: 'Linear: colour grows in proportion to the count; the top 2 % of cells are clipped so one hot cell does not wash out the rest.',
     log: 'Log: colour follows log(count), so thin cells show too; equal colour steps are ×10, not +10.',
@@ -189,13 +197,21 @@
     return mode === 'enough' ? `≥ ${state.enough} samples / not` : Color.SCALE_TITLES[mode];
   }
 
+  // WHY per signal: the recorded effort (tau) keeps its own unit (N·m, N) at scale 1, never the joint's degrees
+  function displayOf(joint, signal) {
+    const own = payload.signal_display && payload.signal_display[signal];
+    return own ? own[joint.kind] : joint.display;
+  }
+  function scaleOf(joint, signal) { return displayOf(joint, signal).scale; }
   function unitOf(joint, signal) {
+    const display = displayOf(joint, signal);
+    if (display !== joint.display) return display.unit;
     const base = joint.display.unit === 'deg' ? '°' : joint.display.unit;
     return base + POWER[signal];
   }
   function withUnit(joint, signal, value) {
     const unit = unitOf(joint, signal);
-    return fmt(value * joint.display.scale) + (unit.startsWith('°') ? unit : ' ' + unit);
+    return fmt(value * scaleOf(joint, signal)) + (unit.startsWith('°') ? unit : ' ' + unit);
   }
   function limitOf(name, signal) { return payload.limits[name][signal]; }
   function stated(limit) { return limit && limit.source === 'limit'; }
@@ -881,7 +897,7 @@
       const limit = limitOf(joint.name, column.signal);
       const used = column.signal === 'q' ? `${pct(h.span_pct)} of the range used` : `peak ${pct(h.peak_pct)} of the limit`;
       const lim = stated(limit) ? `limit ${withUnit(joint, column.signal, limit.low)} … ${withUnit(joint, column.signal, limit.high)}` : 'no limit stated';
-      return `<b>${escapeHtml(joint.name)} · ${column.signal}</b> (${WORD[column.signal]})<br>${used}<br>data p0.1–p99.9: ${withUnit(joint, column.signal, h.p001)} … ${withUnit(joint, column.signal, h.p999)}<br>${lim}${h.outside > 0 ? `<br>${count(h.outside)} samples beyond the limit` : ''}<br>click to open this joint`;
+      return `<b>${escapeHtml(joint.name)} · ${column.signal}</b> (${wordOf(column.signal)})<br>${used}<br>data p0.1–p99.9: ${withUnit(joint, column.signal, h.p001)} … ${withUnit(joint, column.signal, h.p999)}<br>${lim}${h.outside > 0 ? `<br>${count(h.outside)} samples beyond the limit` : ''}<br>click to open this joint`;
     }, (px, py) => {
       const r = Math.floor((py - top) / rowH);
       if (r < 0 || r >= joints().length) return;
@@ -921,12 +937,14 @@
   }
 
   function drawSummaryTable(fig) {
+    const hasTau = payload.signals.includes('tau');
     const head = el('tr', null, [
       el('th', { class: 'left', text: 'Joint' }),
       el('th', null, ['Position range used', el('span', { class: 'sub', text: 'q span, p0.1–p99.9' })]),
       el('th', null, ['Peak speed', el('span', { class: 'sub', text: 'qd, of its limit' })]),
       el('th', null, ['Peak acceleration', el('span', { class: 'sub', text: 'qdd, of its limit' })]),
-      el('th', null, ['Peak jerk', el('span', { class: 'sub', text: 'qddd, of its limit' })]),
+      el('th', null, ['Peak jerk', el('span', { class: 'sub', text: `qddd, of its limit${wordOf('qddd').includes('(') ? ' · computed' : ''}` })]),
+      hasTau ? el('th', null, ['Peak torque', el('span', { class: 'sub', text: 'tau, recorded, of its limit' })]) : null,
       el('th', null, ['Position × speed cells', el('span', { class: 'sub', text: 'q_qd visited' })]),
       el('th', null, ['Speed × acceleration cells', el('span', { class: 'sub', text: 'qd_qdd visited' })]),
       el('th', null, ['Samples beyond a limit', el('span', { class: 'sub', text: 'any signal' })]),
@@ -945,6 +963,7 @@
         pctCell(hist.qd.peak_pct, limitOf(joint.name, 'qd')),
         pctCell(hist.qdd.peak_pct, limitOf(joint.name, 'qdd')),
         pctCell(hist.qddd.peak_pct, limitOf(joint.name, 'qddd')),
+        hasTau ? pctCell(hist.tau.peak_pct, limitOf(joint.name, 'tau')) : null,
         el('td', null, el('span', { class: 'cov-cell' }, [pct(planes.q_qd.visited_pct), minibar(planes.q_qd.visited_pct)])),
         el('td', null, el('span', { class: 'cov-cell' }, [pct(planes.qd_qdd.visited_pct), minibar(planes.qd_qdd.visited_pct)])),
         el('td', { class: beyond > 0 ? 'problem' : 'muted', text: beyond > 0 ? count(beyond) : '0' }),
@@ -965,7 +984,7 @@
 
   function buildLimits(section) {
     const fig = figure('limit-bars', 'Where does each joint\'s data sit against its limits?',
-      'One card per joint, one row per signal: position (q), speed (qd), acceleration (qdd) and jerk (qddd), in degrees (or mm). The bars are the samples; the x axis runs 8 % past each limit so overshoot shows. Between the red lines is what the limit allows; hatched is beyond it (the robot should never be there). Black ticks mark where the data really went (its 0.1st and 99.9th percentile). On the right: the share of the range used (q) or the peak reached as a share of the limit (qd, qdd, qddd), and in red how many samples went past the limit. When the dataset is split (e.g. by split), the bars are stacked in one colour per group, named in the legend.',
+      'One card per joint, one row per signal: position (q), speed (qd), acceleration (qdd), jerk (qddd, computed from the samples) and, when the trajectories recorded it, torque (tau, N·m), in degrees (or mm). The bars are the samples; the x axis runs 8 % past each limit so overshoot shows. Between the red lines is what the limit allows; hatched is beyond it (the robot should never be there). Black ticks mark where the data really went (its 0.1st and 99.9th percentile). On the right: the share of the range used (q) or the peak reached as a share of the limit (qd, qdd, qddd), and in red how many samples went past the limit. When the dataset is split (e.g. by split), the bars are stacked in one colour per group, named in the legend.',
       'TFDV / Facets Overview (one row per feature, the schema range = the limit); the Nov 19 gallery "limit bars".');
     register('limits', fig, (width) => drawLimitBars(fig, width));
     section.append(fig.node);
@@ -985,7 +1004,11 @@
       const card = el('div', { class: 'cov-card' }, el('div', { class: 'cov-cardhead' }, [
         el('b', { text: joint.name }), el('span', { class: 'unit', text: `${joint.kind} · ${joint.display.unit === 'deg' ? 'degrees' : joint.display.unit}` })]));
       const innerW = cardW - 18;
-      const labelW = 64;
+      // WHY measured (2026-11-26): "acceleration (partly computed)" ran over the strip's hatch at a fixed 64 px
+      const measurer = document.createElement('canvas').getContext('2d');
+      measurer.font = FONT;
+      const longestWord = Math.max(...payload.signals.map((s) => measurer.measureText(wordOf(s)).width));
+      const labelW = Math.round(Math.max(64, Math.min(innerW * 0.36, longestWord + 12)));
       const noteW = 86;
       const rowH = 62;
       const { canvas, g } = canvasOf(innerW, rowH * payload.signals.length + 4);
@@ -993,7 +1016,7 @@
         const h = payload.hist[joint.name][signal];
         const limit = limitOf(joint.name, signal);
         const planner = payload.planner_limits && payload.planner_limits[joint.name] ? payload.planner_limits[joint.name][signal] : null;
-        const scale = joint.display.scale;
+        const scale = scaleOf(joint, signal);
         const e = edges(h.edges);
         const box = { x: labelW, y: r * rowH + 6, w: innerW - labelW - noteW, h: 34 };
         const x = { lo: e.lo * scale, hi: e.hi * scale };
@@ -1033,7 +1056,7 @@
         g.fillText(signal, 0, box.y + 14);
         g.font = FONT;
         g.fillStyle = MUTED;
-        g.fillText(WORD[signal], 0, box.y + 27);
+        g.fillText(wordOf(signal), 0, box.y + 27, labelW - 6);  // narrowed past the cap, never over the strip
         g.fillText(unitOf(joint, signal), 0, box.y + 40);
         const noteX = box.x + box.w + 8;
         if (!stated(limit)) {
@@ -1110,8 +1133,8 @@
   }
 
   function planeAxis(joint, signal, e) {
-    const scale = joint.display.scale;
-    return { lo: e.lo * scale, hi: e.hi * scale, label: `${signal} · ${WORD[signal]} (${unitOf(joint, signal)})` };
+    const scale = scaleOf(joint, signal);
+    return { lo: e.lo * scale, hi: e.hi * scale, label: `${signal} · ${wordOf(signal)} (${unitOf(joint, signal)})` };
   }
 
   function heatSize(width, aspect, maxH) {

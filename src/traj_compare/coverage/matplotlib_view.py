@@ -157,8 +157,26 @@ def scale_counts(counts: Any, mode: str = "linear", *, enough: int = 10, clip: f
 
 # ── payload helpers ──────────────────────────────────────────────────────────────────────────────────────────────────
 
-SIGNAL_WORDS = {"q": "position", "qd": "speed", "qdd": "acceleration", "qddd": "jerk"}
+SIGNAL_WORDS = {"q": "position", "qd": "speed", "qdd": "acceleration", "qddd": "jerk", "tau": "torque"}
 SIGNAL_POWERS = {"q": "", "qd": "/s", "qdd": "/s²", "qddd": "/s³"}
+SOURCE_WORDS = {"computed": " (computed)", "mixed": " (partly computed)"}
+
+
+def signal_word(payload: Mapping[str, Any], signal: str) -> str:
+    """WHY the provenance in the title (Zach, 2026-11-26): a computed jerk must never read as a measurement."""
+    if signal == "tau":
+        return SIGNAL_WORDS[signal]
+    return SIGNAL_WORDS[signal] + SOURCE_WORDS.get((payload.get("signal_source") or {}).get(signal, "recorded"), "")
+
+
+def signal_display(payload: Mapping[str, Any], joint: str, signal: str) -> tuple[float, str]:
+    """(scale, unit) of one signal on one joint: the joint's display for q..qddd, the effort's own (N·m, N) for tau."""
+    own = (payload.get("signal_display") or {}).get(signal)
+    if own:
+        kind = next(entry["kind"] for entry in payload["joints"] if entry["name"] == joint)
+        return float(own[kind]["scale"]), str(own[kind]["unit"])
+    scale, unit = joint_display(payload, joint)
+    return scale, signal_unit(unit, signal)
 
 
 def edges(block: Sequence[float]) -> np.ndarray:
@@ -461,15 +479,15 @@ def _ridgeline(payload, cmap, reverse, scale):
 
 def _limit_bars(payload, cmap, reverse, scale):
     names = joint_names(payload)
-    signals = [s for s in ("q", "qd", "qdd", "qddd") if s in payload.get("signals", ("q", "qd", "qdd", "qddd"))]
+    signals = list(payload.get("signals", ("q", "qd", "qdd", "qddd")))
     groups = list((payload.get("source") or {}).get("groups") or [])
     group_by = (payload.get("source") or {}).get("group_by")
     fig = _new_figure(13.0, 1.3 + 0.95 * len(names) + 0.9)
     grid = fig.subplots(len(names), len(signals), squeeze=False)
     outside_total = 0
     for row, joint in enumerate(names):
-        scale_value, unit = joint_display(payload, joint)
         for column, signal in enumerate(signals):
+            scale_value, unit = signal_display(payload, joint, signal)
             ax = grid[row][column]
             block = payload["hist"][joint][signal]
             limit = payload["limits"][joint][signal]
@@ -521,7 +539,10 @@ def _limit_bars(payload, cmap, reverse, scale):
             ax.text(0.015, 0.99, note, transform=ax.transAxes, fontsize=7.3, color=color, va="top", ha="left",
                     zorder=8, bbox={"facecolor": "white", "edgecolor": "none", "pad": 1.2, "alpha": 0.9})
             if row == 0:
-                ax.set_title(f"{signal}: {SIGNAL_WORDS[signal]} ({signal_unit(unit, signal)})", fontsize=9.5)
+                title = f"{signal}: {signal_word(payload, signal)} ({unit})"
+                if len(title) > 30:  # WHY: "qdd: acceleration (partly computed) (deg/s²)" ran into the next column
+                    title = f"{signal}: {signal_word(payload, signal)}\n({unit})"
+                ax.set_title(title, fontsize=9.5)
             if column == 0:
                 ax.set_ylabel(joint, rotation=0, ha="right", va="center", fontsize=9, color=INK, labelpad=6)
     handles = []
