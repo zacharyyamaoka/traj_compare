@@ -41,6 +41,7 @@ coverage = analyze(
     limits=None,             # JointLimits; default: the first trajectory's .limits; a joint with no bound -> data span
     planner_limits=None,     # JointLimits drawn dashed (the planner's / software bound), or None
     tags=None,               # Mapping[name, Mapping[str, str | float]] per trajectory (split, kind, rung ...)
+    speed_scales=None,       # Mapping[name, float] of recorded nominal speed fractions in (0, 1]
     group_by=None,           # a tag name: 1-D histograms are also split by its values (legend says so)
     title="", subtitle="",
     prismatic=(),            # joint names shown in mm (default: every joint revolute, shown in deg)
@@ -131,6 +132,9 @@ parallel          {signal: {"axes": [joint names], "height": 128, "width": 48,
 trajectories      [{"name", "tags": {..}, "duration_s", "samples",
                     "span_pct": {joint: {signal: float}},          # this trajectory's own span_pct
                     "new_cells": int}]                             # q_qd cells (all joints) it was first to visit
+                  # Recorded scales add speed_scale, speed_scale_low, speed_scale_high and speed_scale_motion_s.
+speed_scale       null | {"known": int, "missing": int,
+                          "bins": [{"low": float, "high": float, "count": int, "motion_s": float}]}  # ten bins
 growth            {"visited_pct": [float per trajectory added, in order],
                    "shuffled": {"mean": [...], "p10": [...], "p90": [...]}}   # 32 shuffles, seed 0
 
@@ -247,6 +251,14 @@ write_workbench(coverage, trajectories, out, tool=poses, title="UR5e", rrd_for=l
   each coverage figure's drawn samples equal `parts.json` summed over them (Zach, 2026-11-24, on this view: "it lets use
   filter specifically and then see the anlaysis on all of the views"). The panels come from the `.base`, so a new tab is
   held without editing the test; run it with `TRAJ_COMPARE_REQUIRE_BROWSER=1` to fail, not skip, without Chrome.
+- Pass `speed_scales` to enable **Trajectory speed scale** (`#tab=trajectory-speed-scale`). Supply the planner-recorded
+  nominal speed fraction for each trajectory with known timing provenance. A scale of 1.0 is the maximum feasible
+  planned speed for that path under its planner constraints. The Limits plots measure instantaneous joint samples.
+  The speed-scale charts use the same retained trajectories as the other workbench tabs. They count each tape once
+  and sum planned moving time in separate charts. Moving time is the sum of tape intervals with finite joint
+  positions and at least one changing joint. Each bin includes its upper edge and excludes its lower edge. The axis
+  spans 0 to 1, with the first bin ending at 0.1. Omit unknown names, or pass an empty mapping to show that the
+  distribution has no recorded scales.
 - Files: `trajectories.json` (one row per trajectory: name, every tag, `rrd`, duration, samples, new cells, each joint's
   range used, the tool's path length, top speed and largest tilt), `parts.json` (one row per trajectory × figure; a big grid
   is sparse, `at` + `samples`), `coverage.base`, `index.html`, `embed.html` (the page in a host app's 1000 × 680 slot),

@@ -62,6 +62,7 @@ FACES = {"xy": "from above", "xz": "from the front", "yz": "from the side"}
 LABELS = {"dataset": "Dataset", "split": "Split", "kind": "Kind", "tags": "Tags", "rung": "Speed rung"}
 SPLIT_ORDER = ("dev", "holdout")
 SPLIT_SLOTS = (5, 4, 6)  # pink, amber, dark green: data-ui series slots the datasets reach last; never 8 (red)
+SPEED_SCALE_FIELDS = ("speed_scale", "speed_scale_low", "speed_scale_high", "speed_scale_motion_s")
 
 
 # ── the rows ────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -101,6 +102,8 @@ def workbench_rows(coverage, trajectories, *, tool=None,
         if rrd is not None and rrd(name):
             row["rrd"] = rrd(name)  # WHY only when it exists: a row with no file must not offer an empty Rerun link
         row.update(duration_s=source["duration_s"], samples=source["samples"], new_cells=source["new_cells"])
+        if payload.get("speed_scale") is not None:
+            row.update({field: source.get(field) for field in SPEED_SCALE_FIELDS})
         for joint in joints:
             row[f"q_range_{joint['name']}_pct"] = source["span_pct"][joint["name"]]["q"]
         trajectory_rows.append(row)
@@ -416,6 +419,13 @@ def _trajectory_properties(payload: Mapping, rows: list[dict], labels: Mapping[s
         "new_cells": {"type": "number", "label": "New cells",
                       "description": "position × speed cells (every joint) it was the first to visit, in analyze()'s order"},
     })
+    if payload.get("speed_scale") is not None:
+        properties.update({
+            "speed_scale": {"type": "number", "label": "Speed scale", "decimals": 3},
+            "speed_scale_low": {"type": "number", "hidden": True},
+            "speed_scale_high": {"type": "number", "hidden": True},
+            "speed_scale_motion_s": {"type": "number", "label": "Planned motion", "unitText": "s", "decimals": 2},
+        })
     for joint in payload["joints"]:
         properties[f"q_range_{joint['name']}_pct"] = {
             "type": "number", "label": f"{joint['name']} range used", "unitText": "%", "decimals": 1,
@@ -532,7 +542,7 @@ def _base(payload: Mapping, rows: list[dict], *, title: str, dataset: str, facet
                         "title": f"For a Rerun {RERUN_SDK_VERSION} viewer: uvx --from rerun-sdk=={RERUN_SDK_VERSION} rerun <file>"})
     actions.append({"label": "Copy its name", "copy": "{name}", "title": "Copies {name}"})
 
-    pages = _pages(joints, tool)
+    pages = _pages(joints, tool, speed_scale=payload.get("speed_scale") is not None)
     views = _views(payload, rows, dataset=dataset, facets=facets, tool=tool)
     return {
         "data": "trajectories.json",
@@ -553,7 +563,7 @@ def _page(name: str, panels: list[dict], **extra) -> dict:
     return {"name": name, **extra, "layout": {"columns": 12, "rowHeight": 96, "panels": panels}}
 
 
-def _pages(joints: list[str], tool: bool) -> list[dict]:
+def _pages(joints: list[str], tool: bool, *, speed_scale: bool) -> list[dict]:
     # WHY this order: the grid fills row by row, so the right column (count chart, then the tool from above) runs as
     # tall as the joint grids beside it, and the second row pairs the limits with the pointing disk
     overview = [
@@ -588,6 +598,11 @@ def _pages(joints: list[str], tool: bool) -> list[dict]:
                 {"view": "Tilt × yaw", "w": 12, "h": 4},
             ]),
         ]
+    if speed_scale:
+        pages.append(_page("Trajectory speed scale", [
+            {"view": "Trajectories by speed scale", "w": 12, "h": 3},
+            {"view": "Planned motion time by speed scale", "w": 12, "h": 3},
+        ]))
     pages.append(_page("Trajectories", [{"view": "Trajectories", "w": 12, "h": 6, "style": {"title": "none"}}]))
     return pages
 
@@ -598,6 +613,42 @@ def _parts_view(kind: str, name: str, filters: str, coverage: dict | None = None
         view["sort"] = [{"property": key, "direction": "ASC"} for key in sort]
     view["coverage"] = {"sum": "grid", **(coverage or {})}
     return view
+
+
+def _speed_scale_view(name: str, *, motion_time: bool = False) -> dict:
+    total = {"op": "sum", "field": "speed_scale_motion_s"} if motion_time else {"op": "count"}
+    axis = {"title": "Fraction of maximum feasible speed", "values": list(cov.SPEED_SCALE_EDGES),
+            "format": ".1f", "labelOverlap": False}
+    scale = {"domain": [0, 1], "nice": False}
+    return {"type": "chart", "name": name, "chart": {"layer": [
+        {
+            # WHY pre-bin in analysis: both the JSON summary and scoped chart use the same upper-inclusive bins,
+            # and data-ui leaves missing scales available for the status layer.
+            "transform": [{"filter": "isValid(datum.speed_scale)"},
+                          {"aggregate": [{**total, "as": "bin_total"}],
+                           "groupby": ["speed_scale_low", "speed_scale_high"]}],
+            "mark": {"type": "bar", "binSpacing": 2, "cornerRadiusEnd": 0},
+            "encoding": {
+                "x": {"field": "speed_scale_low", "type": "quantitative", "bin": {"binned": True, "step": 0.1},
+                      "scale": scale, "axis": axis},
+                "x2": {"field": "speed_scale_high"},
+                "y": {"field": "bin_total", "type": "quantitative", "stack": None,
+                      "title": "Planned motion (s)" if motion_time else "Trajectories",
+                      **({} if motion_time else {"axis": {"tickMinStep": 1}})},
+            },
+        },
+        {
+            "transform": [{"aggregate": [{"op": "valid", "field": "speed_scale", "as": "known"},
+                                         {"op": "count", "as": "selected"}]},
+                          {"filter": "datum.known == 0 || datum.known < datum.selected"},
+                          {"calculate": "datum.known == 0 ? 'No recorded speed scales in this selection' : "
+                                        "(datum.selected - datum.known) + ' without a recorded speed scale'",
+                           "as": "coverage_label"}],
+            "mark": {"type": "text", "baseline": "bottom"},
+            "encoding": {"x": {"datum": 0.5, "type": "quantitative", "scale": scale},
+                         "y": {"value": -4}, "text": {"field": "coverage_label", "type": "nominal"}},
+        },
+    ]}}
 
 
 def _views(payload: Mapping, rows: list[dict], *, dataset: str, facets: Sequence[str], tool: bool) -> list[dict]:
@@ -630,11 +681,15 @@ def _views(payload: Mapping, rows: list[dict], *, dataset: str, facets: Sequence
             _parts_view("coverage-plane", "Every direction, equal area", 'kind == "sphere"'),
             _parts_view("coverage-plane", "Tilt × yaw", 'kind == "tilt_yaw"'),
         ]
+    if payload.get("speed_scale") is not None:
+        views += [_speed_scale_view("Trajectories by speed scale"),
+                  _speed_scale_view("Planned motion time by speed scale", motion_time=True)]
     present = {key for row in rows for key in row}
     # the table: the name, the rail's tags, the numbers, then every other tag (a speed rung, a belt speed): one row
     # per trajectory as the hand-rolled page's trajectory table, the columns the rail filters on first
     tag_keys = [key for row in payload["trajectories"] for key in row["tags"]]
-    order = [key for key in ("name", dataset, *facets, "duration_s", "samples", "new_cells", "tool_path_m",
+    order = [key for key in ("name", dataset, *facets, "speed_scale", "duration_s", "speed_scale_motion_s",
+                             "samples", "new_cells", "tool_path_m",
                              "tool_speed_max_m_s", "tool_tilt_max_deg", *tag_keys) if key in present]
     display = {key: "badge" for key in (dataset, "split") if key in present}
     display["new_cells"] = "bar"

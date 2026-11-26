@@ -13,8 +13,10 @@ per pixel, tasks per cell).
 from __future__ import annotations
 
 import math
+from bisect import bisect_left
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from numbers import Real
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +68,7 @@ PARALLEL_SAMPLES_MAX = 50_000
 SHUFFLES = 32
 PIXEL_M, VOXEL_M = 0.02, 0.05
 SPEED_BINS = 60
+SPEED_SCALE_EDGES = tuple(index / 10 for index in range(11))
 TILT_GRID_BINS, AZIMUTH_BINS, TILT_BINS, YAW_BINS = 18, 36, 36, 72
 PROJECTIONS = {"xy": (0, 1), "xz": (0, 2), "yz": (1, 2)}
 
@@ -160,6 +163,7 @@ def analyze(
     limits: JointLimits | None = None,
     planner_limits: JointLimits | None = None,
     tags: Mapping[str, Mapping[str, Any]] | None = None,
+    speed_scales: Mapping[str, float] | None = None,
     group_by: str | None = None,
     title: str = "",
     subtitle: str = "",
@@ -168,7 +172,11 @@ def analyze(
     tool_reference=(0.0, 0.0, -1.0),
     enough: int = 10,
 ) -> TrajectoryCoverage:
-    """One trajectory or a dataset in, the coverage payload out (docs/COVERAGE.md)."""
+    """One trajectory or a dataset in, the coverage payload out (docs/COVERAGE.md).
+
+    `speed_scales` gives the recorded nominal fraction of each path's maximum feasible speed.
+    Omit individual names when their scale is unknown. An empty mapping requests an empty distribution.
+    """
     named = _named(trajectories, JointTrajectory, "trajectories")
     dataset = _stack(named, tags or {})
     joint_kinds = _joint_kinds(dataset.joint_names, prismatic)
@@ -184,6 +192,8 @@ def analyze(
     if tool is not None:
         tool_block, tool_extremes = _tool(_matched_tools(tool, named), reachable, tool_reference)
 
+    trajectory_rows = _trajectory_rows(dataset, bounds, new_cells)
+    speed_scale = _speed_scale(named, trajectory_rows, speed_scales) if speed_scales is not None else None
     payload = {
         "schema": SCHEMA,
         "title": str(title),
@@ -204,7 +214,8 @@ def analyze(
         "slabs": _slabs(dataset, bounds),
         "paths": _joint_paths(dataset, bounds),
         "parallel": _parallel(dataset, bounds),
-        "trajectories": _trajectory_rows(dataset, bounds, new_cells),
+        "trajectories": trajectory_rows,
+        "speed_scale": speed_scale,
         "growth": growth,
         "tool": tool_block,
     }
@@ -616,6 +627,38 @@ def _trajectory_rows(dataset: _Dataset, bounds, new_cells: np.ndarray) -> list[d
         rows.append({"name": name, "tags": dataset.tags[k], "duration_s": dataset.durations[k],
                      "samples": part.stop - part.start, "span_pct": spans, "new_cells": int(new_cells[k])})
     return rows
+
+
+def _speed_scale(named, rows: list[dict], scales: Mapping[str, float]) -> dict:
+    names = {name for name, _ in named}
+    unknown = scales.keys() - names
+    if unknown:
+        raise ValueError(f"speed_scales names unknown trajectories: {sorted(map(str, unknown))}")
+    if scales and len(names) != len(named):
+        raise ValueError("speed_scales requires unique trajectory names")
+    bins = [{"low": low, "high": high, "count": 0, "motion_s": 0.0}
+            for low, high in zip(SPEED_SCALE_EDGES[:-1], SPEED_SCALE_EDGES[1:], strict=True)]
+    missing = 0
+    for (name, trajectory), row in zip(named, rows, strict=True):
+        if name not in scales:
+            missing += 1
+            continue
+        value = scales[name]
+        if isinstance(value, bool) or not isinstance(value, Real) or not 0.0 < value <= 1.0 or float(value) == 0.0:
+            raise ValueError(f"speed_scales[{name!r}] must be a finite real fraction in (0, 1], got {value!r}")
+        scale = float(value)
+        bucket = bins[bisect_left(SPEED_SCALE_EDGES, scale) - 1]
+        # WHY the positions: on the stock linear reference, a segment moves exactly when its finite endpoints
+        # differ. The tape clock then counts the whole segment and leaves authored dwells out of motion time.
+        positions = np.asarray(trajectory.positions, float)
+        moving = (np.isfinite(positions[:-1]).all(axis=1) & np.isfinite(positions[1:]).all(axis=1)
+                  & (positions[1:] != positions[:-1]).any(axis=1))
+        motion_s = float(np.diff(trajectory.t)[moving].sum())
+        row.update(speed_scale=scale, speed_scale_low=bucket["low"], speed_scale_high=bucket["high"],
+                   speed_scale_motion_s=motion_s)
+        bucket["count"] += 1
+        bucket["motion_s"] += motion_s
+    return {"bins": bins, "known": len(rows) - missing, "missing": missing}
 
 
 def _growth(keys: np.ndarray, trajectories: int, cells: int) -> tuple[dict, np.ndarray]:
