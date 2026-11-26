@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Coverage torque and jerk</title>
+<style>
+:root{--bg:#fff;--fg:#1d1d1f;--mute:#666;--line:#e3e3e3}
+@media (prefers-color-scheme:dark){:root{--bg:#161616;--fg:#eee;--mute:#aaa;--line:#333}}
+body{background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif;max-width:1180px;margin:0 auto;padding:24px 16px}
+h1{font-size:22px;margin:0 0 4px} h2{font-size:17px;margin:28px 0 8px} .mute{color:var(--mute)}
+img{max-width:100%;border:1px solid var(--line);border-radius:6px;background:#fff}
+code{font-size:13px} li{margin:3px 0}
+</style></head><body>
+<h1>Trajectory coverage: recorded torque + computed jerk</h1>
+<p class="mute">traj_compare <code>main</code> @ <code>1b8da30</code> (da37551 + 1b8da30) · 2026-11-26 · verified on 150 BAM FB workspace-v2 trajectories (96 recorded MuJoCo sim runs with torque + 54 planned tapes)</p>
+
+<h2>What is now true</h2>
+<ul>
+<li><b>Torque (tau)</b> appears automatically when any trajectory carries <code>JointTrajectory.effort</code>; runs without it add no samples (never zero-filled). Limit = <code>max_effort</code> (hatched), controller cap dashed.</li>
+<li><b>Jerk (qddd)</b> is always computed (robot_msgs has no jerk field) and labelled <i>jerk (computed)</i>; speed/accel say <i>(partly computed)</i> when some runs lacked them. Payload field <code>signal_source</code> records which.</li>
+<li>Workbench Limits tab shows all five signals; Trajectories table has a <b>Peak torque</b> column; standalone page, Matplotlib limit bars and the no-robot Rerun export carry them too.</li>
+<li>5 new tests (failing-first) + full suite green, run file-by-file (RAM pressure from peer sims OOM-killed one full run).</li>
+</ul>
+
+<h2>Limits tab — j1/j2 with jerk and torque</h2>
+<img src="media/coverage-recorded-torque-shots/limits_crop.png" alt="Limits tab crop">
+<h2>Trajectories table — Peak torque column</h2>
+<img src="media/coverage-recorded-torque-shots/trajectories.png" alt="Trajectories tab">
+<h2>Overview</h2>
+<img src="media/coverage-recorded-torque-shots/overview.png" alt="Overview tab">
+<h2>Standalone page</h2>
+<img src="media/coverage-recorded-torque-shots/page-limits-crop.png" alt="Standalone page limits">
+
+<h2>Left / not done</h2>
+<ul>
+<li><b>0.1→1 speed sweep</b>: the warm-up agent is generating it (JointTrajectory with measured velocities, moteus torque, speed_scales). Every existing trace is at 1.0, so the speed-scale view will light up only once that lands.</li>
+<li>No hardware recording with torque exists yet; this check used sim traces.</li>
+<li>Robot-mode Rerun records use robot_msgs' stock viewer: jerk yes, torque not yet (left robot_msgs alone).</li>
+<li>data-ui label-wrap fix is on its local <code>main</code> (44da05ca, fbbee9dc) — that repo has no upstream, so not pushed.</li>
+</ul>
+</body></html>
