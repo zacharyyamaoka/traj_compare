@@ -63,6 +63,14 @@ coverage.log_wandb(run)      # -> dict of what was logged (calls log_coverage)
   central differences inside, a plain one-sided difference at each end (numpy's second-order edge stencil invents
   overshoot at sample 0 — tests/test_coverage_edges.py). The tool speed uses the same rule. SI everywhere inside; degrees and mm only in viewers (payload carries `display.scale/unit`).
 - All trajectories must share `joint_names` (else `ValueError` naming the first mismatch).
+- **Effort and provenance** (Zach, 2026-11-26: "if it has the information than you can display it... if it doesn't then
+  there should be an option to calculate and display"). A trajectory's recorded `effort` (N·m, or N on a prismatic
+  joint) becomes a fifth signal, `tau`, binned like the others against `JointLimits.max_effort` (±), else its data.
+  `tau` is in `signals` only when at least one trajectory recorded effort; one without it adds **no** torque samples
+  (NaN inside, never zero), its `span_pct` for `tau` is null and its `tau_peak_pct` is null. Nothing is ever computed
+  for `tau` (no dynamics model here). `signal_source` says, per signal, whether the dataset `recorded` it, the analysis
+  `computed` it (a slope) or it is `mixed`; `qddd` is always `computed` (robot_msgs has no jerk field), so every viewer
+  labels it "jerk (computed)". A dataset with no effort has exactly the payload it had before, plus `signal_source`.
 - `python -m traj_compare.coverage <file.npz|dir ...> --out <dir> [--tool <file.npz|dir ...>] [--title T]` reads robot_msgs
   `.npz` messages (`robot_msgs._core.load_npz`) and writes `<dir>/index.html` + `<dir>/coverage.json`.
 
@@ -82,11 +90,17 @@ enough            int                                       the `enough` thresho
 source            {"trajectories": int, "samples": int, "duration_s": float, "rate_hz": float | null,
                    "group_by": str | null, "groups": [str, ...]}
 joints            [{"name", "kind": "revolute"|"prismatic", "display": {"scale": 57.29.. | 1000, "unit": "deg"|"mm"}}]
-signals           ["q", "qd", "qdd", "qddd"]
+signals           ["q", "qd", "qdd", "qddd"] (+ "tau" when any trajectory recorded effort)
+signal_source     {"q": "recorded", "qd" | "qdd": "recorded"|"computed"|"mixed", "qddd": "computed",
+                   "tau": "recorded"|"mixed"}       # mixed: some trajectories gave it, the rest did not
 units             {"q": "rad"|"m", ...} per joint kind -> keyed "revolute"/"prismatic": {"q": "rad", "qd": "rad/s", ...}
+                  (+ "tau": "N·m" | "N")
+signal_display    {"tau": {"revolute": {"scale": 1, "unit": "N·m"}, "prismatic": {"scale": 1, "unit": "N"}}}
+                  only when tau is present: a viewer draws tau at its own scale, never the joint's degrees
 
 limits            {joint: {signal: {"low", "high", "source": "limit"|"data", "kind": "physical"|"software"|null}}}
-                  q: [min_position, max_position]; qd/qdd/qddd: [-max_*, +max_*]; no bound -> the data's p0.1..p99.9
+                  q: [min_position, max_position]; qd/qdd/qddd: [-max_*, +max_*]; tau: [-max_effort, +max_effort];
+                  no bound -> the data's p0.1..p99.9
                   widened x1.15 with source "data" (a viewer says "no limit stated")
 planner_limits    same shape (only the signals given) or null
 
@@ -131,7 +145,10 @@ parallel          {signal: {"axes": [joint names], "height": 128, "width": 48,
 
 trajectories      [{"name", "tags": {..}, "duration_s", "samples",
                     "span_pct": {joint: {signal: float}},          # this trajectory's own span_pct
-                    "new_cells": int}]                             # q_qd cells (all joints) it was first to visit
+                    "new_cells": int,                              # q_qd cells (all joints) it was first to visit
+                    "tau_peak": {joint: N·m | null},                # with tau only: its largest |effort| per joint,
+                    "tau_peak_joint_pct": {joint: % | null},        #   the same as a share of max(|low|, |high|),
+                    "tau_peak_pct": % | null}]                      #   and the hardest joint's share (null: no effort)
                   # Recorded scales add speed_scale, speed_scale_low, speed_scale_high and speed_scale_motion_s.
 speed_scale       null | {"known": int, "missing": int,
                           "bins": [{"low": float, "high": float, "count": int, "motion_s": float}]}  # ten bins
@@ -170,7 +187,7 @@ numbers           [{"key", "label", "value": float, "unit": str}]   # headline s
 
 Headline `numbers` keys (always present; tool ones only with `tool`):
 `trajectories`, `samples`, `duration_s`, `q_span_median_pct`, `q_span_min_pct`, `qd_peak_max_pct`,
-`qdd_peak_max_pct`, `q_qd_visited_mean_pct`, `qd_qdd_visited_mean_pct`; with tool: `tool_pixels_xy`,
+`qdd_peak_max_pct`, `q_qd_visited_mean_pct`, `qd_qdd_visited_mean_pct`; with tau: `tau_peak_max_pct`; with tool: `tool_pixels_xy`,
 `tool_voxels_visited`, `tool_voxels_reachable_pct` (only with `reachable`), `tool_speed_p99_m_s`,
 `tool_directions_visited_pct`, `tool_tilt_max_deg`.
 

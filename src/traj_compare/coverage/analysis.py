@@ -45,12 +45,20 @@ _decimals = bins.decimals
 
 SCHEMA = "traj_compare.coverage/1"
 SIGNALS = ("q", "qd", "qdd", "qddd")
-MAGNITUDE_LIMITS = {"qd": "max_velocity", "qdd": "max_acceleration", "qddd": "max_jerk"}
+# WHY an optional fifth signal (Zach, 2026-11-26: "it may be useful to see like the torque information of the
+# trajectories ... planned trajectories don't have. ... if it has the information than you can display it"): the
+# recorded effort (JointTrajectory.effort), binned like the others, and in payload["signals"] only when some trajectory
+# recorded it, so a planned-only dataset's payload is exactly what it was
+EFFORT = "tau"
+MAGNITUDE_LIMITS = {"qd": "max_velocity", "qdd": "max_acceleration", "qddd": "max_jerk", EFFORT: "max_effort"}
 UNITS = {
     "revolute": {"q": "rad", "qd": "rad/s", "qdd": "rad/s^2", "qddd": "rad/s^3"},
     "prismatic": {"q": "m", "qd": "m/s", "qdd": "m/s^2", "qddd": "m/s^3"},
 }
+EFFORT_UNITS = {"revolute": "N·m", "prismatic": "N"}
 DISPLAY = {"revolute": {"scale": 180.0 / math.pi, "unit": "deg"}, "prismatic": {"scale": 1000.0, "unit": "mm"}}
+# WHY effort keeps its own display (scale 1): degrees are the joint's position unit, never a torque's
+EFFORT_DISPLAY = {kind: {"scale": 1.0, "unit": unit} for kind, unit in EFFORT_UNITS.items()}
 
 DATA_PERCENTILES = (0.1, 99.9)
 DATA_WIDEN = 1.15  # a signal with no stated limit spans its data's p0.1..p99.9, widened this much
@@ -139,11 +147,16 @@ class _Dataset:
     names: list[str]
     tags: list[dict]
     joint_names: tuple[str, ...]
-    signals: dict[str, np.ndarray]
+    signals: dict[str, np.ndarray]  # SIGNALS, plus EFFORT (NaN rows for a trajectory without effort) when any has one
     owner: np.ndarray
     starts: np.ndarray  # (T + 1,) sample offsets: trajectory k is starts[k]:starts[k + 1]
     durations: list[float]
     rate_hz: float | None
+    signal_source: dict[str, str]  # per signal: "recorded" | "computed" | "mixed" (some trajectories each way)
+
+    @property
+    def signal_names(self) -> tuple[str, ...]:
+        return tuple(signal for signal in (*SIGNALS, EFFORT) if signal in self.signals)
 
     @property
     def count(self) -> int:
@@ -204,11 +217,12 @@ def analyze(
         "source": _source(dataset, group_by, group_names),
         "joints": [{"name": name, "kind": joint_kinds[name], "display": dict(DISPLAY[joint_kinds[name]])}
                    for name in dataset.joint_names],
-        "signals": list(SIGNALS),
-        "units": {kind: dict(units) for kind, units in UNITS.items()},
+        "signals": list(dataset.signal_names),
+        "signal_source": dict(dataset.signal_source),
+        "units": _units(dataset),
         "limits": {joint: {signal: bound.as_dict() for signal, bound in by_signal.items()}
                    for joint, by_signal in bounds.items()},
-        "planner_limits": _planner_limits(planner_limits, dataset.joint_names),
+        "planner_limits": _planner_limits(planner_limits, dataset.joint_names, dataset.signal_names),
         "hist": hist,
         "planes": planes,
         "slabs": _slabs(dataset, bounds),
@@ -219,6 +233,8 @@ def analyze(
         "growth": growth,
         "tool": tool_block,
     }
+    if EFFORT in dataset.signals:
+        payload["signal_display"] = {EFFORT: {kind: dict(display) for kind, display in EFFORT_DISPLAY.items()}}
     payload["numbers"] = _headline_numbers(payload, tool_extremes)
     return TrajectoryCoverage(payload, {row["key"]: row["value"] for row in payload["numbers"]})
 
@@ -244,14 +260,18 @@ def _named(items, message_type: type, what: str) -> list[tuple[str, Any]]:
 
 def _stack(named: list[tuple[str, JointTrajectory]], tags: Mapping[str, Mapping[str, Any]]) -> _Dataset:
     joint_names = named[0][1].joint_names
-    parts: dict[str, list[np.ndarray]] = {signal: [] for signal in SIGNALS}
+    parts: dict[str, list[np.ndarray]] = {signal: [] for signal in (*SIGNALS, EFFORT)}
     lengths, durations, rates = [], [], []
+    given = {"qd": 0, "qdd": 0, EFFORT: 0}
     for name, trajectory in named:
         if trajectory.joint_names != joint_names:
             raise ValueError(f"trajectory {name!r} has joints {trajectory.joint_names}, the first has {joint_names}: "
                              "every trajectory must share joint names")
-        for signal, values in zip(SIGNALS, _signals(trajectory), strict=True):
+        for signal, values in trajectory_signals(trajectory).items():
             parts[signal].append(values)
+        given["qd"] += trajectory.velocities is not None
+        given["qdd"] += trajectory.accelerations is not None
+        given[EFFORT] += trajectory.effort is not None
         t = np.asarray(trajectory.t, float)
         lengths.append(len(t))
         durations.append(float(t[-1] - t[0]) if len(t) else 0.0)
@@ -260,6 +280,13 @@ def _stack(named: list[tuple[str, JointTrajectory]], tags: Mapping[str, Mapping[
         if steps.size:
             rates.append(1.0 / float(np.median(steps)))
     starts = np.concatenate([[0], np.cumsum(lengths)]).astype(np.int64)
+    if not given[EFFORT]:
+        del parts[EFFORT]
+    count = len(named)
+    source = {"q": "recorded", "qd": _provenance(given["qd"], count), "qdd": _provenance(given["qdd"], count),
+              "qddd": "computed"}
+    if given[EFFORT]:
+        source[EFFORT] = _provenance(given[EFFORT], count)
     return _Dataset(
         names=[name for name, _ in named],
         tags=[_plain_tags(tags.get(name, {})) for name, _ in named],
@@ -270,7 +297,33 @@ def _stack(named: list[tuple[str, JointTrajectory]], tags: Mapping[str, Mapping[
         starts=starts,
         durations=durations,
         rate_hz=float(np.median(rates)) if rates else None,
+        signal_source=source,
     )
+
+
+def _provenance(given: int, count: int) -> str:
+    """WHY said per signal (Zach, 2026-11-26: "if it doesn't then there should be an option to calculate and display
+    the information"): a computed jerk (robot_msgs has no jerk field) or a slope-derived qd/qdd is shown, and labelled
+    as computed, so it is never read as a measurement."""
+    return "recorded" if given == count else "computed" if given == 0 else "mixed"
+
+
+def trajectory_signals(trajectory: JointTrajectory) -> dict[str, np.ndarray]:
+    """q, qd, qdd, qddd (`_signals`) and the effort, (N, J) each: the trajectory's own `effort`, else NaN (a trajectory
+    that recorded none contributes no torque samples; NaN is never binned)."""
+    signals = dict(zip(SIGNALS, _signals(trajectory), strict=True))
+    positions = signals["q"]
+    signals[EFFORT] = (np.full(positions.shape, np.nan) if trajectory.effort is None
+                       else np.asarray(trajectory.effort, float).reshape(positions.shape))
+    return signals
+
+
+def _units(dataset: _Dataset) -> dict:
+    units = {kind: dict(by_signal) for kind, by_signal in UNITS.items()}
+    if EFFORT in dataset.signals:
+        for kind, unit in EFFORT_UNITS.items():
+            units[kind][EFFORT] = unit
+    return units
 
 
 def _slope(values: np.ndarray, t: np.ndarray) -> np.ndarray:
@@ -356,7 +409,7 @@ def _bounds(limits: JointLimits | None, dataset: _Dataset) -> dict[str, dict[str
     for j, joint in enumerate(dataset.joint_names):
         stated = _stated_bounds(limits, joint)
         bounds[joint] = {signal: stated.get(signal) or _data_bound(dataset.signals[signal][:, j])
-                         for signal in SIGNALS}
+                         for signal in dataset.signal_names}
     return bounds
 
 
@@ -389,10 +442,12 @@ def _data_bound(values: np.ndarray) -> _Bound:
     return _Bound(float(centre - half), float(centre + half), "data")
 
 
-def _planner_limits(planner: JointLimits | None, joint_names: tuple[str, ...]) -> dict | None:
+def _planner_limits(planner: JointLimits | None, joint_names: tuple[str, ...],
+                    signals: tuple[str, ...] = SIGNALS) -> dict | None:
     if planner is None:
         return None
-    return {joint: {signal: bound.as_dict() for signal, bound in _stated_bounds(planner, joint).items()}
+    return {joint: {signal: bound.as_dict() for signal, bound in _stated_bounds(planner, joint).items()
+                    if signal in signals}
             for joint in joint_names}
 
 
@@ -419,7 +474,7 @@ def _cells(plane: str) -> int:
 def _histograms(dataset: _Dataset, bounds, group_names: list[str], group_of_sample: np.ndarray | None) -> dict:
     return {joint: {signal: _histogram(dataset.signals[signal][:, j], bounds[joint][signal], signal, group_names,
                                        group_of_sample)
-                    for signal in SIGNALS}
+                    for signal in dataset.signal_names}
             for j, joint in enumerate(dataset.joint_names)}
 
 
@@ -616,7 +671,7 @@ def _trajectory_rows(dataset: _Dataset, bounds, new_cells: np.ndarray) -> list[d
         spans = {}
         for j, joint in enumerate(dataset.joint_names):
             spans[joint] = {}
-            for signal in SIGNALS:
+            for signal in dataset.signal_names:
                 values = dataset.signals[signal][part, j]
                 finite = values[np.isfinite(values)]
                 if finite.size:
@@ -624,9 +679,26 @@ def _trajectory_rows(dataset: _Dataset, bounds, new_cells: np.ndarray) -> list[d
                     spans[joint][signal] = round(_span_pct(p_low, p_high, bounds[joint][signal]), 3)
                 else:
                     spans[joint][signal] = None
-        rows.append({"name": name, "tags": dataset.tags[k], "duration_s": dataset.durations[k],
-                     "samples": part.stop - part.start, "span_pct": spans, "new_cells": int(new_cells[k])})
+        row = {"name": name, "tags": dataset.tags[k], "duration_s": dataset.durations[k],
+               "samples": part.stop - part.start, "span_pct": spans, "new_cells": int(new_cells[k])}
+        if EFFORT in dataset.signals:
+            row.update(_effort_peaks(dataset.signals[EFFORT][part], dataset.joint_names, bounds))
+        rows.append(row)
     return rows
+
+
+def _effort_peaks(effort: np.ndarray, joint_names: tuple[str, ...], bounds) -> dict:
+    """This trajectory's largest |effort| per joint (SI), the same as a share of the joint's effort bound, and the
+    hardest joint's share (`tau_peak_pct`, None when it recorded no effort): the table column to sort by."""
+    peaks, shares = {}, {}
+    for j, joint in enumerate(joint_names):
+        finite = np.abs(effort[:, j][np.isfinite(effort[:, j])])
+        bound = bounds[joint][EFFORT]
+        peak = float(finite.max()) if finite.size else None
+        peaks[joint] = None if peak is None else round(peak, 6)
+        shares[joint] = None if peak is None else round(100.0 * peak / max(abs(bound.low), abs(bound.high)), 3)
+    known = [share for share in shares.values() if share is not None]
+    return {"tau_peak": peaks, "tau_peak_joint_pct": shares, "tau_peak_pct": max(known) if known else None}
 
 
 def _speed_scale(named, rows: list[dict], scales: Mapping[str, float]) -> dict:
@@ -915,6 +987,9 @@ def _headline_numbers(payload: dict, tool_extremes: dict[str, float]) -> list[di
         ("qd_qdd_visited_mean_pct", "Speed x acceleration cells visited (mean over joints)",
          over_joints(np.mean, lambda joint: planes[joint]["qd_qdd"]["visited_pct"]), "%"),
     ]
+    if EFFORT in payload["signals"]:
+        rows.append(("tau_peak_max_pct", "Peak torque, hardest joint (% of its limit)",
+                     over_joints(max, lambda joint: hist[joint][EFFORT]["peak_pct"]), "%"))
     if payload["tool"] is not None:
         rows += _tool_numbers(payload["tool"], tool_extremes)
     return [{"key": key, "label": label, "value": _finite(value), "unit": unit} for key, label, value, unit in rows]
