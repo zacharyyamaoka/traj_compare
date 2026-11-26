@@ -11,7 +11,9 @@ arm_motion_bench agent writes one site per robot and should not need one server 
 which is what the report's "Open in Rerun" button calls. WHY an endpoint and not a custom URL
 scheme: a browser page cannot start a process, and a registered ``rerun://`` handler would be one
 more thing to install per machine; this is the same ``uvx`` command the "Copy command" button
-shows, started for you. Standard library only.
+shows, started for you. A report can also post ``?report=<relative HTML>&comparison=<index>``.
+The server reads that report's embedded data, builds a missing recording and opens it. Standard
+library only until a recording needs to be built.
 
 Two more for the runs workbench's target view (``traj_compare.runs_workbench``, docs/RUNS_WORKBENCH.md), each posted to
 ``<page dir>/<endpoint>`` with ``{"runs": [{"folder", "series", "label"?, "color"?}]}`` (folders relative to that page
@@ -312,6 +314,32 @@ def make_handler(
             href = "/" + quote((folder / "report.html").relative_to(root).as_posix())
             self._json(200, {"ok": True, "n": len(picks), "href": href})
 
+        def _open_report(self, query: dict[str, list[str]]) -> None:
+            from .rerun_report import report_recording
+
+            requested = query["report"][0]
+            if requested.startswith(("/", "\\")) or PurePosixPath(requested).is_absolute():
+                raise ValueError("report must be relative to the served root")
+            path = (root / requested).resolve()
+            if not path.is_relative_to(root):
+                raise PermissionError("report is outside the served root")
+            if path.is_dir():
+                # HTTP directory URLs normally serve index.html. A direct
+                # comparison folder can instead contain only report.html.
+                index_page = path / "index.html"
+                path = index_page if index_page.is_file() else path / "report.html"
+            index = int((query.get("comparison") or ["0"])[0])
+            layout = (query.get("layout") or [None])[0]
+            with build_lock:
+                recording = report_recording(path, index, root=root, layout=layout)
+            command = viewer_command(recording, layout)
+            try:
+                spawn(viewer_argv(recording, layout))
+            except OSError as error:
+                self._json(500, {"ok": False, "error": f"could not start the viewer ({error})", "command": command})
+                return
+            self._json(200, {"ok": True, "command": command})
+
         def do_POST(self) -> None:  # noqa: N802
             parts = urlsplit(self.path)
             selection = _endpoint_dir(parts.path, SELECTION_ENDPOINT)
@@ -339,7 +367,20 @@ def make_handler(
                 except Exception as error:  # noqa: BLE001 - the page says why, the server keeps running
                     self._json(500, {"ok": False, "error": f"{type(error).__name__}: {error}"})
                 return
-            requested = (parse_qs(parts.query).get("rrd") or [""])[0]
+            query = parse_qs(parts.query)
+            if "report" in query:
+                try:
+                    self._open_report(query)
+                except PermissionError as error:
+                    self._json(403, {"ok": False, "error": str(error)})
+                except FileNotFoundError as error:
+                    self._json(404, {"ok": False, "error": str(error)})
+                except (KeyError, TypeError, ValueError) as error:
+                    self._json(400, {"ok": False, "error": str(error)})
+                except Exception as error:  # noqa: BLE001 - the report gets the error
+                    self._json(500, {"ok": False, "error": str(error)})
+                return
+            requested = (query.get("rrd") or [""])[0]
             if not requested:
                 self._json(400, {"ok": False, "error": "missing ?rrd=<path relative to the served root>"})
                 return

@@ -31,6 +31,9 @@ dependencies = [
   "robot-msgs>=0.3.0",
 ]
 
+[project.scripts]
+traj-compare-rerun = "traj_compare.rerun_report:main"
+
 [project.urls]
 Homepage = "https://github.com/zacharyyamaoka/traj_compare"
 Repository = "https://github.com/zacharyyamaoka/traj_compare"

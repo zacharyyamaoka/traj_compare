@@ -221,6 +221,27 @@ def write_comparison_report(
     for comparison in comparisons:
         payload = analyze_comparison(comparison)
         _colorize(payload)
+        # A saved HTML can recreate its Rerun layout from the embedded signals.
+        # Keep native run bounds and limits, which downsampled plots cannot recover.
+        situations = [*comparison.situations, comparison.target]
+        payload["rerun_source"] = {
+            "path": str(report_path.resolve()),
+            "time_ranges": {item.name: [float(item.t[0]), float(item.t[-1])]
+                            for item in situations if item is not None and item.has_data},
+            "checks": dict(rerun_checks or {}),
+        }
+        source = payload["rerun_source"]
+        if comparison.tolerances is not None:
+            source["position_bands"] = {
+                phase: {joint.name: float(joint.position) for joint in getattr(comparison.tolerances, phase)
+                        if joint.position > 0}
+                for phase in ("path", "goal")
+            }
+        if comparison.tcp_tolerances is not None:
+            source["tcp_position_bands"] = {
+                phase: float(getattr(getattr(comparison.tcp_tolerances, phase), "position", 0) or 0)
+                for phase in ("path", "goal")
+            }
         if rerun:
             relative = f"rerun/{comparison.name}.rrd"
             view = view_of(comparison, checks=rerun_checks) if rerun_view == "auto" else rerun_view

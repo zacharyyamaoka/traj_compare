@@ -170,6 +170,41 @@ table.tc-metrics tr.tone-muted { color: #8a8983; }
                        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tc-plotcard .ptitle .unit { color: #8a8983; }
 .tc-plotcard .ptitle .pnote { color: #8a8983; font-style: italic; }
+.tc-plot-title-text { overflow: hidden; text-overflow: ellipsis; }
+.tc-timeline .tc-plot-title-text { overflow: visible; }
+.tc-plot-limits { display: inline-flex; align-items: center; gap: 5px; margin: 6px 0 2px;
+                  padding: 2px 7px; border: 1px solid currentColor; border-radius: 4px; font: inherit;
+                  color: inherit; background: transparent; cursor: pointer; }
+.tc-plot-limits::before, .tc-plot-trace-stroke { content: ''; display: inline-block;
+                                                width: 12px; border-top: 1.5px dashed currentColor; }
+.tc-plot-limits[aria-pressed="true"] { color: var(--tc-plot-selected-ink, #12385c);
+                                      background: var(--tc-plot-selected-bg, #e3f0ff); }
+.tc-plot-limits:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.tc-plot-trace-key { display: flex; flex-wrap: wrap; gap: 2px 9px; margin-top: 5px; white-space: normal; }
+.tc-plot-trace-key-item { display: inline-flex; gap: 4px; align-items: center; }
+.tc-plot-trace-stroke[data-style="solid"] { border-top-style: solid; }
+.tc-plot-trace-stroke[data-style="dotted"] { border-top-style: dotted; }
+.tc-plot-trace-stroke[data-style="long-dash"] { width: 17px; }
+.tc-plot-hover { position: absolute; z-index: 5; pointer-events: none; isolation: isolate;
+                 min-width: min(135px, 100%); max-width: min(270px, 100%);
+                 padding: 6px 8px; border: 1px solid var(--tc-plot-hover-edge, #d7d5d0); border-radius: 5px;
+                 background: var(--tc-plot-hover-bg, #fff); color: var(--tc-plot-hover-ink, #242321);
+                 box-shadow: 0 2px 7px #15181718; font-size: 11.5px; line-height: 1.35; }
+.tc-plot-hover-time { padding: 1px 0 4px; color: var(--tc-plot-hover-muted, #5e5d59); }
+.tc-plot-hover-more { padding-top: 3px; color: var(--tc-plot-hover-muted, #5e5d59); }
+.tc-plot-hover-row { display: grid; grid-template-columns: 7px minmax(0, 1fr) auto; align-items: center; gap: 5px; }
+.tc-plot-hover-row[data-tc-closest-trace] { font-weight: 650; }
+.tc-plot-hover-swatch { width: 6px; height: 6px; border-radius: 50%; }
+.tc-plot-hover-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tc-plot-hover-value { white-space: nowrap; font-variant-numeric: tabular-nums; }
+:root[data-theme="dark"] { --tc-plot-selected-ink: #d5e8ff; --tc-plot-selected-bg: #25415c;
+  --tc-plot-hover-bg: #252525; --tc-plot-hover-ink: #f2f2ef; --tc-plot-hover-edge: #626260;
+  --tc-plot-hover-muted: #c6c5c0; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --tc-plot-selected-ink: #d5e8ff; --tc-plot-selected-bg: #25415c;
+    --tc-plot-hover-bg: #252525; --tc-plot-hover-ink: #f2f2ef; --tc-plot-hover-edge: #626260;
+    --tc-plot-hover-muted: #c6c5c0; }
+}
 /* a channel's columns (NAVIGATION.md C1): auto-fit, so a 1-D channel's one plot takes the whole row */
 .tc-grid.tc-channel-grid { grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); }
 

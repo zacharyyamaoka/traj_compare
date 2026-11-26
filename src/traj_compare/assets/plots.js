@@ -77,12 +77,15 @@ var TrajCompare = (function () {
     angle: { angle: true, rad: 'rad', deg: '°' },
     angle_rate: { angle: true, rad: 'rad/s', deg: '°/s' },
     angle_acc: { angle: true, rad: 'rad/s²', deg: '°/s²' },
+    angle_jerk: { angle: true, rad: 'rad/s³', deg: '°/s³' },
     m: { label: 'm' },
     mm: { label: 'mm', scale: 1000 },
     ms: { label: 'ms', scale: 1000 },
     m_s: { label: 'm/s' },
     m_s2: { label: 'm/s²' },
+    m_s3: { label: 'm/s³' },
     Nm: { label: 'N·m' },
+    N: { label: 'N' },
     A: { label: 'A' },
     pct: { label: '%' },
     pct_s: { label: '%/s' },
@@ -472,7 +475,13 @@ var TrajCompare = (function () {
 
   function makeChart(page, card, spec) {
     var titleEl = el('div', 'ptitle', card);
+    var titleText = el('div', 'tc-plot-title-text', titleEl);
     var chartEl = el('div', '', card);
+    var limits = spec.limits || [];
+    var limitsOn = false;
+    var limitsToggle = null;
+    var hover = null;
+    var pointerOver = false;
 
     var panelEl = card.closest ? card.closest('[data-tc-panel]') : null;
     var chart = {
@@ -485,6 +494,18 @@ var TrajCompare = (function () {
     function seriesShown(entry) {
       if (!runShownIn(page, chart.tabId, entry.sit.name)) return false;
       return !entry.component || page.torqueOn[entry.component] !== false;
+    }
+
+    function limitShown(limit) {
+      return limitsOn && (!limit.owners || limit.owners.some(function (name) {
+        return runShownIn(page, chart.tabId, name);
+      }));
+    }
+
+    function refreshLimitVisibility() {
+      limits.forEach(function (limit, index) {
+        chart.u.setSeries(spec.series.length + index + 1, { show: limitShown(limit) });
+      });
     }
 
     function seriesOpts() {
@@ -520,13 +541,17 @@ var TrajCompare = (function () {
           return;
         }
         opts.push({
-          label: entry.sit.title,
+          label: entry.label || entry.sit.title,
           stroke: entry.sit.color,
           width: entry.sit.role === 'target' ? 1.4 : 1.7,
           dash: entry.sit.role === 'target' ? [7, 4] : undefined,
           points: { show: false },
           show: runShownIn(page, chart.tabId, entry.sit.name),
         });
+      });
+      limits.forEach(function (limit) {
+        opts.push({ label: limit.label, stroke: limit.color || ink('#6e706d'), width: 1.25,
+          dash: [6, 4], points: { show: false }, show: limitShown(limit) });
       });
       return opts;
     }
@@ -535,6 +560,10 @@ var TrajCompare = (function () {
       var columns = [page.data.plot_t];
       spec.series.forEach(function (entry) {
         columns.push(convert(spec.kind, entry.values));
+      });
+      limits.forEach(function (limit) {
+        var values = page.data.plot_t.map(function () { return limit.values; });
+        columns.push(convert(spec.kind, values));
       });
       return columns;
     }
@@ -552,12 +581,75 @@ var TrajCompare = (function () {
 
     function paintTitle() {
       var unit = unitText();
-      titleEl.innerHTML = '';
-      titleEl.appendChild(document.createTextNode(spec.title + (unit ? ' ' : '')));
-      if (unit) el('span', 'unit', titleEl, '[' + unit + ']');
-      if (spec.note) el('span', 'pnote', titleEl, ' · ' + spec.note);
+      titleText.textContent = spec.title + (unit ? ' ' : '');
+      if (unit) el('span', 'unit', titleText, '[' + unit + ']');
+      if (spec.note) el('span', 'pnote', titleText, ' · ' + spec.note);
       // WHY always (Zach's rule: never truncate a name silently): the title ellipsizes, the hover has it whole
-      titleEl.title = spec.title + (unit ? ' [' + unit + ']' : '') + (spec.note ? ' · ' + spec.note : '');
+      titleText.title = spec.title + (unit ? ' [' + unit + ']' : '') + (spec.note ? ' · ' + spec.note : '');
+    }
+
+    function hoverValue(value) {
+      return String(Number(value.toPrecision(7)));
+    }
+
+    function paintHover(u) {
+      var index = u.cursor.idx;
+      if (!hover || !pointerOver || page.scrubbing || index == null || u.cursor.left < 0 || u.cursor.top < 0) {
+        if (hover) hover.hidden = true;
+        return;
+      }
+      var nearby = [];
+      u.series.forEach(function (entry, column) {
+        if (!column || !entry.show) return;
+        var value = u.data[column][index];
+        if (!Number.isFinite(value)) return;
+        var stroke = entry.stroke;
+        nearby.push({ label: entry.label, value: value, stroke: typeof stroke === 'function' ? stroke(u, column) : stroke,
+          distance: Math.abs(u.valToPos(value, 'y') - u.cursor.top) });
+      });
+      hover.hidden = !nearby.length;
+      if (hover.hidden) return;
+      nearby.sort(function (left, right) { return left.distance - right.distance; });
+      hover.replaceChildren();
+      el('div', 'tc-plot-hover-time', hover, hoverValue(u.data[0][index]) + ' s');
+      var unit = unitText();
+      nearby.slice(0, 5).forEach(function (point, index) {
+        var row = el('div', 'tc-plot-hover-row', hover);
+        if (!index) row.dataset.tcClosestTrace = '';
+        var swatch = el('span', 'tc-plot-hover-swatch', row);
+        swatch.style.backgroundColor = point.stroke || 'currentColor';
+        el('span', 'tc-plot-hover-label', row, point.label).title = point.label;
+        el('span', 'tc-plot-hover-value', row, hoverValue(point.value) + (unit ? ' ' + unit : ''));
+      });
+      if (nearby.length > 5) el('div', 'tc-plot-hover-more', hover, '+' + (nearby.length - 5) + ' traces');
+      var x = u.cursor.left + 12;
+      if (x + hover.offsetWidth > u.over.clientWidth) x = u.cursor.left - hover.offsetWidth - 12;
+      var y = u.cursor.top + 10;
+      if (y + hover.offsetHeight > u.over.clientHeight) y = u.cursor.top - hover.offsetHeight - 10;
+      hover.style.left = Math.max(0, x) + 'px';
+      hover.style.top = Math.max(0, y) + 'px';
+    }
+
+    if (limits.length) {
+      limitsToggle = el('button', 'tc-plot-limits', titleEl, 'Limits');
+      limitsToggle.type = 'button';
+      limitsToggle.setAttribute('data-tc-plot-limits', '');
+      limitsToggle.setAttribute('aria-label', 'Limits for ' + spec.title);
+      limitsToggle.setAttribute('aria-pressed', 'false');
+      limitsToggle.onclick = function () {
+        limitsOn = !limitsOn;
+        limitsToggle.setAttribute('aria-pressed', String(limitsOn));
+        refreshLimitVisibility();
+      };
+    }
+    if (spec.traceKey && spec.traceKey.length > 1) {
+      var key = el('div', 'tc-plot-trace-key', titleEl);
+      spec.traceKey.forEach(function (entry) {
+        var item = el('span', 'tc-plot-trace-key-item', key);
+        var stroke = el('span', 'tc-plot-trace-stroke', item);
+        stroke.dataset.style = entry.line;
+        item.appendChild(document.createTextNode(entry.label));
+      });
     }
 
     chart.build = function () {
@@ -595,6 +687,7 @@ var TrajCompare = (function () {
             restoreCursors(page);
           }],
           setCursor: [function (u) {
+            paintHover(u);
             // hover preview for the 3D view; ignore our own programmatic sets
             if (page.cursorDriven || !page.transport) return;
             // WHY only with a pointer over a plot, and not while one drags (measured 2026-11-25): a chart built when
@@ -608,6 +701,17 @@ var TrajCompare = (function () {
         },
       };
       chart.u = new uPlot(opts, data(), chartEl);
+      hover = el('div', 'tc-plot-hover', chart.u.over);
+      hover.setAttribute('data-tc-plot-hover', '');
+      hover.hidden = true;
+      chart.u.over.addEventListener('pointerenter', function (event) {
+        pointerOver = event.pointerType !== 'touch';
+      });
+      chart.u.over.addEventListener('pointerleave', function () {
+        pointerOver = false;
+        hover.hidden = true;
+      });
+      chart.u.over.addEventListener('pointerdown', function () { hover.hidden = true; }, true);
       if (page.xZoom) chart.u.setScale('x', page.xZoom);
       attachTimeGestures(page, chart);
     };
@@ -620,6 +724,7 @@ var TrajCompare = (function () {
       if (keep) chart.u.setScale('x', keep);
       chart.u._tcReady = true;
       paintTitle();
+      paintHover(chart.u);
     };
 
     // A run's own trace and its Δ curve toggle independently — that is what
@@ -637,6 +742,7 @@ var TrajCompare = (function () {
       spec.series.forEach(function (entry, index) {
         if (entry.sit.name === name && !entry.error) chart.u.setSeries(index + 1, { show: seriesShown(entry) });
       });
+      if (limitsOn) refreshLimitVisibility();
     };
 
     // One torque component (target, commanded, feedforward, feedback, applied) on or off on this card.
@@ -969,19 +1075,99 @@ var TrajCompare = (function () {
     if (section.on && section.tab && section.tab.id === page.activeTab) view.build(page.part);
   }
 
-  function jointCard(page, host, sits, field, kind, titleSuffix, jointName, dof) {
-    var series = sits.map(function (sit) {
-      return { sit: sit, values: sit.plot[field][dof] };
+  var TORQUE_TRACES = [
+    { field: 'tau', label: 'Applied', line: 'solid' },
+    { field: 'tau_cmd', label: 'Commanded', line: 'dashed' },
+    { field: 'tau_gearbox', label: 'Gearbox load', line: 'dotted' },
+  ];
+
+  function torqueSeries(page, dof) {
+    var series = [];
+    TORQUE_TRACES.forEach(function (trace) {
+      sitsWith(page, trace.field).forEach(function (sit) {
+        if (trace.field === 'tau_cmd' && (sit.derived || []).indexOf('tau_cmd') !== -1) return;
+        var required = trace.field === 'tau' && sit.role === 'target' && !isRunReference(page.data);
+        var label = required ? 'Required' : trace.label;
+        var line = required ? 'long-dash' : trace.line;
+        var dash = { 'long-dash': [8, 4], dashed: [4, 3], dotted: [1, 3] }[line];
+        series.push({
+          sit: sit, field: trace.field, values: sit.plot[trace.field][dof], kindLabel: label, line: line,
+          style: { label: sit.title + ' · ' + label, stroke: sit.color, width: 1.7, dash: dash },
+        });
+      });
     });
+    return series;
+  }
+
+  function plotLimitBands(page, series, dof) {
+    var perField = Object.create(null);
+    var kinds = new Set(series.map(function (entry) { return entry.field; }));
+    series.forEach(function (entry) {
+      var field = entry.field;
+      if (!field) return;
+      var own = (entry.sit.plot_limits || {})[field];
+      var bound = own || (page.data.plot_limits || {})[field];
+      if (!bound) return;
+      var group = field + (own ? '/' + entry.sit.name : '');
+      if (!perField[group]) perField[group] = { bound: bound, owners: [], own: own, entry: entry };
+      perField[group].owners.push(entry.sit.name);
+    });
+    var lines = [];
+    Object.keys(perField).forEach(function (id) {
+      var band = perField[id];
+      ['lower', 'upper'].forEach(function (side) {
+        var value = band.bound[side] && band.bound[side][dof];
+        if (!Number.isFinite(value)) return;
+        var parts = [];
+        if (band.own) parts.push(band.entry.sit.title);
+        if (kinds.size > 1 && band.entry.kindLabel) parts.push(band.entry.kindLabel);
+        parts.push(side === 'lower' ? 'Lower limit' : 'Upper limit');
+        lines.push({ label: parts.join(' · '), values: value, owners: band.owners,
+          color: band.own ? band.entry.sit.color : undefined });
+      });
+    });
+    return lines;
+  }
+
+  function jointKind(data, kind, dof) {
+    if (!data.joint_units || data.joint_units[dof] !== 'm') return kind;
+    return { angle: 'm', angle_rate: 'm_s', angle_acc: 'm_s2', angle_jerk: 'm_s3', Nm: 'N' }[kind] || kind;
+  }
+
+  function jointCard(page, host, sits, field, kind, titleSuffix, jointName, dof) {
+    var torque = field === 'tau';
+    var series = torque ? torqueSeries(page, dof) : sits.map(function (sit) {
+      var derivation = { qd: 'Derived speed', qdd: 'Derived acceleration', qddd: 'Derived jerk' }[field];
+      var derived = derivation && (sit.derived || []).indexOf(field) !== -1;
+      return { sit: sit, field: field, values: sit.plot[field][dof],
+        label: derived ? sit.title + ' · ' + derivation : undefined };
+    });
+    series = series.filter(function (entry) { return entry.values && entry.values.some(Number.isFinite); });
     if (!series.length) return;
     // q has a native-grid error channel already; reuse it so the overlay
     // and the Joint error section can never disagree.
     var precomputed = field !== 'q' ? null : function (sit) {
       return sit.plot.err_q ? sit.plot.err_q[dof] : null;
     };
+    var limits = plotLimitBands(page, series, dof);
+    var traceKey = [];
+    if (torque) {
+      series.forEach(function (entry) {
+        if (!traceKey.some(function (key) { return key.line === entry.line; })) {
+          traceKey.push({ label: entry.kindLabel, line: entry.line });
+        }
+      });
+      // Only comparable legacy required/applied traces participate in Δ-to-reference.
+      var comparable = series.filter(function (entry) { return entry.field === 'tau'; });
+      series = series.concat(withErrors(comparable).slice(comparable.length));
+    } else {
+      series = withErrors(series, precomputed);
+    }
+    var plotKind = jointKind(page.data, kind, dof);
+    if (field === 'q' && plotKind === 'm') titleSuffix = 'joint position q';
+    if (torque && plotKind === 'N') titleSuffix = 'joint force';
     makeChart(page, el('div', 'tc-plotcard', host),
-      { title: jointName + ': ' + titleSuffix, kind: kind,
-        series: withErrors(series, precomputed) });
+      { title: jointName + ': ' + titleSuffix, kind: plotKind, series: series, limits: limits, traceKey: traceKey });
   }
 
   function jointSectionBuilder(field, kind, titleSuffix) {
@@ -998,7 +1184,8 @@ var TrajCompare = (function () {
     'joint-q': ['q', 'angle', 'joint angle q'],
     'joint-qd': ['qd', 'angle_rate', 'joint speed q̇'],
     'joint-qdd': ['qdd', 'angle_acc', 'joint acceleration q̈'],
-    'joint-tau': ['tau', 'Nm', 'applied torque τ'],
+    'joint-qddd': ['qddd', 'angle_jerk', 'joint jerk'],
+    'joint-tau': ['tau', 'Nm', 'joint torque τ'],
     'joint-current': ['current', 'A', 'motor current i'],
   };
 
@@ -1213,7 +1400,8 @@ var TrajCompare = (function () {
           var owner = id === 'target' ? target : sit;
           var key = TORQUE_COMPONENTS.filter(function (component) { return component.id === id; })[0].key;
           if (!owner || !owner.plot[key]) return;
-          series.push({ sit: owner, component: id, values: owner.plot[key][dof], style: torqueStyle(id, owner) });
+          series.push({ sit: owner, field: key, kindLabel: id, component: id,
+            values: owner.plot[key][dof], style: torqueStyle(id, owner) });
         });
         // WHY say "derived" on the card (CONTRACT.md): a component computed from the other two is not a recording
         var derived = (sit.derived || []).filter(function (key) { return TORQUE_DERIVED[key]; })
@@ -1221,8 +1409,8 @@ var TrajCompare = (function () {
         var card = el('div', 'tc-plotcard', host);
         card.dataset.situation = sit.name;
         makeChart(page, card, {
-          title: jointName + ' · ' + sit.title + ': torque breakdown', kind: 'Nm', series: series,
-          situation: sit.name, note: derived.join(' · '),
+          title: jointName + ' · ' + sit.title + ': torque breakdown', kind: jointKind(data, 'Nm', dof), series: series,
+          situation: sit.name, note: derived.join(' · '), limits: plotLimitBands(page, series, dof),
         });
       });
     }, function (block, part) {
@@ -1597,6 +1785,13 @@ var TrajCompare = (function () {
     return function () { return ' [' + unitLabel(kind) + ']'; };
   }
 
+  function inJointUnit(data, kind) {
+    return function () {
+      var units = data.joint_names.map(function (_, dof) { return unitLabel(jointKind(data, kind, dof)); });
+      return ' [' + Array.from(new Set(units)).join(', ') + ']';
+    };
+  }
+
   /* WHY the long labels (Zach 2026-11-19, traj compare view feedback: titles "super descriptive"): each names the
      signal, its sign convention and unit — "Joint angle q [°]", never "Joint q". Section ids stay as they were:
      callers pass them in ``default_sections``. */
@@ -1604,12 +1799,15 @@ var TrajCompare = (function () {
     var reference = referenceTitle(data);
     var frame = data.tcp_frame || 'TCP';
     var defs = [
-      { id: 'joint-q', label: 'Joint angle q', units: inUnit('angle'), on: sectionStartsOn(data, 'joint-q', true), build: jointSectionBuilder('q', 'angle', 'joint angle q') },
-      { id: 'joint-qd', label: 'Joint speed q̇', units: inUnit('angle_rate'), on: sectionStartsOn(data, 'joint-qd', false), build: jointSectionBuilder('qd', 'angle_rate', 'joint speed q̇') },
-      { id: 'joint-qdd', label: 'Joint acceleration q̈', units: inUnit('angle_acc'), on: sectionStartsOn(data, 'joint-qdd', false), build: jointSectionBuilder('qdd', 'angle_acc', 'joint acceleration q̈') },
+      { id: 'joint-q', label: 'Joint position q', units: inJointUnit(data, 'angle'), on: sectionStartsOn(data, 'joint-q', true), build: jointSectionBuilder('q', 'angle', 'joint angle q') },
+      { id: 'joint-qd', label: 'Joint speed q̇', units: inJointUnit(data, 'angle_rate'), on: sectionStartsOn(data, 'joint-qd', false), build: jointSectionBuilder('qd', 'angle_rate', 'joint speed q̇') },
+      { id: 'joint-qdd', label: 'Joint acceleration q̈', units: inJointUnit(data, 'angle_acc'), on: sectionStartsOn(data, 'joint-qdd', false), build: jointSectionBuilder('qdd', 'angle_acc', 'joint acceleration q̈') },
     ];
+    if (data.has_qddd) {
+      defs.push({ id: 'joint-qddd', label: 'Joint jerk', units: inJointUnit(data, 'angle_jerk'), on: sectionStartsOn(data, 'joint-qddd', false), build: jointSectionBuilder('qddd', 'angle_jerk', 'joint jerk') });
+    }
     if (data.has_tau) {
-      defs.push({ id: 'joint-tau', label: 'Motor / joint τ, applied torque', units: inUnit('Nm'), on: sectionStartsOn(data, 'joint-tau', false), build: jointSectionBuilder('tau', 'Nm', 'applied torque τ') });
+      defs.push({ id: 'joint-tau', label: 'Motor / joint τ', units: inJointUnit(data, 'Nm'), on: sectionStartsOn(data, 'joint-tau', false), build: jointSectionBuilder('tau', 'Nm', 'joint torque τ') });
     }
     if (data.has_current) {
       defs.push({ id: 'joint-current', label: 'Motor current i', units: inUnit('A'), on: sectionStartsOn(data, 'joint-current', false), build: jointSectionBuilder('current', 'A', 'motor current i') });
@@ -1655,7 +1853,7 @@ var TrajCompare = (function () {
   var STAGE_SECTIONS = ['viewer3d', 'camera', 'videos'];
 
   // Sections whose plots carry the optional Δ-to-target overlay.
-  var DELTA_SECTIONS = ['joint-q', 'joint-qd', 'joint-qdd', 'joint-tau', 'joint-current', 'tcp-pose', 'path'];
+  var DELTA_SECTIONS = ['joint-q', 'joint-qd', 'joint-qdd', 'joint-qddd', 'joint-tau', 'joint-current', 'tcp-pose', 'path'];
 
   function sectionHint(id, data, page) {
     var timeControl = page && page.oneTimeline ? 'the time lane' : 'the scrubber';
@@ -1686,7 +1884,7 @@ var TrajCompare = (function () {
         ' to move the time everywhere; hovering a plot previews that instant here';
     }
     // tau and current are optional on the target; no target trace, no Δ to draw
-    var needs = { 'joint-tau': 'tau', 'joint-current': 'current' }[id];
+    var needs = { 'joint-qddd': 'qddd', 'joint-tau': 'tau', 'joint-current': 'current' }[id];
     var hasTarget = data.situations.some(function (sit) {
       return sit.role === 'target' && sit.plot && (!needs || sit.plot[needs]);
     });
@@ -1801,11 +1999,31 @@ var TrajCompare = (function () {
   }
 
   /* ---- Open in Rerun ------------------------------------------------------------------------
-     The .rrd beside this report is the same data in Rerun (WHY: Tracking-Run Data — data-ui vs
-     Rerun, 2026-10-26: the viewer is one projection, Rerun the other). Served by
-     ``python -m traj_compare.serve`` the primary button starts the pinned viewer through the
-     server; from file:// or a plain static server there is nothing to start it, so it copies the
-     command instead. Either way the command stays on screen. */
+     The local server looks up the active comparison in this HTML and opens or
+     builds its recording. The same operation is available from the terminal. */
+  function hasRerunHost() {
+    return location.protocol === 'http:' || location.protocol === 'https:';
+  }
+
+  function rerunCommand(page, layout) {
+    var path = decodeURIComponent(location.pathname);
+    if (hasRerunHost()) {
+      path = (page.data.rerun_source || {}).path || path.split('/').pop() || 'index.html';
+    }
+    function shellArgument(value) { return "'" + value.replace(/'/g, "'\\''") + "'"; }
+    return 'traj-compare-rerun ' + shellArgument(path) + ' --comparison ' + page.index +
+      (layout ? ' --layout ' + shellArgument(layout) : '') + ' --open';
+  }
+
+  function requestRerun(page, layout) {
+    var relative = decodeURIComponent(location.pathname.replace(/^\//, ''));
+    var query = '?report=' + encodeURIComponent(relative || '.') + '&comparison=' + page.index +
+      (layout ? '&layout=' + encodeURIComponent(layout) : '');
+    return fetch(location.origin + '/__rerun/open' + query, { method: 'POST' })
+      .then(function (response) { return response.json().catch(function () { return null; }); },
+        function () { return null; });
+  }
+
   function copyText(text) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       return navigator.clipboard.writeText(text).then(function () { return true; },
@@ -1892,28 +2110,25 @@ var TrajCompare = (function () {
       status.classList.toggle('bad', !!bad);
     }
     function copyCommand(prefix) {
-      return Promise.resolve(copyText(chosen ? chosen.command : info.command)).then(function (ok) {
+      return Promise.resolve(copyText(command.textContent)).then(function (ok) {
         say(ok ? prefix + 'command copied — paste it in a terminal' : prefix + 'copy failed — select the command below');
       });
     }
     copy.onclick = function () { copyCommand(''); };
     open.onclick = function () {
-      if (!served) { copyCommand('No launcher on file:// — '); return; }
+      var page = state.pages[state.activePage] || state.pages[0];
+      var layout = chosen && chosen.name !== info.layout ? chosen.name : null;
+      if (!served) {
+        command.textContent = rerunCommand(page, layout);
+        say('Run the command below to open Rerun');
+        return;
+      }
       say('Opening Rerun…');
-      // The endpoint wants a path relative to the served root, not to this page.
-      var relative = decodeURIComponent(rrdUrl.pathname.replace(/^\//, ''));
-      var query = '?rrd=' + encodeURIComponent(relative) + (chosen ? '&layout=' + encodeURIComponent(chosen.name) : '');
-      fetch(location.origin + '/__rerun/open' + query, { method: 'POST' })
-        .then(function (response) {
-          return response.text().then(function (text) {
-            var body = null;
-            try { body = JSON.parse(text); } catch (error) { body = null; }
-            if (body && body.ok) { say('Opening Rerun… (the window can take a few seconds)'); return; }
-            if (body && body.error) { say(body.error, true); return; }
-            // Not our server: a plain static server answers 404/405/501 for the POST.
-            return copyCommand('No launcher on this server — ');
-          });
-        }, function () { return copyCommand('No launcher reachable — '); });
+      requestRerun(page, layout).then(function (body) {
+        if (body && body.ok) { say('Opening Rerun… (the window can take a few seconds)'); return; }
+        command.textContent = body && body.command ? body.command : rerunCommand(page, layout);
+        say(body && body.error ? body.error : 'Run the command below to open Rerun', !!(body && body.error));
+      });
     };
   }
 
@@ -3335,11 +3550,7 @@ var TrajCompare = (function () {
     if (state.pages.length) buildRerunPin();
   }
 
-  /* The pinned Open in Rerun, top right on every tab and however far the page scrolls.
-     WHY (Zach 2026-11-25, traj compare 3D viewer feedback): Rerun is the back door to the same data, so it is always in
-     reach. It reuses the bar's mechanism: served by ``python -m traj_compare.serve`` it asks the server to start the
-     pinned viewer; anywhere else (file://, a plain static server) it shows the one-line command to run instead, and a
-     page written without a recording says how to write one, never failing silently. */
+  /* The pinned Open in Rerun stays in reach while scrolling and follows the active comparison. */
   function buildRerunPin() {
     var pin = el('div', 'tc-rerun-pin', document.body);
     pin.setAttribute('data-tc-rerun-pin', '');
@@ -3372,33 +3583,19 @@ var TrajCompare = (function () {
     };
     button.onclick = function () {
       var page = state.pages[state.activePage] || state.pages[0];
-      var info = page && page.data.rerun;
-      if (!info) {
-        show('This page was written without a Rerun recording. Write it with one, then reopen the page:',
-          'write_comparison_report(..., rerun=True)');
-        return;
-      }
-      var layout = (info.layouts || [])[0] || null;
-      var cmd = layout ? layout.command : info.command;
-      var served = location.protocol === 'http:' || location.protocol === 'https:';
-      if (!served) { show('No Rerun launcher behind a file. Run this in a terminal:', cmd); return; }
+      var cmd = rerunCommand(page, null);
+      if (!hasRerunHost()) { show('Run this in a terminal to open Rerun:', cmd); return; }
       show('Opening Rerun…', '');
-      var rrdUrl = new URL(info.rrd, location.href);
-      var relative = decodeURIComponent(rrdUrl.pathname.replace(/^\//, ''));
-      var query = '?rrd=' + encodeURIComponent(relative) + (layout ? '&layout=' + encodeURIComponent(layout.name) : '');
-      fetch(location.origin + '/__rerun/open' + query, { method: 'POST' }).then(function (response) {
-        return response.text().then(function (text) {
-          var body = null;
-          try { body = JSON.parse(text); } catch (error) { body = null; }
-          if (body && body.ok) {
-            show('Opening Rerun… the window can take a few seconds.', '');
-            hideTimer = setTimeout(function () { pop.hidden = true; }, 5000);
-            return;
-          }
-          if (body && body.error) { show(body.error + ' Run this in a terminal instead:', cmd); return; }
-          show('No Rerun launcher on this server. Run this in a terminal:', cmd);
-        });
-      }, function () { show('No Rerun launcher reachable. Run this in a terminal:', cmd); });
+      requestRerun(page, null).then(function (body) {
+        if (body && body.ok) {
+          show('Opening Rerun… the window can take a few seconds.', '');
+          hideTimer = setTimeout(function () { pop.hidden = true; }, 5000);
+          return;
+        }
+        var message = body && body.error ? body.error + ' Run this in a terminal:' :
+          'Run this in a terminal to open Rerun:';
+        show(message, body && body.command ? body.command : cmd);
+      });
     };
   }
 

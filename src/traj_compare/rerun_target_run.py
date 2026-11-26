@@ -780,8 +780,8 @@ def comparison_inputs(comparison: Any) -> dict[str, Any] | None:
     """``write_target_vs_run_rrd``'s arguments for a comparison it can draw, else None.
 
     It can when the comparison is one target and ONE run with data (``reference_kind == "target"``), drawn on a URDF
-    (``RobotDisplay.urdf`` of the run's robot, else the comparison's), with no video (this recording has no video
-    panel, and a run's video is never dropped silently). The tool is each one's ``Situation.poses`` (in the URDF's
+    (``RobotDisplay.urdf`` of the run's robot, else the comparison's), with no video or authored jerk and gearbox
+    channels. The question layouts carry those channels. The tool is each one's ``Situation.poses`` (in the URDF's
     root frame, ``RobotDisplay.urdf``'s contract) when both have them, else the URDF's last link. The run is taken
     shifted back by its ``time_offset_s``, as every error of the report is."""
     target = comparison.target
@@ -793,6 +793,8 @@ def comparison_inputs(comparison: Any) -> dict[str, Any] | None:
     if comparison.overlays or any(situation.video for situation in [target, *comparison.situations]):
         return None
     run = runs[0]
+    if any(situation.qddd is not None or situation.derive_jerk or situation.tau_gearbox is not None for situation in (target, run)):
+        return None
     display = run.robot or comparison.robot
     urdf = getattr(display, "urdf", None)
     if not urdf:

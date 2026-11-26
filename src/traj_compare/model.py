@@ -20,17 +20,20 @@ from typing import Any
 
 import numpy as np
 from robot_msgs.compare import Tolerances
+from robot_msgs.trajectory import JointLimits
 
 from .tabs import normalize_parts
 
 # (N, DOF) joint configurations in → (N, 4, 4) TCP poses out.
 FkFunction = Callable[[np.ndarray], np.ndarray]
 
-_TIME_SERIES_FIELDS = ("q", "qd", "qdd", "tau", "current", "tau_cmd", "tau_ff", "tau_fb")
+_TIME_SERIES_FIELDS = ("q", "qd", "qdd", "tau", "current", "tau_cmd", "tau_ff", "tau_fb", "qddd", "tau_gearbox")
+_LIMIT_SIGNALS = {"q", "qd", "qdd", "qddd", "tau", "tau_cmd", "tau_gearbox", "current"}
 _SECTION_IDS = {
     "joint-q",
     "joint-qd",
     "joint-qdd",
+    "joint-qddd",
     "joint-tau",
     "joint-current",
     "joint-torque",
@@ -425,6 +428,12 @@ class Situation:
     # WHY here (docs/NAVIGATION.md C1, the arm_motion_bench agent's gaps 1 and 2): they had nowhere to go in the run
     # view, so a peak force became a run tag and the curve was lost.
     channels: Mapping[str, Any] = field(default_factory=dict)
+    qddd: np.ndarray | None = None  # (N, DOF) jerk supplied by the run or planner, SI
+    # WHY explicit: samples alone cannot establish whether acceleration jumps between them.
+    derive_jerk: bool = False  # the caller declares its supplied qdd continuous and piecewise linear
+    tau_gearbox: np.ndarray | None = None  # (N, DOF) load on the gearbox, independently measured or modeled
+    joint_limits: JointLimits | None = None
+    signal_limits: Mapping[str, tuple[Any, Any]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.time_offset_s = float(self.time_offset_s)
@@ -440,7 +449,7 @@ class Situation:
         if not self.group_title:
             self.group_title = "Situations"
         if self.t is None:
-            if any(getattr(self, name) is not None for name in _TIME_SERIES_FIELDS) or self.channels:
+            if any(getattr(self, name) is not None for name in _TIME_SERIES_FIELDS) or self.channels or self.derive_jerk:
                 raise ValueError(f"situation '{self.name}': arrays given without a time base")
             self.channels = {}
             return
@@ -470,6 +479,8 @@ class Situation:
                 )
         if self.q.shape[0] != self.t.size:
             raise ValueError(f"situation '{self.name}': q rows must match t")
+        if self.derive_jerk and (self.qdd is None or self.qddd is not None):
+            raise ValueError(f"situation '{self.name}': derive_jerk requires supplied qdd without supplied qddd")
         if self.poses is not None:
             self.poses = np.asarray(self.poses, dtype=float)
             if self.poses.shape != (self.t.size, 4, 4):
@@ -591,6 +602,11 @@ class Comparison:
     # target moves; over every sample the report's RMS also averaged the rests. None (the default): every sample.
     stats_mask: Any = None
     stats_mask_label: str = ""
+    # Bounds are SI, by joint name in JointLimits and comparison order in the signed overrides.
+    # WHY torque channel names matter: an applied actuator effort limit may differ from a gearbox load limit.
+    joint_limits: JointLimits | None = None
+    signal_limits: Mapping[str, tuple[Any, Any]] = field(default_factory=dict)
+    joint_units: Mapping[str, str] = field(default_factory=dict)  # joint position units: default rad, or m for a slide
 
     def __post_init__(self) -> None:
         if self.stats_mask is not None:
@@ -631,6 +647,11 @@ class Comparison:
                     f"situation '{situation.name}' has {situation.dof} DOF, "
                     f"comparison declares {dof}"
                 )
+            _check_plot_limits(situation.joint_limits, situation.signal_limits, dof, f"situation '{situation.name}'")
+        _check_plot_limits(self.joint_limits, self.signal_limits, dof, "comparison")
+        self.joint_units = dict(self.joint_units)
+        if any(name not in self.joint_names or unit not in ("rad", "m") for name, unit in self.joint_units.items()):
+            raise ValueError("joint_units must map known joint names to 'rad' or 'm'")
         normalized: list[tuple[str, np.ndarray]] = []
         for label, direction in self.vec_dirs:
             vector = np.asarray(direction, dtype=float).reshape(3)
@@ -721,3 +742,30 @@ class Comparison:
                 if signal.columns and len(signal.columns) != count:
                     raise ValueError(f"{where}: {count} column(s), but its Signal names {list(signal.columns)}")
         return signals
+
+
+def _signed_plot_bounds(values: Any, count: int, label: str) -> tuple[np.ndarray, np.ndarray]:
+    """Broadcast a scalar bound, with None or a correctly signed infinity for an open side."""
+
+    try:
+        lower, upper = values
+        low = np.full(count, -np.inf) if lower is None else np.broadcast_to(np.asarray(lower, dtype=float), (count,))
+        high = np.full(count, np.inf) if upper is None else np.broadcast_to(np.asarray(upper, dtype=float), (count,))
+    except (TypeError, ValueError):
+        raise ValueError(f"{label}: expected a (lower, upper) pair with one bound per joint or a scalar") from None
+    low = np.where(np.isnan(low), -np.inf, low)
+    high = np.where(np.isnan(high), np.inf, high)
+    if np.any(low > high) or np.any(np.isposinf(low)) or np.any(np.isneginf(high)):
+        raise ValueError(f"{label}: each lower bound must be at or below its upper bound")
+    return low, high
+
+
+def _check_plot_limits(joint_limits: JointLimits | None, signal_limits: Mapping[str, Any], count: int, label: str) -> None:
+    if joint_limits is not None and not isinstance(joint_limits, JointLimits):
+        raise ValueError(f"{label}: joint_limits must be a robot_msgs JointLimits")
+    if not isinstance(signal_limits, Mapping):
+        raise ValueError(f"{label}: signal_limits must map a joint plot signal to its bounds")
+    for signal, bounds in signal_limits.items():
+        if signal not in _LIMIT_SIGNALS:
+            raise ValueError(f"{label}: unknown limit signal {signal!r}")
+        _signed_plot_bounds(bounds, count, f"{label}, {signal}")

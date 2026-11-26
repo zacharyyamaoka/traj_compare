@@ -130,4 +130,5 @@ def test_line_styles_sub_tabs_legend_and_pinned_rerun(tmp_path):
     assert out["scrolled"] > 0
     pin = out["pin"]
     assert 0 <= pin["top"] <= 20 and out["pin"]["width"] - 20 <= pin["right"] <= out["pin"]["width"], pin
-    assert "rerun=True" in out["pinText"], out["pinText"]
+    assert "traj-compare-rerun " in out["pinText"], out["pinText"]
+    assert "--comparison 0 --open" in out["pinText"], out["pinText"]

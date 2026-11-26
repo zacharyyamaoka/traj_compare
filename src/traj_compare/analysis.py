@@ -2,9 +2,9 @@
 
 Per situation, computed on that situation's own time grid:
 
-- joint space: ``q``, ``qd``, ``qdd``, ``tau``, ``current`` (velocity/
-  acceleration fall back to ``np.gradient`` when not recorded; ``tau`` and
-  ``current`` stay absent if absent — a missing channel is never invented);
+- joint space: ``q``, ``qd``, ``qdd``, ``qddd``, applied/required ``tau``, measured or modeled
+  ``tau_gearbox``, and ``current``. Velocity and acceleration fall back to ``np.gradient``
+  when not recorded. Jerk is supplied or explicitly derived from continuous acceleration.
 - every other recorded signal (``Situation.channels``) as ``entry["channels"][name]``, one display column per
   channel column, named by ``Comparison.signals`` (``payload["channels"]``: title, unit, column labels, section);
   an undescribed channel keeps its own name, no unit and columns ``0``, ``1``, ... (docs/NAVIGATION.md C1);
@@ -63,7 +63,7 @@ from robot_msgs.compare import (
 )
 from robot_msgs.trajectory import JointTrajectory, PoseTrajectory
 
-from .model import Comparison, ReportTable, RobotDisplay, Signal, Situation, TableRow
+from .model import Comparison, ReportTable, RobotDisplay, Signal, Situation, TableRow, _signed_plot_bounds
 from .rotations import (
     align_unwrapped,
     mat_to_quat,
@@ -311,6 +311,51 @@ def _onto_plot_grid(t_native: np.ndarray, series: np.ndarray, plot_t: np.ndarray
     """Resample one channel onto the display grid, NaN outside the native span."""
 
     return np.interp(plot_t, t_native, series, left=np.nan, right=np.nan)
+
+
+def _jerk_on_plot_grid(situation: Situation, plot_t: np.ndarray) -> np.ndarray | None:
+    native_t = situation.t
+    if situation.derive_jerk:
+        # One slope on each interval of declared piecewise-linear acceleration. The final point
+        # takes the left derivative. Resample by interval so a narrow high-jerk interval stays distinct.
+        slopes = np.diff(situation.qdd, axis=0) / np.diff(native_t)[:, None]
+        interval = np.clip(np.searchsorted(native_t, plot_t, side="right") - 1, 0, len(slopes) - 1)
+        sampled = slopes[interval]
+        sampled[(plot_t < native_t[0]) | (plot_t > native_t[-1])] = np.nan
+        return sampled
+    if situation.qddd is None:
+        return None
+    columns = []
+    for jerk in situation.qddd.T:
+        finite = np.isfinite(jerk)
+        column = _onto_plot_grid(native_t, np.where(finite, jerk, np.nan), plot_t)
+        # WHY carry gaps through thinning: an acceleration jump has no finite jerk. Connecting
+        # its two neighbors on a coarser display grid suggests a valid bounded trajectory there.
+        gaps = native_t[~finite & (native_t >= plot_t[0]) & (native_t <= plot_t[-1])]
+        column[np.searchsorted(plot_t, gaps)] = np.nan
+        columns.append(column)
+    return np.column_stack(columns)
+
+
+def _plot_limits(source: Comparison | Situation, names: list[str]) -> dict[str, Any]:
+    limits = source.joint_limits
+    result = {}
+    if limits is not None:
+        index = {name: col for col, name in enumerate(limits.joint_names)}
+
+        def by_joint(values, sign=1):
+            return [None if values is None or name not in index else sign * values[index[name]] for name in names]
+
+        if limits.min_position is not None or limits.max_position is not None:
+            result["q"] = {"lower": _json_clean(by_joint(limits.min_position)), "upper": _json_clean(by_joint(limits.max_position))}
+        for signal, values in zip(("qd", "qdd", "qddd", "tau"),
+                                  (limits.max_velocity, limits.max_acceleration, limits.max_jerk, limits.max_effort), strict=True):
+            if values is not None:
+                result[signal] = {"lower": _json_clean(by_joint(values, -1)), "upper": _json_clean(by_joint(values))}
+    for signal, values in source.signal_limits.items():
+        lower, upper = _signed_plot_bounds(values, len(names), f"{source.name}, {signal}")
+        result[signal] = {"lower": _json_clean(lower), "upper": _json_clean(upper)}
+    return result
 
 
 def _joint_trajectory(
@@ -908,6 +953,7 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
     automatic_metrics: dict[str, dict[str, Any]] = {}
     any_cartesian = False
     any_tau = False
+    any_qddd = False
     any_current = False
     any_breakdown = False
 
@@ -933,6 +979,8 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
             # name -> display columns on plot_t (beside ``plot``, whose keys are the fixed joint / tool series)
             "channels": None,
         }
+        if limits := _plot_limits(situation, comparison.joint_names):
+            entry["plot_limits"] = limits
         payload_situations.append(entry)
         if role != "target":
             automatic_metrics[situation.name] = {
@@ -981,11 +1029,23 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
             "current": None,
             **{key: None for key in _BREAKDOWN_KEYS},
         }
+        jerk = _jerk_on_plot_grid(situation, plot_t)
+        if jerk is not None:
+            if situation.derive_jerk:
+                entry["derived"].append("qddd")
+            if np.isfinite(jerk).any():
+                any_qddd = True
+                plot["qddd"] = [_clean(column) for column in jerk.T]
         if situation.tau is not None:
             any_tau = True
             plot["tau"] = [
                 _clean(on_grid(situation.tau[:, col])) for col in range(situation.tau.shape[1])
             ]
+        if situation.tau_gearbox is not None:
+            any_tau = True
+            plot["tau_gearbox"] = [_clean(on_grid(column)) for column in situation.tau_gearbox.T]
+        if situation.tau_cmd is not None:
+            any_tau = True
 
         if situation.current is not None:
             any_current = True
@@ -1161,6 +1221,7 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
         "pct_reference": "target" if pct_total else "self",
         "has_cartesian": any_cartesian,
         "has_tau": any_tau,
+        "has_qddd": any_qddd,
         "has_current": any_current,
         "has_torque_breakdown": any_breakdown,
         "has_video": any(entry["video"] for entry in payload_situations),
@@ -1180,6 +1241,10 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
         "parts": normalize_parts(comparison.joint_names, comparison.parts),
         "channels": _channel_descriptors(comparison, ordered),
     }
+    if limits := _plot_limits(comparison, comparison.joint_names):
+        payload["plot_limits"] = limits
+    if comparison.joint_units:
+        payload["joint_units"] = [comparison.joint_units.get(name, "rad") for name in comparison.joint_names]
     payload["tabs"] = tabs_for(payload)
     if comparison.stats_mask is not None:  # what every error statistic above is taken over (the curves keep every sample)
         mask = np.asarray(comparison.stats_mask, dtype=bool)

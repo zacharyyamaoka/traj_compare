@@ -1157,14 +1157,37 @@ def _torque_question_tab(payload: dict[str, Any], title: str) -> Any:
 _SIGNALS = (
     ("positions", "Angle [°]", "joint angle", "°", "q"),
     ("velocities", "Speed [°/s]", "joint speed", "°/s", "qd"),
+    ("accelerations", "Acceleration [°/s²]", "joint acceleration", "°/s²", "qdd"),
+    ("jerks", "Jerk [°/s³]", "joint jerk", "°/s³", "qddd"),
     ("effort", "Applied torque [N·m]", "applied torque", "N·m", "tau"),
+    ("commanded_torque", "Commanded torque [N·m]", "commanded torque", "N·m", "tau_cmd"),
+    ("gearbox_load", "Gearbox load [N·m]", "gearbox load", "N·m", "tau_gearbox"),
     ("current", "Motor current [A]", "motor current", "A", "current"),
 )
-_OPTIONAL_SIGNALS = {"effort": "has_tau", "current": "has_current"}
+
+
+def _records_signal(entry: dict[str, Any], key: str) -> bool:
+    return (entry.get("plot") or {}).get(key) is not None and (key != "tau_cmd" or key not in entry.get("derived", ()))
+
+
+def _show_rerun_signal(payload: dict[str, Any], key: str) -> bool:
+    if key in ("q", "qd"):
+        return True
+    if key == "qdd":
+        return bool(payload.get("has_qddd"))
+    entries = payload["situations"]
+    if key == "tau_cmd":
+        # Existing recordings already expose commanded torque in the breakdown tab.
+        separate_load = any(_records_signal(entry, "tau_gearbox") for entry in entries)
+        no_applied = not any(_records_signal(entry, "tau") for entry in entries)
+        if not (separate_load or no_applied or payload.get("has_qddd")):
+            return False
+    return any(_records_signal(entry, key) for entry in entries)
 
 
 def _signals_tab(payload: dict[str, Any], title: str) -> Any:
-    signals = [signal for signal in _SIGNALS if signal[0] not in _OPTIONAL_SIGNALS or payload.get(_OPTIONAL_SIGNALS[signal[0]])]
+    signals = [signal for signal in _SIGNALS if _show_rerun_signal(payload, signal[-1])]
+    units = dict(zip(payload["joint_names"], payload.get("joint_units", ["rad"] * len(payload["joint_names"])), strict=True))
 
     def part_signals(part: dict[str, Any], name: str) -> Any:
         tabs = []
@@ -1174,9 +1197,11 @@ def _signals_tab(payload: dict[str, Any], title: str) -> Any:
                 what, who = "torque", f"{_minuend(payload)} (planned) and every run (applied)"
 
             def cell(joint: str, field: str = field, what: str = what, unit: str = unit, who: str = who) -> Any:
-                return _ts(f"/{field}/{_part(joint)}", f"{_short(joint)}: {what}, {who} [{unit}]")
+                joint_unit = unit.replace("°", "m").replace("N·m", "N") if units[joint] == "m" else unit
+                return _ts(f"/{field}/{_part(joint)}", f"{_short(joint)}: {what}, {who} [{joint_unit}]")
 
-            tabs.append(_part_grid(part, cell, tab_title))
+            visible_title = tab_title.split(" [")[0] if "m" in units.values() else tab_title
+            tabs.append(_part_grid(part, cell, visible_title))
         return rrb.Tabs(*tabs, name=name)
 
     return _per_part(payload, title, part_signals)
@@ -1435,8 +1460,8 @@ VIEWS = ("auto", "layouts", "target_vs_run")
 
 def rerun_view(comparison: Comparison, *, checks: Mapping[str, str] | None = None) -> str:
     """Which recording ``write_rrd(view="auto")`` writes for ``comparison``: ``"target_vs_run"`` for one target and one
-    run with data on a URDF (``RobotDisplay.urdf``) and no video (``rerun_target_run.comparison_inputs``), else
-    ``"layouts"`` (the named layouts' recording: the question tabs or evo's). ``checks`` asks for the layouts."""
+    run on a URDF with the channels that view supports (``rerun_target_run.comparison_inputs``), else ``"layouts"``
+    (the named layouts' recording: the question tabs or evo's). ``checks`` asks for the layouts."""
 
     return "target_vs_run" if not checks and comparison_inputs(comparison) is not None else "layouts"
 
@@ -1499,8 +1524,9 @@ def write_rrd(
         inputs = None if hooks else comparison_inputs(comparison)
         if view == "target_vs_run" and inputs is None:
             raise ValueError(
-                "view='target_vs_run' draws one target and one run with data on a URDF (RobotDisplay.urdf), with no "
-                f"video{f' and no {hooks}' if hooks else ''}; this comparison is not that: use view='layouts'"
+                "view='target_vs_run' draws one target and one run with data on a URDF (RobotDisplay.urdf). "
+                f"Use view='layouts' for this comparison, including video, explicit jerk, gearbox load"
+                f"{f' or {hooks}' if hooks else ''}."
             )
         if inputs is not None:
             written = write_target_vs_run_rrd(path, **inputs, application_id=application_id,
@@ -1535,6 +1561,9 @@ def write_rrd(
         writer = _Writer(recording, t0)
 
         plot_t = _array(payload["plot_t"]) - t0 if payload["plot_t"] is not None else None
+        units = payload.get("joint_units", ["rad"] * len(payload["joint_names"]))
+        joint_angle_scale = [DEGREES if unit == "rad" else 1.0 for unit in units]
+        stock_signals = ("q", "qd", "tau") if "joint_units" not in payload else ()
         for entry in payload["situations"]:
             if not entry["has_data"] or plot_t is None:
                 continue
@@ -1548,8 +1577,19 @@ def write_rrd(
                 t=plot_t, joint_names=joints, positions=columns("q"), velocities=columns("qd"),
                 effort=columns("tau") if plot["tau"] is not None else None,
             )  # fmt: skip
-            # /positions, /velocities (degrees: every joint shown as revolute, as in the HTML report), /effort
-            viz.log(signals, entry["name"], recording=recording, degrees=True, color=color, label=label, t0=0.0)
+            # Preserve the stock paths and units for existing authored files. Mixed rotary/linear recordings
+            # need the supplied per-joint scale instead of robot_msgs' all-joints degree conversion.
+            if stock_signals:
+                viz.log(signals, entry["name"], recording=recording, degrees=True, color=color, label=label, t0=0.0)
+            for field, _, _, _, key in _SIGNALS:
+                if key in stock_signals or key == "current" or not _records_signal(entry, key):
+                    continue
+                if key == "qdd" and not payload.get("has_qddd"):
+                    continue
+                for column, joint in enumerate(joints):
+                    scale = joint_angle_scale[column] if key in ("q", "qd", "qdd", "qddd") else 1.0
+                    source = f"{label} · derived" if key in entry.get("derived", ()) else label
+                    writer.series(f"/{field}/{_part(joint)}/{name}", plot_t, _array(plot[key][column]) * scale, color, source)
             if "err_q" in plot:
                 # WHY from the payload: target - run, straight from robot_msgs.compare, so the HTML and the
                 # .rrd can never disagree; at /error/positions/<joint>/<run>, in degrees (the display edge).

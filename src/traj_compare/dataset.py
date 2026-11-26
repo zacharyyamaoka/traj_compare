@@ -2587,11 +2587,19 @@ class _RunFolder:
             not_drawn["current"] = f"shape {current.shape}, not (N, {len(columns)})"
             current = None
         channels: dict[str, np.ndarray] = {}
+        joint_channels: dict[str, np.ndarray] = {}
         for key, values in recorded.items():
             if not _drawable(values):
                 not_drawn.setdefault(key, f"{values.dtype} of shape {values.shape}")
                 continue
             signal = signals.get(key)
+            # These canonical SI joint channels can enter from saved robot_msgs trajectories.
+            # Described legacy generic channels keep the caller's labels, units and display behavior.
+            if key in ("qddd", "tau_cmd", "tau_gearbox") and signal is None and key not in breakdown:
+                values_2d = values.reshape(len(trajectory.t), -1)
+                if values_2d.shape[1] == len(columns):
+                    joint_channels[key] = values_2d[:, columns]
+                    continue
             channels[key] = values[:, columns] if signal is not None and signal.per_joint else values
         trajectory = trajectory.select(reference.joint_names)
         video = manifest["media"].get(name, "")
@@ -2607,6 +2615,8 @@ class _RunFolder:
             tau=trajectory.effort,
             current=None if current is None else current[:, columns],
             **breakdown,  # tau_cmd / tau_ff / tau_fb as given; the run view derives the third (its "Feedforward or feedback?" tab)
+            **joint_channels,
+            joint_limits=trajectory.limits,
             poses=None if self.poses is None else self.poses(trajectory).matrices(),
             video=video,
             video_start_s=manifest["media_start_s"].get(name, 0.0),

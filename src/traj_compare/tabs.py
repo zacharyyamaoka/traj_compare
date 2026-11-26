@@ -116,8 +116,11 @@ TABS: tuple[Tab, ...] = (
             SubTab("q", "q", ("joint-q",), "joint angle"),
             SubTab("qd", "qd", ("joint-qd",), "joint speed"),
             SubTab("qdd", "qdd", ("joint-qdd",), "joint acceleration"),
-            SubTab("tau", "T", ("joint-tau",), "applied torque"),
+            SubTab("qddd", "qddd", ("joint-qddd",), "joint jerk"),
+            SubTab("tau", "T", ("joint-tau",), "joint torque"),
             SubTab("q-qd-qdd", "q / qd / qdd", ("joint-q", "joint-qd", "joint-qdd"), "angle, speed and acceleration"),
+            SubTab("q-qd-qdd-qddd", "q / qd / qdd / qddd", ("joint-q", "joint-qd", "joint-qdd", "joint-qddd"),
+                   "angle, speed, acceleration and jerk"),
             SubTab("q-qd-tau", "q / qd / T", ("joint-q", "joint-qd", "joint-tau"), "angle, speed and torque"),
             SubTab("current", "Current", ("joint-current",), "motor current"),
         ),
@@ -148,6 +151,8 @@ def _available_sections(payload: Mapping[str, Any]) -> set[str]:
     """The section ids this payload can draw — the same conditions as ``sectionDefs`` in ``assets/plots.js``."""
 
     sections = {"joint-q", "joint-qd", "joint-qdd"}
+    if payload.get("has_qddd"):
+        sections.add("joint-qddd")
     if payload.get("has_tau"):
         sections.add("joint-tau")
     if payload.get("has_current"):
@@ -207,8 +212,12 @@ def tabs_for(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
     shown: list[dict[str, Any]] = []
     for tab in TABS:
         sections = [section for section in tab.html_sections if section in available]
+        heading = tab.heading
+        if tab.id == "signals" and "joint-qddd" in available:
+            sections.insert(sections.index("joint-qdd") + 1, "joint-qddd")
+            heading = heading.replace("acceleration,", "acceleration, jerk,")
         if _shown(tab, payload, sections):
-            shown.append({"id": tab.id, "title": tab.title, "heading": tab.heading, "sections": sections,
+            shown.append({"id": tab.id, "title": tab.title, "heading": heading, "sections": sections,
                           "subtabs": _subtabs(tab, sections, {})})
     # the channels tab: one section per recorded channel (payload["channels"], analysis.py), right after signals
     channels = list(payload.get("channels") or ())

@@ -205,6 +205,29 @@ no longer sit side by side. Tests: `tests/test_time_lane_browser.py`.
     little 3), Right hand (16); a part selector of 4; a ranking of 46 bars; a hand part draws 5 finger rows.
 - Out of scope here: one tool frame per arm (the model has one `tcp_frame`); the `where` / `timing` tabs follow it.
 
+### Joint jerk, torque and limits
+
+- `Situation.qddd` accepts a per-joint jerk trace in SI units. Mark undefined jerk at acceleration jumps with a
+  non-finite value. The display keeps these gaps when it thins the time grid. Use `derive_jerk=True` only when the
+  provided `qdd` is continuous and modeled as linear between samples. The viewer labels the resulting per-interval
+  slope as derived. A trajectory with no finite jerk trace keeps the existing acceleration views.
+- `Situation.tau_cmd`, `Situation.tau`, and `Situation.tau_gearbox` are the commanded actuator torque, the applied
+  torque on a run (required torque on a trajectory target), and the gearbox load. The raw torque view shows each
+  recorded signal it has. The existing feedforward/feedback view can still reconstruct a missing command from its
+  two components. A gearbox trace requires a modeled or measured load supplied by the caller.
+- `Comparison.joint_limits` sets page-wide robot_msgs bounds by joint name. `Situation.joint_limits` can supply a
+  run's own bounds. For asymmetric limits and channel-specific torque envelopes, add `signal_limits` at either level.
+  Each value is a `(lower, upper)` pair in comparison joint order, with `None` for an open side. Scalars apply to
+  every joint. Use `q`, `qd`, `qdd`, `qddd`, `tau`, `tau_cmd`, `tau_gearbox` or `current` for the signal key. A run's
+  limit entry replaces the page limit for that signal. `JointLimits.max_effort` sets `tau` only. A gearbox cap such as
+  `signal_limits={"tau_gearbox": (-18.0, 18.0)}` belongs to the gearbox trace.
+- `Comparison.joint_units={"rail_joint": "m"}` sets linear units for a slide. All other positions default to `rad`.
+  Angular display units follow the degree/radian toggle. Rates and effort on a linear axis use metres per power of
+  seconds and newtons respectively.
+- A dataset run also forwards its saved `JointTrajectory.limits`. Undescribed canonical `qddd`, `tau_cmd`, and
+  `tau_gearbox` channels with one numeric column per joint go to these native plots. A channel explicitly described
+  with `Signal` keeps its authored units, labels and generic plot.
+
 ---
 
 ## Part C: scale and signals (frozen 2026-11-20)
@@ -229,7 +252,8 @@ Parts A and B stay in force; this part adds to them.
   - Rerun's `signals` tab gets a **Motor current [A]** sub-tab when any situation has current.
   - A `"current"` channel of any other shape raises `ValueError` from `write_dataset_report` (naming run, series and
     shape), never at drill-down time.
-- **Every other channel** becomes `Situation.channels[name]`: float, (N,) or (N, k), on that situation's own samples.
+- **Other channels** become `Situation.channels[name]`: float, (N,) or (N, k), on that situation's own samples.
+  The canonical exclusions for joint jerk and torque are listed above.
   - `Situation.__post_init__` raises `ValueError` (naming the situation and the channel) for:
     - another dimensionality;
     - a first dimension that differs from `len(t)`;

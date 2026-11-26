@@ -7,7 +7,7 @@ scraped from HTML), so the numbers match the report, which in turn are ``robot_m
 
 Both files share one clock: ``t`` is seconds from the comparison start (the reference's first sample,
 as in the .rrd), on the payload's plot grid. A channel is a payload plot key; a column is a joint name
-(q, qd, qdd, tau, current, tau_cmd, tau_ff, tau_fb, err_q), an ``error_axes`` label (err_axes) or ""
+(q, qd, qdd, qddd, tau, current, tau_cmd, tau_ff, tau_fb, tau_gearbox, err_q), an ``error_axes`` label (err_axes) or ""
 for a scalar channel.
 
 Parquet: tidy long rows ``comparison, situation, reference, channel, column, t, value`` (NaN where the
@@ -85,7 +85,7 @@ def _channels(payload: dict[str, Any], entry: dict[str, Any]) -> list[tuple[str,
     columns_of = {
         "err_axes": payload["error_axes"],
         **{key: payload["joint_names"]
-           for key in ("q", "qd", "qdd", "tau", "current", "tau_cmd", "tau_ff", "tau_fb", "err_q")},
+           for key in ("q", "qd", "qdd", "qddd", "tau", "current", "tau_cmd", "tau_ff", "tau_fb", "tau_gearbox", "err_q")},
     }
     channels = []
     for channel, series in plot.items():

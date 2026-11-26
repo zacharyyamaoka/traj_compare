@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Joint signals in traj_compare</title>
+<style>
+  :root { color-scheme: dark; background: #132126; color: #eef5f4; font: 16px/1.55 system-ui, sans-serif }
+  body { max-width: 63rem; margin: auto; padding: 2rem clamp(1rem, 4vw, 2rem) 3rem }
+  h1 { font-size: clamp(2rem, 6vw, 3.35rem); letter-spacing: -.04em; line-height: 1.06; margin: 0 0 .75rem }
+  h2 { font-size: 1.25rem; margin: 1.7rem 0 .5rem }
+  p, dl { max-width: 49rem }
+  .lead { color: #c4d7d7 }
+  a { color: #a5e2dd; text-underline-offset: .16em }
+  figure { margin: 1.3rem 0 }
+  video { display: block; width: 100%; height: auto; border: 1px solid #39575d; border-radius: .75rem }
+  figcaption { margin-top: .55rem }
+  dt { font-weight: 650 }
+  dd { margin: .2rem 0 .8rem }
+  code { color: #c1e1f0 }
+</style>
+</head>
+<body>
+<h1>Joint signals in traj_compare</h1>
+<p class="lead">See actual samples under the mouse, inspect signed limits, and open a run’s recording from the report.</p>
+<figure>
+<video autoplay muted controls loop playsinline width="1280" height="800" poster="joint-signals/first-frame.png" aria-label="Recorded joint-signal viewer walkthrough">
+<source src="joint-signals/hero.mp4" type="video/mp4">
+<img src="joint-signals/hero.gif" alt="Recorded walkthrough of jerk, torque, and signed limits">
+</video>
+<figcaption><a href="joint-signals/report.html">Try the shoulder and slide fixture</a> · <a href="joint-signals/hero.gif">GIF replay</a></figcaption>
+</figure>
+<h2>Inspecting the traces</h2>
+<ul>
+<li>Open <strong>Raw signals per joint</strong> for standalone <strong>q</strong>, <strong>qd</strong>, <strong>qdd</strong>, <strong>qddd</strong> and <strong>T</strong>, or combine them in <strong>q / qd / qdd / qddd</strong> or <strong>q / qd / T</strong>.</li>
+<li>Hover to read the nearest visible sample, with time and units. Use <strong>Limits</strong> on a standalone plot to inspect its signed bounds.</li>
+<li>The fixture supplies an independent shoulder gearbox load and omits the slide gearbox load. Its shoulder bounds are ±16 N·m command, ±17 N·m applied and ±18 N·m gearbox load.</li>
+</ul>
+<h2>What the torque curves mean</h2>
+<dl>
+<dt>Required</dt><dd>Inverse-dynamics torque supplied for a target.</dd>
+<dt>Commanded</dt><dd>The controller request, including any summed effort before saturation if that is what the source logged.</dd>
+<dt>Applied</dt><dd>Delivered actuator effort reported by the source.</dd>
+<dt>Gearbox load</dt><dd>Transmission load explicitly measured or computed by the supplied model. The plotted limit comes from that channel’s configured envelope.</dd>
+</dl>
+<h2>Rerun</h2>
+<p><strong>Open in Rerun</strong> uses the recording already on disk. The local report server can build a missing recording from the selected comparison and open it. A report opened from disk gives a copyable <code>traj-compare-rerun</code> command for running those steps locally.</p>
+</body>
+</html>

@@ -15,6 +15,9 @@ is a symlink to that, so every existing path dependency and command keeps workin
 
 ## What the report shows
 
+The [joint-signal review](docs/joint-signal-review.html) walks through hover readings, signed plot limits,
+the jerk and torque views, and the Rerun control.
+
 A run report puts a **stage** on the left: the 3D view (robot + tool paths) over the camera
 overlay / videos. Drag its edge, fold it with ‹ (both remembered); below 900 px it stacks above
 the tabs. Under the tabs is the **time lane**, the page's one time control: transport, a ruler
@@ -147,7 +150,10 @@ write_comparison_report([comparison], out_dir, insights=insights)
 - Arrays are SI (s, rad, m, Nm); the deg default is a viewer toggle only.
 - `qd`/`qdd` fall back to `np.gradient` when omitted (flagged in the report);
   `tau` stays absent if absent.
-- **The five torques** (N·m, (N, DOF) on the situation's own grid; Zach 2026-11-19, contract in
+- Pass `qddd` for authored jerk. Use `derive_jerk=True` when the supplied acceleration represents a
+  continuous piecewise linear curve. See [joint plot data and limits](docs/NAVIGATION.md) for signed
+  bounds, missing channels, and prismatic units.
+- **Torque channels** (N·m for rotary joints, (N, DOF) on the situation's own grid; contract in
   `docs/layout_proposals_2026-11-19/CONTRACT.md`):
 
   | Name | `Situation` field | What it is | moteus |
@@ -157,6 +163,7 @@ write_comparison_report([comparison], out_dir, insights=insights)
   | feedforward | `tau_ff` | the model-based part of the command | cmd `feedforward_torque` |
   | feedback | `tau_fb` | the error-correcting part (kp·e + kd·ė + ki∫e) | `control_torque − feedforward_torque` |
   | applied | `tau` | the torque actually delivered at that instant | reply `torque` |
+  | gearbox load | `tau_gearbox` | transmission load from an explicit measurement or transmission model | separate source |
 
   `tau` keeps its meaning (applied on a run, target on the target), so older reports are unchanged. **Two of
   three derive the third** (`tau_cmd = tau_ff + tau_fb`), listed in `entry["derived"]` and labelled "derived" on
@@ -220,6 +227,16 @@ write_comparison_report([comparison], out_dir, insights=insights)
   `MetricCard`, `BarChart`, `ReportTable`, and `Insight` blocks.
 
 ## Open in Rerun
+
+With the `rerun` extra installed, this opens a saved report's recording or builds it from the selected comparison:
+
+```bash
+traj-compare-rerun '/absolute/path/to/report.html' --comparison 0 --open
+```
+
+The built-in local report server handles the same action from **Open in Rerun**. A static file report
+offers a reusable recording link when available and shows the command when the browser cannot launch
+the local viewer.
 
 Every comparison can also be written as a [Rerun](https://rerun.io) recording: the same data, a second
 projection (decision note "Tracking-Run Data — data-ui vs Rerun", 2026-10-26). Install the extra and ask for it:
