@@ -14,11 +14,7 @@ jobs:
       # WHY uv pip, not uv run: `uv run` resolves every extra, and the `viser` extra names viser-3d-viewer, which is
       # not on PyPI yet; installing only the extras the tests use (rerun is not skip-guarded) keeps CI on PyPI packages (--no-sources) alone.
       - run: uv venv --python ${{ matrix.python }}
-      # WHY robot_msgs from its GitHub commit (2026-11-25): write_trajectory_rrd(robot=) uses
-      # robot_msgs.viz.rerun.robot_blueprint, which is in robot_msgs 0.3.1 (248f9f1) but PyPI still has 0.3.0, so CI was
-      # red from 023b876 on. Pinned to a commit, not a branch, so a robot_msgs push can't change this run. Drop the pin
-      # (back to PyPI) once robot-msgs 0.3.1 is published.
-      - run: uv pip install --no-sources -e ".[test,plot,rerun,export]" "robot-msgs[rerun] @ git+https://github.com/zacharyyamaoka/robot_msgs@9b5b590797048e0c40d1c887be1fa5d165f0aa82"
+      - run: uv pip install --no-sources -e ".[test,plot,rerun,export]" "robot-msgs[rerun]>=0.3.2"
       - run: .venv/bin/python -m pytest -q -rs
         env:
           MPLBACKEND: Agg
