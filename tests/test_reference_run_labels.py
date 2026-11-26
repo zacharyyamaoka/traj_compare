@@ -7,7 +7,7 @@ for every pair whose first element is a measured series. Then:
 
 - HTML: the torque components chip reads ``<reference title> τ (applied)``, the torque section's title names the reference
   instead of "target", and the toolbar's error group reads ``Error vs <reference title>``;
-- the 3D view's error arrows read ``Arrows → <reference title>``;
+- the 3D view's error arrows read ``Position error arrow (vs <reference title>)`` (plain words since 2026-11-25);
 - Rerun: each torque view's title names ``<reference title> (applied)`` instead of "target";
 - a target reference (the default) keeps today's words.
 
@@ -134,7 +134,7 @@ const { chromium } = require(process.argv[2]);
       errorGroup: [...document.querySelectorAll('.grouplabel')].map((label) => label.textContent.trim())
         .filter((text) => /^Error vs/.test(text)),
       arrows: [...document.querySelectorAll('.tc-dditem')].map((item) => item.textContent.trim())
-        .filter((text) => /^Arrows/.test(text)),
+        .filter((text) => /^Position error/.test(text)),
     }));
     out[key].errors = errors;
   }
@@ -186,5 +186,5 @@ def test_html_a_target_reference_keeps_todays_words(pages):
 
 @needs_browser
 def test_html_3d_arrows_point_at_the_reference_run_by_name(pages):
-    assert pages["run"]["arrows"] and set(pages["run"]["arrows"]) == {"Arrows → sim"}, pages["run"]["arrows"]
-    assert pages["target"]["arrows"] and set(pages["target"]["arrows"]) == {"Arrows → target"}, pages["target"]["arrows"]
+    assert pages["run"]["arrows"] and set(pages["run"]["arrows"]) == {"Position error arrow (vs sim)"}, pages["run"]["arrows"]
+    assert pages["target"]["arrows"] and set(pages["target"]["arrows"]) == {"Position error arrow"}, pages["target"]["arrows"]

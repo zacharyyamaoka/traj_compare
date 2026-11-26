@@ -1,16 +1,34 @@
 /* traj_compare — 3D path viewer (three.js, z-up).
  *
  * Per situation, one row: a bulk visibility eye plus a full-word multi-select
- * of what to draw for that run — path line, sampled points, pose frames,
- * z-vectors, its robot model, and (candidates only) difference arrows to the
- * target's same-time pose and rotation arcs between the candidate z-axis and
- * the target's. The model is one more item in that dropdown because it is one
- * more view of the same trajectory, drawn in the same color: target vs sim vs
- * real rigs overlay each other.
+ * of what to draw for that run — path, sampled points, pose frames, tool z
+ * axis, its robot model, and (candidates only) the position error to the
+ * target's same-time pose and the orientation error between them. The model is
+ * one more item in that dropdown because it is one more view of the same
+ * trajectory, drawn in the same color: target vs sim vs real rigs overlay.
  *
- * Time-aware: the page transport (scrubber under the canvas, plot hover)
- * limits drawing to samples <= t — solid up to t over a faint full-path
- * ghost — and poses each visible model at that instant.
+ * Time-aware: the page's time (the lane, a plot drag or hover) is the playhead.
+ * The runs draw their recent history, fading over "Trail decay" seconds; the
+ * target draws the same history plus "Look-ahead" seconds ahead of the
+ * playhead; each visible model stands at that instant.
+ *
+ * Line styles: three proposals, switched by a small drop-down pinned bottom
+ * right of the page (Zach's rule for gated variants), remembered:
+ *   A "Ghost + comet"   — the target a thick translucent tube, each run a solid
+ *                          comet in its colour, error arrows coloured by size;
+ *   B "Error ribbon"    — a ribbon from the target to the run, coloured by the
+ *                          position error, the orientation error at the instant;
+ *   C "Focused instant" — the whole route faint, the window around the playhead
+ *                          bright, one big labelled arrow (mm) and arc (°) now.
+ * WHY (Zach 2026-11-25, traj compare 3D viewer feedback: "it's not completely
+ * clear to me, like the errors and the differences. It's about the line
+ * stylings used"): sub-millimetre errors on a metre-long route vanish at true
+ * scale, so every style draws the run at the target plus ×N its error (FEA's
+ * deformation scale, the same 1-2-5 factor rule as the Rerun magnifier,
+ * rerun_target_run.MAGNIFY_SHARE), colours the error by size on a stated scale,
+ * and limits the drawing to a window around the playhead instead of a hairball
+ * of the whole route. No dashed lines: width, opacity and colour carry
+ * target vs run.
  *
  * Orientation gizmo: three.js' own ViewHelper (examples/jsm/helpers), drawn
  * bottom-right; click an axis ball to fly to that view.
@@ -27,7 +45,7 @@ var Viewer3D = (function () {
     return parseInt(tc.ink('#' + ('00000' + value.toString(16)).slice(-6)).slice(1, 7), 16);
   }
   var GIZMO_SIZE = 128;   // ViewHelper's fixed `dim`
-  var ARC_STEPS = 10;
+  var ARC_STEPS = 24;
 
   var EYE_OPEN =
     '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
@@ -39,22 +57,139 @@ var Viewer3D = (function () {
   // all:  offered for every situation (otherwise: candidates only, since it
   //       is measured against the target)
   // robot: offered only when this situation carries a model
+  // WHY plain words (Zach 2026-11-25, traj compare 3D viewer feedback): "Arrows → target" and "Z rotation arcs" said
+  // how they are drawn, not what they show
   var ELEMENTS = [
-    { id: 'path', label: 'Path line', all: true, on: true },
-    { id: 'points', label: 'Points', all: true, on: true },
-    { id: 'robot', label: 'Robot / URDF', all: true, on: true, robot: true },
+    { id: 'path', label: 'Path', all: true, on: true },
+    { id: 'points', label: 'Points', all: true, on: false },
+    { id: 'robot', label: 'Robot model', all: true, on: true, robot: true },
     { id: 'frames', label: 'Pose frames', all: true, on: false },
-    { id: 'zvec', label: 'Z vectors', all: true, on: false },
-    { id: 'diff', label: 'Arrows → target', all: false, on: true },
-    { id: 'zarc', label: 'Z rotation arcs', all: false, on: false },
+    { id: 'zvec', label: 'Tool Z axis', all: true, on: false },
+    { id: 'diff', label: 'Position error arrow', all: false, on: true },
+    { id: 'zarc', label: 'Orientation error arc', all: false, on: true },
   ];
 
-  /* An element's words on this page. WHY (arm_motion_bench, 2026-11-20): in a sim → real pair the arrows point at the
-     sim run (Comparison.reference_kind "run"), so they say so instead of "target". */
-  function elementLabel(element, page) {
+  /* The three line-style proposals; A is the default. */
+  var STYLES = [
+    { id: 'A', name: 'Ghost + comet' },
+    { id: 'B', name: 'Error ribbon' },
+    { id: 'C', name: 'Focused instant' },
+  ];
+  var STYLE_KEY = 'traj-compare:3d-style';
+
+  function recallStyle() {
+    try {
+      var value = localStorage.getItem(STYLE_KEY);
+      return STYLES.some(function (style) { return style.id === value; }) ? value : 'A';
+    } catch (error) { return 'A'; }
+  }
+  function storeStyle(value) {
+    try { localStorage.setItem(STYLE_KEY, value); } catch (error) { /* a file:// page may refuse storage */ }
+  }
+
+  var viewers = [];
+  var currentStyle = recallStyle();
+
+  // One switch per document, whatever number of 3D views the report holds.
+  function ensureStylePicker() {
+    if (document.querySelector('[data-tc-style-pick]')) return;
+    var box = document.createElement('label');
+    box.className = 'tc-style-pick';
+    box.setAttribute('data-tc-style-pick', '');
+    box.title = '3D view line style: three proposals to compare (temporary)';
+    box.appendChild(document.createTextNode('3D style'));
+    var select = document.createElement('select');
+    STYLES.forEach(function (style) {
+      var option = document.createElement('option');
+      option.value = style.id;
+      option.textContent = style.id + ' · ' + style.name;
+      select.appendChild(option);
+    });
+    select.value = currentStyle;
+    select.addEventListener('change', function () { setStyleEverywhere(select.value); });
+    box.appendChild(select);
+    document.body.appendChild(box);
+  }
+
+  function setStyleEverywhere(value) {
+    if (!STYLES.some(function (style) { return style.id === value; })) value = 'A';
+    currentStyle = value;
+    storeStyle(value);
+    var select = document.querySelector('[data-tc-style-pick] select');
+    if (select && select.value !== value) select.value = value;
+    viewers.forEach(function (viewer) { viewer.setStyle(value); });
+  }
+
+  /* An element's words on this page and style. WHY (arm_motion_bench, 2026-11-20): in a sim → real pair the error is
+     measured against the sim run (Comparison.reference_kind "run"), so it says so instead of the target. */
+  function elementLabel(element, page, style) {
     var data = page && page.data;
-    if (element.id === 'diff' && data && data.reference_kind === 'run') return 'Arrows → ' + data.reference_title;
-    return element.label;
+    var label = element.label;
+    if (element.id === 'diff' && style === 'B') label = 'Position error ribbon';
+    if ((element.id === 'diff' || element.id === 'zarc') && data && data.reference_kind === 'run') {
+      label += ' (vs ' + data.reference_title + ')';
+    }
+    return label;
+  }
+
+  // Colour ramp for an error's size, 0 → the largest error on the page: green, amber, red, plum (no blue: the runs are).
+  var RAMP = [[0.0, [0.11, 0.62, 0.47]], [0.4, [0.90, 0.67, 0.01]], [0.75, [0.84, 0.19, 0.12]], [1.0, [0.48, 0.0, 0.47]]];
+  function rampRgb(fraction) {
+    var f = Math.max(0, Math.min(1, fraction || 0));
+    for (var k = 1; k < RAMP.length; k++) {
+      if (f <= RAMP[k][0]) {
+        var a = RAMP[k - 1], b = RAMP[k];
+        var w = (f - a[0]) / (b[0] - a[0]);
+        return [a[1][0] + (b[1][0] - a[1][0]) * w, a[1][1] + (b[1][1] - a[1][1]) * w, a[1][2] + (b[1][2] - a[1][2]) * w];
+      }
+    }
+    return RAMP[RAMP.length - 1][1];
+  }
+  function rampCss() {
+    return 'linear-gradient(90deg,' + RAMP.map(function (stop) {
+      return 'rgb(' + stop[1].map(function (c) { return Math.round(c * 255); }).join(',') + ') ' + stop[0] * 100 + '%';
+    }).join(',') + ')';
+  }
+
+  // The 1-2-5 number nearest ``value`` in log space (rerun_target_run._nice_factor), at least 1.
+  function niceFactor(value) {
+    if (!isFinite(value) || value <= 1) return 1;
+    var exponent = Math.pow(10, Math.floor(Math.log10(value)));
+    var best = 1, bestGap = Infinity;
+    [1, 2, 5, 10].forEach(function (m) {
+      var gap = Math.abs(Math.log(m * exponent / value));
+      if (gap < bestGap) { bestGap = gap; best = m * exponent; }
+    });
+    return Math.round(best);
+  }
+  var MAGNIFY_SHARE = 0.35;   // rerun_target_run.MAGNIFY_SHARE: the drawn peak error, as a share of the path's radius
+  var ARC_TARGET_DEG = 60;    // the largest orientation error is drawn this wide
+  var SAME_POSE_M = 1e-6;
+
+  // the slider steps; Infinity draws everything
+  var DECAY_STEPS = [0.5, 1, 2, 3, 5, 10, 20, 30, 60, Infinity];
+  var LOOK_STEPS = [0, 0.5, 1, 2, 3, 5, 10, 20, Infinity];
+  var MAGNIFY_STEPS = [0, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000];  // 0: auto
+  var MAX_WINDOW_POINTS = 1600;   // a window's line is decimated to at most this many samples
+
+  function secondsText(value, zeroWord) {
+    if (value === Infinity) return 'full';
+    if (value === 0) return zeroWord;
+    return value + ' s';
+  }
+
+  function mmText(metres) {
+    var mm = metres * 1000;
+    if (mm >= 100) return mm.toFixed(0) + ' mm';
+    if (mm >= 10) return mm.toFixed(1) + ' mm';
+    if (mm >= 1) return mm.toFixed(2) + ' mm';
+    return mm.toFixed(3) + ' mm';
+  }
+  function degText(radians) {
+    var deg = radians * 180 / Math.PI;
+    if (deg >= 10) return deg.toFixed(1) + '°';
+    if (deg >= 1) return deg.toFixed(2) + '°';
+    return deg.toFixed(3) + '°';
   }
 
   function availableElements(sit) {
@@ -159,7 +294,7 @@ var Viewer3D = (function () {
     var span = bounds.getSize(new THREE.Vector3()).length() || 1.0;
     var center = bounds.getCenter(new THREE.Vector3());
 
-    var view = { theta: -Math.PI / 4, phi: Math.PI / 3.2, radius: span * 1.05, target: center.clone() };
+    var view = { theta: -Math.PI / 4, phi: Math.PI / 3.2, radius: span * 0.78, target: center.clone() };
 
     function applyCamera() {
       var sinPhi = Math.sin(view.phi);
@@ -174,7 +309,9 @@ var Viewer3D = (function () {
 
     function fitView() {
       view.target.copy(center);
-      view.radius = Math.max(span * 1.05, 0.2);
+      // WHY tighter than the bounds (2026-11-25): the bounds hold every link's reach sphere, so 1.05 × their diagonal
+      // framed mostly floor grid and left the paths, where the error is, a few pixels tall
+      view.radius = Math.max(span * 0.78, 0.2);
       view.theta = -Math.PI / 4;
       view.phi = Math.PI / 3.2;
       applyCamera();
@@ -264,7 +401,9 @@ var Viewer3D = (function () {
 
     // What is drawn for a situation is remembered under its *name*, so the
     // same choice comes back on every scenario tab (see plots.js prefs).
-    function elementKey(sit, id) { return '3d:' + sit.name + ':' + id; }
+    // WHY "3dv2:" (2026-11-25): the elements' defaults changed with the line styles (points off, the orientation arc
+    // on); a choice made under the old drawing would bring the old clutter back
+    function elementKey(sit, id) { return '3dv2:' + sit.name + ':' + id; }
     function eyeKey(sit) { return '3deye:' + sit.name; }
 
     var sitStates = situations.map(function (sit) {
@@ -280,224 +419,434 @@ var Viewer3D = (function () {
         eyeOn: prefs.get(eyeKey(sit), true),
         globalOn: page.visible[sit.name] !== false,
         enabled: enabled,
-        objects: {},
-        timeLists: {},   // element id -> sorted per-unit sample times (for truncation)
-        markerDisposables: [],
+        dynamic: [],     // this frame's window geometry, disposed on the next rebuild
+        labels: [],      // [{node, at}] screen labels pinned to a world point (style C)
         row: null,
         eyeBtn: null,
         boxes: {},       // element id -> its checkbox in the dropdown
+        labelNodes: {},  // element id -> its label text in the dropdown
         paintButton: null,
       };
     });
 
+    var style = currentStyle;
     var density = 20;
     var markerSize = Math.max(0.01, Math.min(0.25, span * 0.05));
+    var decay = 5;
+    var lookahead = 2;
+    var magnifyChoice = 0;   // 0: auto
 
-    function markerIndices(count) {
-      var indices = [];
-      var stride = Math.max(1, Math.floor(count / density));
-      for (var i = 0; i < count; i += stride) indices.push(i);
-      if (indices[indices.length - 1] !== count - 1) indices.push(count - 1);
-      return indices;
-    }
+    /* ---- the error, per candidate sample: |target − run| (m), the rotation between them (rad, axis) ---- */
 
-    function segmentsObject(positions, colors, material) {
-      var geometry = new THREE.BufferGeometry();
-      geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
-      if (colors) {
-        geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(colors), 3));
-      }
-      return new THREE.LineSegments(geometry, material);
-    }
-
-    function buildStatic(state) {
+    var errorPeak = 0, anglePeak = 0;
+    sitStates.forEach(function (state) {
       var three = state.sit.three;
-      var flat = new Float32Array(three.p.length * 3);
-      three.p.forEach(function (point, index) {
-        flat[index * 3] = point[0]; flat[index * 3 + 1] = point[1]; flat[index * 3 + 2] = point[2];
-      });
-      var attribute = new THREE.BufferAttribute(flat, 3);
-      var dashed = state.sit.role === 'target';
-
-      function lineMaterial(opacity) {
-        var options = { color: state.sit.color };
-        if (opacity < 1) { options.transparent = true; options.opacity = opacity; }
-        return dashed
-          ? new THREE.LineDashedMaterial(Object.assign(options, {
-              dashSize: span * 0.016, gapSize: span * 0.010 }))
-          : new THREE.LineBasicMaterial(options);
+      var n = three.p.length;
+      state.err = new Float64Array(n).fill(NaN);
+      state.ang = new Float64Array(n).fill(NaN);
+      state.axis = new Float64Array(n * 3);
+      if (!three.tp) return;
+      for (var i = 0; i < n; i++) {
+        var to = three.tp[i];
+        if (!to || to[0] === null) continue;
+        var dx = to[0] - three.p[i][0], dy = to[1] - three.p[i][1], dz = to[2] - three.p[i][2];
+        state.err[i] = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (state.err[i] > errorPeak) errorPeak = state.err[i];
+        var q = three.quat[i], tq = three.tquat[i];
+        if (!tq || tq[0] === null) continue;
+        // the rotation run -> target, in the world: tq * conj(q)
+        var w = tq[0] * q[0] + tq[1] * q[1] + tq[2] * q[2] + tq[3] * q[3];
+        var x = -tq[0] * q[1] + tq[1] * q[0] - tq[2] * q[3] + tq[3] * q[2];
+        var y = -tq[0] * q[2] + tq[1] * q[3] + tq[2] * q[0] - tq[3] * q[1];
+        var z = -tq[0] * q[3] - tq[1] * q[2] + tq[2] * q[1] + tq[3] * q[0];
+        if (w < 0) { w = -w; x = -x; y = -y; z = -z; }
+        var s = Math.sqrt(x * x + y * y + z * z);
+        state.ang[i] = 2 * Math.atan2(s, w);
+        if (s > 1e-12) { state.axis[i * 3] = x / s; state.axis[i * 3 + 1] = y / s; state.axis[i * 3 + 2] = z / s; }
+        else state.axis[i * 3 + 2] = 1;
+        if (state.ang[i] > anglePeak) anglePeak = state.ang[i];
       }
+    });
+    var targetState = sitStates.filter(function (state) { return state.sit.role === 'target'; })[0] || null;
+    var pathRadius = (function () {
+      var box = new THREE.Box3();
+      (targetState || sitStates[0]).sit.three.p.forEach(function (point) {
+        box.expandByPoint(new THREE.Vector3(point[0], point[1], point[2]));
+      });
+      return 0.5 * box.getSize(new THREE.Vector3()).length();
+    })();
+    var autoMagnify = errorPeak < SAME_POSE_M ? 1 : niceFactor(MAGNIFY_SHARE * pathRadius / errorPeak);
+    var arcMagnify = anglePeak <= 0 ? 1 : Math.max(1, niceFactor((ARC_TARGET_DEG * Math.PI / 180) / anglePeak));
+    function magnify() { return magnifyChoice || autoMagnify; }
 
-      // Faint full-path ghost stays complete while the solid line is
-      // truncated to the transport time, so scrubbing keeps its context.
-      var ghostGeometry = new THREE.BufferGeometry();
-      ghostGeometry.setAttribute('position', attribute);
-      var ghost = new THREE.Line(ghostGeometry, lineMaterial(0.18));
-      if (dashed) ghost.computeLineDistances();
-
-      var solidGeometry = new THREE.BufferGeometry();
-      solidGeometry.setAttribute('position', attribute);
-      var solid = new THREE.Line(solidGeometry, lineMaterial(1));
-      if (dashed) solid.computeLineDistances();
-
-      var pathGroup = new THREE.Group();
-      pathGroup.add(ghost);
-      pathGroup.add(solid);
-      state.objects.path = pathGroup;
-      state.solidPathGeometry = solidGeometry;
-      state.group.add(pathGroup);
+    // where a sample is drawn: the run at target + N × (run − target); the target, and a run with no target, as recorded
+    function drawnAt(state, i, out) {
+      var three = state.sit.three;
+      var p = three.p[i];
+      var to = three.tp ? three.tp[i] : null;
+      if (!to || to[0] === null) { out[0] = p[0]; out[1] = p[1]; out[2] = p[2]; return out; }
+      var n = magnify();
+      out[0] = to[0] + n * (p[0] - to[0]); out[1] = to[1] + n * (p[1] - to[1]); out[2] = to[2] + n * (p[2] - to[2]);
+      return out;
     }
 
-    function disposeMarkers(state) {
-      state.markerDisposables.forEach(function (object) {
+    function disposeDynamic(state) {
+      state.dynamic.forEach(function (object) {
         state.group.remove(object);
         object.traverse(function (child) {
           if (child.geometry) child.geometry.dispose();
-          if (child.material && child.material.map) child.material.map.dispose();
           if (child.material) child.material.dispose();
         });
       });
-      state.markerDisposables = [];
+      state.dynamic = [];
+      state.labels.forEach(function (label) { label.node.remove(); });
+      state.labels = [];
     }
 
-    function buildMarkers(state) {
-      disposeMarkers(state);
-      var three = state.sit.three;
-      var indices = markerIndices(three.p.length);
-      var times = indices.map(function (i) { return three.t[i]; });
-      var color = new THREE.Color(state.sit.color);
-      var length = markerSize;
+    function keep(state, object) {
+      state.group.add(object);
+      state.dynamic.push(object);
+      return object;
+    }
 
-      state.timeLists = { points: times, frames: times, zvec: times, diff: [], zarc: times };
+    /* The samples drawn now, [first, last) on the situation's own clock, decimated to MAX_WINDOW_POINTS. The run's
+       window is its trail (decay seconds up to the playhead); the target's adds the look-ahead. */
+    function windowOf(state, time, ahead) {
+      var t = state.sit.three.t;
+      var first = decay === Infinity ? 0 : countLeq(t, time - decay);
+      var last = ahead === Infinity ? t.length : countLeq(t, time + ahead);
+      var indices = [];
+      var stride = Math.max(1, Math.ceil((last - first) / MAX_WINDOW_POINTS));
+      for (var i = first; i < last; i += stride) indices.push(i);
+      if (last - 1 >= first && indices[indices.length - 1] !== last - 1) indices.push(last - 1);
+      return indices;
+    }
 
-      var pointsFlat = [];
-      indices.forEach(function (i) { pointsFlat.push(three.p[i][0], three.p[i][1], three.p[i][2]); });
-      var pointsGeometry = new THREE.BufferGeometry();
-      pointsGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pointsFlat), 3));
-      var points = new THREE.Points(pointsGeometry, new THREE.PointsMaterial({
-        color: color, size: Math.max(3, length * 55), sizeAttenuation: false,
-      }));
-      state.objects.points = points;
+    // how bright a sample is: 1 at the playhead, fading to 0 over the trail; ahead, a gentle taper to 0.35
+    function fadeAt(sampleTime, time) {
+      if (sampleTime <= time) return decay === Infinity ? 1 : Math.max(0, 1 - (time - sampleTime) / decay);
+      if (lookahead === Infinity || lookahead === 0) return 1;
+      return 1 - 0.65 * Math.min(1, (sampleTime - time) / lookahead);
+    }
 
-      var framePositions = [], frameColors = [];
-      var zPositions = [];
-      var axisColors = [new THREE.Color(0xd23b3b), new THREE.Color(0x2f9e44), new THREE.Color(0x2a66d6)];
-      indices.forEach(function (i) {
-        var p = three.p[i];
-        var columns = columnsOf(three.quat[i]);
-        for (var axis = 0; axis < 3; axis++) {
-          framePositions.push(p[0], p[1], p[2],
-            p[0] + columns[axis][0] * length, p[1] + columns[axis][1] * length, p[2] + columns[axis][2] * length);
-          for (var vertex = 0; vertex < 2; vertex++) {
-            frameColors.push(axisColors[axis].r, axisColors[axis].g, axisColors[axis].b);
+    /* A tube along ``points`` (an array of [x,y,z]) of world ``radius``, one RGBA per point (vertex colours, so a
+       window fades along its length). WHY tubes and not lines: WebGL draws every line 1 px wide, and width is what
+       tells the target from the run once dashes are gone. */
+    function tube(points, rgba, radius, radial) {
+      radial = radial || 6;
+      var n = points.length;
+      if (n < 2) return null;
+      var positions = new Float32Array(n * radial * 3);
+      var colors = new Float32Array(n * radial * 4);
+      var index = [];
+      var normal = new THREE.Vector3(), binormal = new THREE.Vector3(), tangent = new THREE.Vector3();
+      var previousNormal = null;
+      for (var i = 0; i < n; i++) {
+        var a = points[Math.max(0, i - 1)], b = points[Math.min(n - 1, i + 1)];
+        tangent.set(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+        if (tangent.lengthSq() < 1e-20) tangent.set(0, 0, 1);
+        tangent.normalize();
+        // parallel transport: keep the previous normal, made perpendicular to this tangent, so the tube never twists
+        if (previousNormal) normal.copy(previousNormal);
+        else normal.set(Math.abs(tangent.z) < 0.9 ? 0 : 1, 0, Math.abs(tangent.z) < 0.9 ? 1 : 0);
+        normal.addScaledVector(tangent, -normal.dot(tangent));
+        if (normal.lengthSq() < 1e-12) normal.set(1, 0, 0).addScaledVector(tangent, -tangent.x);
+        normal.normalize();
+        previousNormal = normal.clone();
+        binormal.crossVectors(tangent, normal);
+        for (var k = 0; k < radial; k++) {
+          var angle = (k / radial) * Math.PI * 2;
+          var c = Math.cos(angle) * radius, s = Math.sin(angle) * radius;
+          var o = (i * radial + k) * 3;
+          positions[o] = points[i][0] + normal.x * c + binormal.x * s;
+          positions[o + 1] = points[i][1] + normal.y * c + binormal.y * s;
+          positions[o + 2] = points[i][2] + normal.z * c + binormal.z * s;
+          var co = (i * radial + k) * 4;
+          colors[co] = rgba[i][0]; colors[co + 1] = rgba[i][1]; colors[co + 2] = rgba[i][2]; colors[co + 3] = rgba[i][3];
+        }
+        if (i > 0) {
+          for (var m = 0; m < radial; m++) {
+            var a0 = (i - 1) * radial + m, a1 = (i - 1) * radial + (m + 1) % radial;
+            var b0 = i * radial + m, b1 = i * radial + (m + 1) % radial;
+            index.push(a0, b0, a1, a1, b0, b1);
           }
         }
-        zPositions.push(p[0], p[1], p[2],
-          p[0] + columns[2][0] * length, p[1] + columns[2][1] * length, p[2] + columns[2][2] * length);
+      }
+      var geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geometry.setAttribute('color', new THREE.BufferAttribute(colors, 4));
+      geometry.setIndex(index);
+      return new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+        vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+    }
+
+    // a plain 1 px polyline (the faint whole-route context of style C)
+    function polyline(points, color, opacity) {
+      var flat = new Float32Array(points.length * 3);
+      points.forEach(function (point, i) { flat[i * 3] = point[0]; flat[i * 3 + 1] = point[1]; flat[i * 3 + 2] = point[2]; });
+      var geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(flat, 3));
+      return new THREE.Line(geometry, new THREE.LineBasicMaterial({
+        color: color, transparent: true, opacity: opacity, depthWrite: false }));
+    }
+
+    function segments(positions, color, opacity) {
+      var geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+      var options = { color: color };
+      if (opacity < 1) { options.transparent = true; options.opacity = opacity; }
+      return new THREE.LineSegments(geometry, new THREE.LineBasicMaterial(options));
+    }
+
+    function sphere(at, radius, color, opacity) {
+      var mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 14, 10), new THREE.MeshBasicMaterial({
+        color: color, transparent: opacity < 1, opacity: opacity }));
+      mesh.position.set(at[0], at[1], at[2]);
+      return mesh;
+    }
+
+    // an arrow as a cylinder and a cone, from ``from`` to ``to`` (world), coloured ``rgb``
+    function arrow(from, to, rgb, shaft) {
+      var direction = new THREE.Vector3(to[0] - from[0], to[1] - from[1], to[2] - from[2]);
+      var length = direction.length();
+      if (length < 1e-9) return null;
+      direction.divideScalar(length);
+      var head = Math.min(length * 0.45, shaft * 4.2);
+      var color = new THREE.Color(rgb[0], rgb[1], rgb[2]);
+      var group = new THREE.Group();
+      var material = new THREE.MeshBasicMaterial({ color: color });
+      var body = new THREE.Mesh(new THREE.CylinderGeometry(shaft, shaft, Math.max(length - head, 1e-9), 8), material);
+      var cone = new THREE.Mesh(new THREE.ConeGeometry(shaft * 2.6, head, 12), material.clone());
+      var yUp = new THREE.Vector3(0, 1, 0);
+      var turn = new THREE.Quaternion().setFromUnitVectors(yUp, direction);
+      body.quaternion.copy(turn);
+      cone.quaternion.copy(turn);
+      body.position.set(from[0], from[1], from[2]).addScaledVector(direction, (length - head) / 2);
+      cone.position.set(to[0], to[1], to[2]).addScaledVector(direction, -head / 2);
+      group.add(body);
+      group.add(cone);
+      return group;
+    }
+
+    /* The orientation error at sample i as an arc about its rotation axis, centred on the drawn run point: it turns
+       ×arcMagnify the true angle (capped below a full turn) from the run's tool z (or any direction across the axis)
+       toward the target's. Returns {object, tip}. */
+    function orientationArc(state, i, at, radius, rgb, width) {
+      var angle = state.ang[i];
+      if (!(angle > 0)) return null;
+      var axis = new THREE.Vector3(state.axis[i * 3], state.axis[i * 3 + 1], state.axis[i * 3 + 2]);
+      var z = zAxisOf(state.sit.three.quat[i]);
+      var start = new THREE.Vector3(z[0], z[1], z[2]);
+      start.addScaledVector(axis, -start.dot(axis));
+      if (start.lengthSq() < 1e-6) {
+        start.set(1, 0, 0).addScaledVector(axis, -axis.x);
+        if (start.lengthSq() < 1e-6) start.set(0, 1, 0).addScaledVector(axis, -axis.y);
+      }
+      start.normalize();
+      var sweep = Math.min(angle * arcMagnify, Math.PI * 1.6);
+      var points = [], rgba = [];
+      var turn = new THREE.Quaternion();
+      for (var k = 0; k <= ARC_STEPS; k++) {
+        turn.setFromAxisAngle(axis, sweep * k / ARC_STEPS);
+        var v = start.clone().applyQuaternion(turn).multiplyScalar(radius);
+        points.push([at[0] + v.x, at[1] + v.y, at[2] + v.z]);
+        rgba.push([rgb[0], rgb[1], rgb[2], 1]);
+      }
+      var group = new THREE.Group();
+      var line = tube(points, rgba, width, 6);
+      if (line) group.add(line);
+      // the two spokes make it read as an angle: from the run's direction to the target's
+      var first = points[0], last = points[points.length - 1];
+      group.add(segments([at[0], at[1], at[2], first[0], first[1], first[2], at[0], at[1], at[2], last[0], last[1], last[2]],
+        new THREE.Color(rgb[0], rgb[1], rgb[2]), 0.8));
+      var tipDir = new THREE.Vector3(last[0] - points[points.length - 2][0], last[1] - points[points.length - 2][1],
+        last[2] - points[points.length - 2][2]).normalize();
+      var cone = new THREE.Mesh(new THREE.ConeGeometry(width * 2.8, width * 7, 10),
+        new THREE.MeshBasicMaterial({ color: new THREE.Color(rgb[0], rgb[1], rgb[2]) }));
+      cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tipDir);
+      cone.position.set(last[0], last[1], last[2]);
+      group.add(cone);
+      return { object: group, tip: last };
+    }
+
+    // ``place`` "above" / "below" its point, so the two labels of one instant never sit on each other
+    function label(state, text, at, color, place) {
+      var node = el('div', 'tc-3dlabel ' + (place || 'above'), canvasBox, text);
+      node.setAttribute('data-tc-3dlabel', '');
+      if (color) node.style.borderColor = color;
+      state.labels.push({ node: node, at: new THREE.Vector3(at[0], at[1], at[2]) });
+    }
+
+    function placeLabels() {
+      var width = canvasBox.clientWidth || 800;
+      var projected = new THREE.Vector3();
+      sitStates.forEach(function (state) {
+        state.labels.forEach(function (entry) {
+          projected.copy(entry.at).project(camera);
+          var visible = state.group.visible && projected.z < 1 && Math.abs(projected.x) <= 1 && Math.abs(projected.y) <= 1;
+          entry.node.hidden = !visible;
+          if (!visible) return;
+          entry.node.style.left = ((projected.x + 1) / 2 * width) + 'px';
+          entry.node.style.top = ((1 - projected.y) / 2 * canvasHeight) + 'px';
+        });
       });
-      state.objects.frames = segmentsObject(framePositions, frameColors,
-        new THREE.LineBasicMaterial({ vertexColors: true }));
-      state.objects.zvec = segmentsObject(zPositions, null, new THREE.LineBasicMaterial({ color: color }));
+    }
 
-      if (three.tp) {
-        var arrowPositions = [];
-        var arrowCones = [];
-        var arrowTimes = [];
-        indices.forEach(function (i) {
-          var from = three.p[i], to = three.tp[i];
-          if (to[0] === null) return;  // past the target's span: no target pose, no arrow
-          var dx = to[0] - from[0], dy = to[1] - from[1], dz = to[2] - from[2];
-          var distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-          if (distance < 1e-6) return;
-          arrowPositions.push(from[0], from[1], from[2], to[0], to[1], to[2]);
-          arrowCones.push({ to: to, direction: [dx / distance, dy / distance, dz / distance], distance: distance });
-          arrowTimes.push(three.t[i]);
-        });
-        state.timeLists.diff = arrowTimes;
-        var arrowGroup = new THREE.Group();
-        var arrowLines = segmentsObject(arrowPositions, null, new THREE.LineBasicMaterial({ color: color }));
-        arrowGroup.add(arrowLines);
-        var cones = null;
-        if (arrowCones.length) {
-          var coneHeight = Math.min(length * 0.5, span * 0.02);
-          var coneGeometry = new THREE.ConeGeometry(coneHeight * 0.35, coneHeight, 6);
-          cones = new THREE.InstancedMesh(coneGeometry,
-            new THREE.MeshBasicMaterial({ color: color }), arrowCones.length);
-          var matrix = new THREE.Matrix4();
-          var quaternion = new THREE.Quaternion();
-          var yUp = new THREE.Vector3(0, 1, 0);
-          arrowCones.forEach(function (cone, index) {
-            var direction = new THREE.Vector3(cone.direction[0], cone.direction[1], cone.direction[2]);
-            quaternion.setFromUnitVectors(yUp, direction);
-            var height = Math.min(coneHeight, cone.distance * 0.5);
-            var scale = height / coneHeight;
-            matrix.compose(
-              new THREE.Vector3(
-                cone.to[0] - direction.x * height / 2,
-                cone.to[1] - direction.y * height / 2,
-                cone.to[2] - direction.z * height / 2),
-              quaternion,
-              new THREE.Vector3(scale, scale, scale));
-            cones.setMatrixAt(index, matrix);
-          });
-          cones.instanceMatrix.needsUpdate = true;
-          arrowGroup.add(cones);
+    function rgbOf(color) { var c = new THREE.Color(color); return [c.r, c.g, c.b]; }
+
+    /* Everything a situation draws at ``time`` in the active style. Rebuilt on every time change: a window is at most
+       MAX_WINDOW_POINTS samples, so a rebuild is a few thousand vertices. */
+    function rebuild(state, time) {
+      disposeDynamic(state);
+      var sit = state.sit;
+      var three = sit.three;
+      var isTarget = sit.role === 'target';
+      var candidate = !!three.tp;
+      var color = rgbOf(sit.color);
+      var on = state.enabled;
+      var ahead = isTarget ? lookahead : 0;
+      var indices = windowOf(state, time, ahead);
+      var head = Math.max(0, countLeq(three.t, time) - 1);
+      var at = [0, 0, 0];
+      var points = indices.map(function (i) { return drawnAt(state, i, [0, 0, 0]); });
+      var fades = indices.map(function (i) { return fadeAt(three.t[i], time); });
+      var headAt = drawnAt(state, head, [0, 0, 0]);
+      var started = three.t.length && time >= three.t[0];
+
+      if (on.path) {
+        if (style === 'C' && isTarget) {
+          // the whole route, faint, for context; the window bright on top. WHY the target's only: the magnified run's
+          // whole history drawn faint was a haze of spikes, the clutter this style exists to remove
+          var every = [];
+          var stride = Math.max(1, Math.ceil(three.t.length / 4000));
+          for (var g = 0; g < three.t.length; g += stride) every.push(drawnAt(state, g, [0, 0, 0]));
+          keep(state, polyline(every, sit.color, 0.28));
         }
-        state.objects.diff = arrowGroup;
-        state.arrowLines = arrowLines;
-        state.arrowCones = cones;
-        state.arrowTotal = arrowCones.length;
-
-        var arcPositions = [];
-        var ownPositions = [];
-        var ghostPositions = [];
-        var arcTimes = [];
-        indices.forEach(function (i) {
-          var p = three.p[i];
-          var own = zAxisOf(three.quat[i]);
-          if (three.tquat[i][0] === null) return;  // outside the target's span
-          arcTimes.push(three.t[i]);
-          var goal = zAxisOf(three.tquat[i]);
-          // Both fan edges are part of the arc object, so the rotation gap
-          // reads on its own without also enabling the Z column.
-          ownPositions.push(p[0], p[1], p[2],
-            p[0] + own[0] * length, p[1] + own[1] * length, p[2] + own[2] * length);
-          ghostPositions.push(p[0], p[1], p[2],
-            p[0] + goal[0] * length, p[1] + goal[1] * length, p[2] + goal[2] * length);
-          var previous = null;
-          for (var step = 0; step <= ARC_STEPS; step++) {
-            var f = step / ARC_STEPS;
-            var vx = own[0] * (1 - f) + goal[0] * f;
-            var vy = own[1] * (1 - f) + goal[1] * f;
-            var vz = own[2] * (1 - f) + goal[2] * f;
-            var norm = Math.sqrt(vx * vx + vy * vy + vz * vz) || 1;
-            var point = [p[0] + vx / norm * length, p[1] + vy / norm * length, p[2] + vz / norm * length];
-            if (previous) arcPositions.push(previous[0], previous[1], previous[2], point[0], point[1], point[2]);
-            previous = point;
-          }
-        });
-        // WHY: truncation counts the arcs drawn by time, so the list holds only the rows that got an arc
-        state.timeLists.zarc = arcTimes;
-        var arcGroup = new THREE.Group();
-        state.arcSegments = segmentsObject(arcPositions, null, new THREE.LineBasicMaterial({ color: color }));
-        state.arcOwn = segmentsObject(ownPositions, null, new THREE.LineBasicMaterial({ color: color }));
-        state.arcGhost = segmentsObject(ghostPositions, null,
-          new THREE.LineBasicMaterial({ color: inkNumber(0x52514e), transparent: true, opacity: 0.65 }));
-        arcGroup.add(state.arcSegments);
-        arcGroup.add(state.arcOwn);
-        arcGroup.add(state.arcGhost);
-        state.objects.zarc = arcGroup;
+        var radius, alpha;
+        if (isTarget) {
+          radius = style === 'A' ? span * 0.0065 : style === 'B' ? span * 0.0016 : span * 0.0045;
+          alpha = style === 'A' ? 0.32 : style === 'B' ? 0.95 : 0.45;
+        } else {
+          radius = style === 'A' ? span * 0.0024 : style === 'B' ? span * 0.0016 : span * 0.003;
+          alpha = 1;
+        }
+        var rgba = fades.map(function (f) { return [color[0], color[1], color[2], alpha * f]; });
+        var line = tube(points, rgba, radius, isTarget && style === 'A' ? 10 : 6);
+        if (line) {
+          line.renderOrder = isTarget ? 1 : 3;
+          keep(state, line);
+        }
+        if (started) {
+          var now = keep(state, sphere(headAt, (isTarget ? 1.25 : 1.6) * Math.max(radius, span * 0.0022), sit.color,
+            isTarget ? 0.6 : 1));
+          now.renderOrder = 4;
+        }
       }
 
-      ['points', 'frames', 'zvec', 'diff', 'zarc'].forEach(function (id) {
-        var object = state.objects[id];
-        if (!object) return;
-        state.group.add(object);
-        state.markerDisposables.push(object);
-      });
-      applyElements(state);
-      applyDisplayTime();
-      dirty = true;
+      // the samples of the window, every ``density``-th of the whole run: points, pose frames, tool z
+      var markerStride = Math.max(1, Math.floor(three.t.length / density));
+      var marks = indices.filter(function (i) { return i % markerStride === 0 && three.t[i] <= time + ahead; });
+      if (on.points && marks.length) {
+        var flat = [];
+        marks.forEach(function (i) { drawnAt(state, i, at); flat.push(at[0], at[1], at[2]); });
+        var geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(flat), 3));
+        keep(state, new THREE.Points(geometry, new THREE.PointsMaterial({
+          color: sit.color, size: Math.max(3, markerSize * 55), sizeAttenuation: false })));
+      }
+      if ((on.frames || on.zvec) && marks.length) {
+        var framePositions = [], frameColors = [], zPositions = [];
+        var axisColors = [[0.82, 0.23, 0.23], [0.18, 0.62, 0.27], [0.16, 0.4, 0.84]];
+        marks.forEach(function (i) {
+          drawnAt(state, i, at);
+          var columns = columnsOf(three.quat[i]);
+          for (var axis = 0; axis < 3; axis++) {
+            framePositions.push(at[0], at[1], at[2], at[0] + columns[axis][0] * markerSize,
+              at[1] + columns[axis][1] * markerSize, at[2] + columns[axis][2] * markerSize);
+            frameColors.push.apply(frameColors, axisColors[axis].concat(axisColors[axis]));
+          }
+          zPositions.push(at[0], at[1], at[2], at[0] + columns[2][0] * markerSize,
+            at[1] + columns[2][1] * markerSize, at[2] + columns[2][2] * markerSize);
+        });
+        if (on.frames) {
+          var frameGeometry = new THREE.BufferGeometry();
+          frameGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(framePositions), 3));
+          frameGeometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(frameColors), 3));
+          keep(state, new THREE.LineSegments(frameGeometry, new THREE.LineBasicMaterial({ vertexColors: true })));
+        }
+        if (on.zvec) keep(state, segments(zPositions, sit.color, 1));
+      }
+
+      if (!candidate || !started) return;
+      var headErr = state.err[head];
+      var headTarget = three.tp[head];
+      var shaft = span * 0.0021;
+
+      if (on.diff) {
+        if (style === 'B') {
+          // a ribbon from the target to the drawn run at every sample of the trail, coloured by the error's size
+          var ribbon = [], ribbonColors = [], ribbonIndex = [];
+          var vertex = 0;
+          indices.forEach(function (i, k) {
+            var to = three.tp[i];
+            if (!to || to[0] === null || !(state.err[i] >= 0)) { vertex = -1; return; }
+            var rgb = rampRgb(errorPeak > 0 ? state.err[i] / errorPeak : 0);
+            var fade = fades[k] * 0.85;
+            ribbon.push(to[0], to[1], to[2], points[k][0], points[k][1], points[k][2]);
+            ribbonColors.push(rgb[0], rgb[1], rgb[2], fade, rgb[0], rgb[1], rgb[2], fade);
+            var base = ribbon.length / 3 - 2;
+            if (vertex >= 0 && k > 0) ribbonIndex.push(base - 2, base - 1, base, base, base - 1, base + 1);
+            vertex = base;
+          });
+          if (ribbonIndex.length) {
+            var ribbonGeometry = new THREE.BufferGeometry();
+            ribbonGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(ribbon), 3));
+            ribbonGeometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(ribbonColors), 4));
+            ribbonGeometry.setIndex(ribbonIndex);
+            var surface = keep(state, new THREE.Mesh(ribbonGeometry, new THREE.MeshBasicMaterial({
+              vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide })));
+            surface.renderOrder = 2;
+          }
+        } else if (style === 'A') {
+          // arrows along the trail, evenly spaced in time, the newest at the playhead; brightness fades with the trail
+          var count = Math.max(3, Math.min(60, Math.round(density / 2.5)));
+          var picked = [];
+          var tFirst = three.t[indices[0]], tLast = three.t[head];
+          for (var a = 0; a < count; a++) {
+            var when = tLast - (tLast - tFirst) * a / Math.max(1, count - 1);
+            var idx = Math.max(0, countLeq(three.t, when) - 1);
+            if (picked.indexOf(idx) === -1) picked.push(idx);
+          }
+          var background = scene.background;
+          picked.forEach(function (i) {
+            var to = three.tp[i];
+            if (!to || to[0] === null || !(state.err[i] > 0)) return;
+            var rgb = rampRgb(errorPeak > 0 ? state.err[i] / errorPeak : 0);
+            var fade = 0.3 + 0.7 * fadeAt(three.t[i], time);
+            var mixed = [0, 1, 2].map(function (c) {
+              return rgb[c] * fade + [background.r, background.g, background.b][c] * (1 - fade);
+            });
+            var made = arrow(drawnAt(state, i, [0, 0, 0]), to, mixed, shaft);
+            if (made) keep(state, made).renderOrder = 5;
+          });
+        } else if (headTarget && headTarget[0] !== null && headErr > 0) {
+          // C: one big arrow at the playhead, labelled with the true error
+          var big = arrow(headAt, headTarget, rampRgb(errorPeak > 0 ? headErr / errorPeak : 0), shaft * 2.2);
+          if (big) keep(state, big).renderOrder = 5;
+          label(state, mmText(headErr), [(headAt[0] + headTarget[0]) / 2, (headAt[1] + headTarget[1]) / 2,
+            (headAt[2] + headTarget[2]) / 2], sit.color);
+        }
+      }
+
+      if (on.zarc && state.ang[head] > 0) {
+        // every style: the orientation error at the playhead only
+        var ring = orientationArc(state, head, headAt, markerSize * (style === 'C' ? 1.4 : 0.9),
+          style === 'C' ? [0.42, 0.24, 0.62] : color, span * (style === 'C' ? 0.0024 : 0.0016));
+        if (ring) {
+          keep(state, ring.object).renderOrder = 5;
+          if (style === 'C') label(state, degText(state.ang[head]), ring.tip, '#6b3d9e', 'below');
+        }
+      }
     }
 
     /* ---------------- robot model ---------------- */
@@ -596,47 +945,25 @@ var Viewer3D = (function () {
 
     function applyDisplayTime() {
       var time = page.transport ? page.transport.eff() : Infinity;
-      sitStates.forEach(function (state) {
-        if (!state.solidPathGeometry) return; // not built yet during init
-        var three = state.sit.three;
-        var visibleSamples = countLeq(three.t, time);
-        state.solidPathGeometry.setDrawRange(0, Math.max(visibleSamples, 1));
-
-        var markers = countLeq(state.timeLists.points, time);
-        if (state.objects.points) state.objects.points.geometry.setDrawRange(0, markers);
-        if (state.objects.frames) state.objects.frames.geometry.setDrawRange(0, markers * 6);
-        if (state.objects.zvec) state.objects.zvec.geometry.setDrawRange(0, markers * 2);
-        if (state.arrowLines) {
-          var arrows = countLeq(state.timeLists.diff, time);
-          state.arrowLines.geometry.setDrawRange(0, arrows * 2);
-          if (state.arrowCones) state.arrowCones.count = arrows;
-        }
-        if (state.arcSegments) {
-          var arcs = countLeq(state.timeLists.zarc, time);
-          state.arcSegments.geometry.setDrawRange(0, arcs * ARC_STEPS * 2);
-          state.arcOwn.geometry.setDrawRange(0, arcs * 2);
-          state.arcGhost.geometry.setDrawRange(0, arcs * 2);
-        }
-      });
+      if (time === Infinity || time === null || time === undefined) {
+        time = Math.max.apply(null, sitStates.map(function (state) {
+          var t = state.sit.three.t;
+          return t.length ? t[t.length - 1] : 0;
+        }));
+      }
+      sitStates.forEach(function (state) { rebuild(state, time); });
       poseRobots(time);
       dirty = true;
     }
 
     /* ---------------- control panel ---------------- */
 
-    function applyElements(state) {
-      ['path', 'points', 'frames', 'zvec', 'diff', 'zarc'].forEach(function (id) {
-        var object = state.objects[id];
-        if (object) object.visible = !!state.enabled[id];
-      });
-      paintVisibility(state);   // the model rides on the same eye
-    }
-
     function setElement(state, id, on, remember) {
       state.enabled[id] = on;
       if (remember) prefs.set(elementKey(state.sit, id), on);
       if (state.boxes[id]) state.boxes[id].checked = on;
-      applyElements(state);
+      paintVisibility(state);   // the model rides on the same eye
+      queueTime();
       if (state.paintButton) state.paintButton();
     }
 
@@ -667,6 +994,7 @@ var Viewer3D = (function () {
         state.eyeOn = !state.eyeOn;
         prefs.set(eyeKey(state.sit), state.eyeOn);
         paintVisibility(state);
+        paintLegend();
       };
 
       var name = el('span', 'tc-3dname', row);
@@ -687,7 +1015,10 @@ var Viewer3D = (function () {
         var on = available.filter(function (element) { return state.enabled[element.id]; });
         button.textContent = on.length === 0 ? 'nothing shown'
           : on.length === available.length ? 'everything shown'
-          : on.map(function (element) { return elementLabel(element, page); }).join(', ');
+          : on.map(function (element) { return elementLabel(element, page, style); }).join(', ');
+        available.forEach(function (element) {
+          if (state.labelNodes[element.id]) state.labelNodes[element.id].textContent = elementLabel(element, page, style);
+        });
       }
       state.paintButton = paintButton;
 
@@ -697,7 +1028,7 @@ var Viewer3D = (function () {
         checkbox.type = 'checkbox';
         checkbox.checked = !!state.enabled[element.id];
         label.appendChild(checkbox);
-        label.appendChild(document.createTextNode(elementLabel(element, page)));
+        state.labelNodes[element.id] = label.appendChild(document.createTextNode(elementLabel(element, page, style)));
         if (element.robot) {
           var payload = robotPayloads[state.sit.robot_track.robot || 0];
           label.title = payload ? payload.name : 'robot model';
@@ -773,15 +1104,43 @@ var Viewer3D = (function () {
       return slider;
     }
 
-    var rebuildQueued = false;
-    function queueRebuild() {
-      if (rebuildQueued) return;
-      rebuildQueued = true;
+    var timeQueued = false;
+    function queueTime() {
+      if (timeQueued) return;
+      timeQueued = true;
       requestAnimationFrame(function () {
-        rebuildQueued = false;
-        sitStates.forEach(buildMarkers);
+        timeQueued = false;
+        applyDisplayTime();
       });
     }
+
+    function stepSlider(label, steps, key, fallback, format, onValue) {
+      var index = prefs.get(key, steps.indexOf(fallback));
+      if (!(index >= 0 && index < steps.length)) index = steps.indexOf(fallback);
+      onValue(steps[index]);
+      var slider = sliderRow(label, 0, steps.length - 1, index, 1, function (value) {
+        return format(steps[Math.round(value)]);
+      }, function (value) {
+        prefs.set(key, Math.round(value));
+        onValue(steps[Math.round(value)]);
+        paintLegend();
+        queueTime();
+      });
+      slider.setAttribute('data-tc-3d-slider', key);
+      return slider;
+    }
+
+    // WHY these two (Zach 2026-11-25, traj compare 3D viewer feedback): how much history a run trails behind the
+    // playhead, and how far ahead the target shows where it is going; their ends draw everything
+    stepSlider('Trail decay', DECAY_STEPS, '3d:decay', 5, function (value) {
+      return value === Infinity ? 'full (no fade)' : 'fades over ' + value + ' s';
+    }, function (value) { decay = value; });
+    stepSlider('Look-ahead', LOOK_STEPS, '3d:lookahead', 2, function (value) {
+      return value === Infinity ? 'full route' : value === 0 ? 'off' : value + ' s ahead';
+    }, function (value) { lookahead = value; });
+    stepSlider('Error magnification', MAGNIFY_STEPS, '3d:magnify', 0, function (value) {
+      return value === 0 ? 'auto (×' + autoMagnify + ')' : value === 1 ? '×1 (true scale)' : '×' + value;
+    }, function (value) { magnifyChoice = value; });
 
     var densityDial = prefs.get('3d:density', 35);
     sliderRow('Marker density', 0, 100, densityDial, 1, function (value) {
@@ -789,7 +1148,7 @@ var Viewer3D = (function () {
     }, function (value) {
       density = Math.round(4 * Math.pow(100, value / 100)); // 4 .. 400, log
       prefs.set('3d:density', value);
-      queueRebuild();
+      queueTime();
     });
     density = Math.round(4 * Math.pow(100, densityDial / 100));
 
@@ -799,22 +1158,58 @@ var Viewer3D = (function () {
     }, function (value) {
       markerSize = value / 1000;
       prefs.set('3d:markersize', value);
-      queueRebuild();
+      queueTime();
     });
 
     var fitRow = el('div', 'btnrow', panel);
     var fitButton = el('button', '', fitRow, 'Fit view');
     fitButton.onclick = fitView;
 
-    el('div', 'hint', panel,
-      'Orbit: drag · zoom: wheel · pan: right-drag · fit: double-click or the button. ' +
-      'Click an axis ball on the corner gizmo to fly to that view. ' +
-      (page.data && page.data.reference_kind === 'run'
-        ? 'Arrows → ' + page.data.reference_title + ': from a run’s pose to ' + page.data.reference_title + '’s pose at the same instant. ' +
-          'Z rotation arcs: the gap between a run’s tool z and ' + page.data.reference_title + '’s (grey ghost).'
-        : 'Arrows → target: from a run’s pose to the target’s pose at the same instant — ' +
-          'points to where you should have been. ' +
-          'Z rotation arcs: the gap between a run’s tool z and the target’s (grey ghost).'));
+    /* ---------------- the compact legend under the canvas: the marks of the active style ---------------- */
+
+    // WHY a legend of swatches, not a paragraph (Zach 2026-11-25, traj compare 3D viewer feedback): the old caption
+    // explained arrows and arcs in two long sentences under the canvas
+    var legend = el('div', 'tc-3dlegend', canvasBox);
+    legend.setAttribute('data-tc-3dlegend', '');
+
+    function paintLegend() {
+      legend.innerHTML = '';
+      legend.setAttribute('data-style', style);
+      function entry(swatchClass, color, text, extra) {
+        var item = el('span', 'tc-3dlegend-item', legend);
+        var swatch = el('span', swatchClass, item);
+        if (color) swatch.style.color = color;
+        el('span', '', item, text);
+        if (extra) extra(item);
+        return item;
+      }
+      var candidates = sitStates.filter(function (state) { return state.sit.three.tp && state.globalOn && state.eyeOn; });
+      sitStates.forEach(function (state) {
+        if (!state.globalOn || !state.eyeOn) return;
+        var isTarget = state.sit.role === 'target';
+        var cls = 'tc-3dlegend-line' + (isTarget && style === 'A' ? ' thick' : '');
+        var words = isTarget ? state.sit.title + (style === 'A' ? ' (target, wide and pale)' : ' (target)')
+          : state.sit.title + (state.sit.three.tp ? ' (×' + magnify() + ' its error)' : '');
+        entry(cls, state.sit.color, words);
+      });
+      if (candidates.length && errorPeak > 0) {
+        var reference = page.data && page.data.reference_kind === 'run' ? page.data.reference_title : 'target';
+        var errorWords = style === 'B' ? 'Position error ribbon' : style === 'C' ? 'Position error now' : 'Position error arrow';
+        var ramp = el('span', 'tc-3dlegend-item', legend);
+        el('span', '', ramp, errorWords + ' (to ' + reference + ')');
+        el('span', 'tc-3dlegend-num', ramp, '0');
+        el('span', 'tc-3dlegend-ramp', ramp).style.background = rampCss();
+        el('span', 'tc-3dlegend-num', ramp, mmText(errorPeak));
+        if (anglePeak > 0) {
+          entry('tc-3dlegend-arc', style === 'C' ? '#6b3d9e' : candidates[0].sit.color,
+            'Orientation error arc, now' + (arcMagnify > 1 ? ' (×' + arcMagnify + ' its angle)' : ''));
+        }
+      }
+      var windowWords = (decay === Infinity ? 'whole history' : 'history fades over ' + decay + ' s') + ' · target ' +
+        (lookahead === Infinity ? 'whole route' : lookahead === 0 ? 'up to now' : lookahead + ' s ahead') +
+        (style === 'C' ? ' · the rest of the route faint' : '');
+      el('span', 'tc-3dlegend-note', legend, windowWords + ' · drag: orbit · right-drag: pan · wheel: zoom · double-click: fit');
+    }
 
     /* ---------------- scrubber (page transport) ---------------- */
 
@@ -854,22 +1249,27 @@ var Viewer3D = (function () {
         renderer.clear();
         renderer.render(scene, camera);
         viewHelper.render(renderer);
+        placeLabels();
         dirty = false;
       }
       requestAnimationFrame(frame);
     }
 
-    sitStates.forEach(function (state) {
-      buildStatic(state);
-      buildMarkers(state);
-      paintVisibility(state);
-    });
+    sitStates.forEach(function (state) { paintVisibility(state); });
+    paintLegend();
     applyDisplayTime();
     resize();
     fitView();
     requestAnimationFrame(frame);
 
-    return {
+    var api = {
+      setStyle: function (value) {
+        if (value === style) return;
+        style = value;
+        sitStates.forEach(function (state) { if (state.paintButton) state.paintButton(); });
+        paintLegend();
+        applyDisplayTime();
+      },
       setSituationVisible: function (name, show) {
         sitStates.forEach(function (state) {
           if (state.sit.name === name) {
@@ -877,6 +1277,7 @@ var Viewer3D = (function () {
             paintVisibility(state);
           }
         });
+        paintLegend();
         dirty = true;
       },
       // Another scenario tab changed the 3D layout; adopt it.
@@ -895,7 +1296,10 @@ var Viewer3D = (function () {
         if (active) { resize(); dirty = true; }
       },
     };
+    viewers.push(api);
+    ensureStylePicker();
+    return api;
   }
 
-  return { create: create };
+  return { create: create, styles: STYLES, setStyle: setStyleEverywhere };
 })();

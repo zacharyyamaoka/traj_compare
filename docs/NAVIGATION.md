@@ -160,7 +160,21 @@ no longer sit side by side. Tests: `tests/test_time_lane_browser.py`.
 - HTML: tab strip `[data-tc-tabs]`, buttons `[data-tc-tab="<id>"]` (textContent = the exact title,
   `aria-selected`), panels `[data-tc-panel="<id>"]` whose first heading `[data-tc-tab-heading]` is the exact heading.
   The active tab is remembered (localStorage, try/catch) and addressable: `report.html#tab=<id>` opens it.
-  Section chips still show/hide sections inside a tab.
+  **Sub-tabs and a legend, not section chips (2026-11-25).** Zach, traj compare 3D viewer feedback: graphs are fixed;
+  a tab of several sections has sub-tabs (`tabs.SubTab`, `payload.tabs[i].subtabs`; HTML `[data-tc-subtabs]`, buttons
+  `[data-tc-subtab="<id>"]`) that pick which graph, or fixed stack of graphs, shows, and a legend `[data-tc-legend]`
+  (items `[data-tc-legend-item="run:<name>" | "delta:<name>" | "joint:<joint>"]`) that picks which series they draw:
+  runs per tab (on top of the lane's eye), Δ (the lane's own Δ state), joints on a per-joint tab. Both are remembered
+  per tab. `signals` sub-tabs: `q`, `qd`, `qdd`, `T`, `q / qd / qdd`, `q / qd / T` (a stack: per joint, its cards one
+  under the other), then `Current` when recorded; `where`: Tool error, Tool pose; `channels`: one per channel.
+- **Open in Rerun is pinned** top right `[data-tc-rerun-pin]` on every tab (fixed while scrolling); without a launcher
+  it shows the one-line command, without a recording it says how to write one.
+- **The 3D view's line styles (2026-11-25, a pick between three)**: A Ghost + comet (default), B Error ribbon,
+  C Focused instant, switched by `[data-tc-style-pick]` bottom right (remembered). Every style draws the run at the
+  target + ×N its error (auto N, the Rerun magnifier's 1-2-5 rule), colours the position error on a stated scale, draws
+  no dashed line, and limits the drawing to "Trail decay" seconds behind the playhead (the target also "Look-ahead"
+  seconds ahead). Elements: Path, Points, Robot model, Pose frames, Tool Z axis, Position error arrow, Orientation error
+  arc; a compact legend `[data-tc-3dlegend]` under the canvas names the marks of the active style.
 - Rerun: the `questions` layout's tabs carry the exact titles. `layout_blueprint(..., tab=)` accepts a tab id, the
   new title, or a pre-2026-11-19 title ("Is it good?", "Where?", "Which joint?", "Timing or shape?",
   "Feedforward or feedback?", "Signals"). The `evo` layout is unchanged.
