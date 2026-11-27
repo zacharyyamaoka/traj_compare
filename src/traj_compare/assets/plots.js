@@ -435,7 +435,8 @@ var TrajCompare = (function () {
 
     iconButton('⏮', 'to start', function () { transport.pause(); transport.setScrub(transport.tMin); });
     iconButton('◀', 'step back', function () { transport.stepBy(-1); });
-    var playButton = iconButton('▶', 'play / pause', function () { transport.toggle(); });
+    var playButton = iconButton('▶', 'play / pause (Space)', function () { transport.toggle(); });
+    playButton.setAttribute('aria-keyshortcuts', 'Space');
     iconButton('▶', 'step forward', function () { transport.stepBy(1); });
     iconButton('⏭', 'to end', function () { transport.pause(); transport.setScrub(transport.tMax); });
 
@@ -3549,6 +3550,17 @@ var TrajCompare = (function () {
           if (want !== (page.visible[entry.sit.name] !== false)) entry.apply(want, false);
         });
       }
+    });
+
+    document.addEventListener('keydown', function (event) {
+      if (event.key !== ' ' || event.defaultPrevented || event.altKey || event.ctrlKey ||
+          event.metaKey || event.shiftKey || event.isComposing) return;
+      if (event.target.closest && (event.target.closest('input:not([type="range"]):not([type="checkbox"]), textarea, select, [role="textbox"]') ||
+          event.target.isContentEditable)) return;
+      var page = state.pages[state.activePage];
+      if (!page || !page.transport || !page.el.classList.contains('active')) return;
+      event.preventDefault();
+      if (!event.repeat) page.transport.toggle();
     });
 
     activatePage(0);

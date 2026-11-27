@@ -1209,6 +1209,7 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
         "group": comparison.group,
         "group_title": comparison.group_title,
         "tab_title": comparison.tab_title,
+        "channels_title": comparison.channels_title,
         "description": comparison.description,
         "meta": _json_clean(comparison.meta),
         "joint_names": list(comparison.joint_names),

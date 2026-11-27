@@ -591,6 +591,8 @@ class Comparison:
     # Channel name -> its ``Signal`` (title, unit, column labels): how the "What else was measured?" tab names
     # ``Situation.channels``. A described channel no situation has is fine (a dataset describes every run's at once).
     signals: Mapping[str, Signal] = field(default_factory=dict)
+    # Optional name for the stock tab that shows recorded channels.
+    channels_title: str = ""
     # What sits in ``target``: "target", a trajectory to follow (its τ is the torque it needs), or "run", a recorded run
     # another run is measured against (sim → real; its τ is that run's applied torque). WHY (arm_motion_bench, 2026-11-20):
     # a sim → real torque card called the sim run's applied torque "Target", a different signal; the viewers name a run

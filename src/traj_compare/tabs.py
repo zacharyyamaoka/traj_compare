@@ -227,7 +227,8 @@ def tabs_for(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
         tab = CHANNELS_TAB
         titles = {channel["section"]: str(channel.get("title") or channel.get("name") or channel["section"])
                   for channel in channels}
-        shown.insert(after, {"id": tab.id, "title": tab.title, "heading": tab.heading, "sections": channel_sections,
+        shown.insert(after, {"id": tab.id, "title": payload.get("channels_title") or tab.title,
+                             "heading": tab.heading, "sections": channel_sections,
                              "subtabs": _subtabs(tab, channel_sections, titles)})
     return shown
 

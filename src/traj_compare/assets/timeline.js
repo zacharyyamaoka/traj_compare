@@ -182,7 +182,8 @@ var TrajCompareTimeline = (function () {
     var transportGroup = el('div', 'tc-lane-tools', bar);
     tool(transportGroup, ICON.start, 'to start', function () { transport.pause(); transport.setScrub(transport.tMin); });
     tool(transportGroup, ICON.back, 'step back one sample (← on the ruler)', function () { transport.stepBy(-1); });
-    var playButton = tool(transportGroup, ICON.play, 'play / pause (Space on the ruler)', function () { transport.toggle(); }, 'tc-lane-play');
+    var playButton = tool(transportGroup, ICON.play, 'play / pause (Space)', function () { transport.toggle(); }, 'tc-lane-play');
+    playButton.setAttribute('aria-keyshortcuts', 'Space');
     playButton.setAttribute('data-tc-play', '');
     tool(transportGroup, ICON.forward, 'step forward one sample (→ on the ruler)', function () { transport.stepBy(1); });
     tool(transportGroup, ICON.end, 'to end', function () { transport.pause(); transport.setScrub(transport.tMax); });
@@ -974,14 +975,14 @@ var TrajCompareTimeline = (function () {
       range.addEventListener('pointercancel', up);
     });
 
-    // the ruler is the page's slider: arrows step one sample (Shift: ten), Home / End, Space or k plays
+    // The ruler adds navigation and k. Space is handled by the report from any pane.
     ruler.addEventListener('keydown', function (event) {
       var handled = true;
       if (event.key === 'ArrowLeft') transport.stepBy(event.shiftKey ? -10 : -1);
       else if (event.key === 'ArrowRight') transport.stepBy(event.shiftKey ? 10 : 1);
       else if (event.key === 'Home') { transport.pause(); transport.setScrub(transport.tMin); }
       else if (event.key === 'End') { transport.pause(); transport.setScrub(transport.tMax); }
-      else if (event.key === ' ' || event.key === 'k') transport.toggle();
+      else if (event.key === 'k') transport.toggle();
       else handled = false;
       if (handled) event.preventDefault();
     });
