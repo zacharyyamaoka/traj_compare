@@ -35,8 +35,8 @@ dependencies = [
 traj-compare-rerun = "traj_compare.rerun_report:main"
 
 [project.urls]
-Homepage = "https://github.com/zacharyyamaoka/traj_compare"
-Repository = "https://github.com/zacharyyamaoka/traj_compare"
+Homepage = "https://zacharyyamaoka.github.io/trajectory_comparison_viewer/"
+Repository = "https://github.com/zacharyyamaoka/trajectory_comparison_viewer"
 
 [project.optional-dependencies]
 test = ["pytest>=8", "scipy>=1.10"]
