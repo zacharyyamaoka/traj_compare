@@ -1,0 +1,100 @@
+{
+  "frozen": "2026-11-27, before any variant was built",
+  "note": "Weights are AI-inferred from Zach's ask and his standing UI rules (calm UI, one answer first, detail on demand; resizable remembered panels; degrees; plain words). He may move them.",
+  "requirements": [
+    {
+      "id": "fr1",
+      "name": "One answer first, detail on demand",
+      "weight": 25,
+      "why": "Zach's standing rule for every dashboard: one calm answer first, detail one step away. Today each tab opens on a wall of charts and the page header is a paragraph.",
+      "passCondition": "On load and on every tab, the first thing read is a one-line answer (what, how big, when) with its single best chart; the rest is one click away.",
+      "anchors": {
+        "1": "Every tab opens on its full chart wall; the answer must be read off the plots.",
+        "3": "A summary exists on some tabs or at the top, but the detail still competes with it.",
+        "5": "Every tab leads with a computed one-line answer and one chart; detail is folded and one click away."
+      }
+    },
+    {
+      "id": "fr2",
+      "name": "Finding the channel that matters among 27",
+      "weight": 20,
+      "why": "The Diagnostics tab is a wall of 27 equal-weight chips; the controller's flags (collision, blocked, at cap) and the continuous signals are mixed, and nothing says which ones moved.",
+      "passCondition": "From the Diagnostics tab, the channels that changed during the run are visible first, grouped in plain words, and any of the 27 is reachable in two actions or a few typed letters.",
+      "anchors": {
+        "1": "A flat wall of equal chips; the user must try them one by one.",
+        "3": "Grouped or searchable, but which channels moved is not shown.",
+        "5": "Changed channels first with their moment; grouping or search reaches any channel in ≤ 2 actions; flat channels folded."
+      }
+    },
+    {
+      "id": "fr3",
+      "name": "One time across 3D and every chart",
+      "weight": 20,
+      "why": "The time lane is today's one time control; Zach's playback rule is that dragging time on any figure syncs all the others, and the worst moment is one click.",
+      "passCondition": "Play, step, scrub on any chart and Worst moment move the 3D, every chart and the lane together; the time control is visible from every tab without scrolling.",
+      "anchors": {
+        "1": "Time controls are per-chart or scroll away; 3D and charts can disagree.",
+        "3": "Synced, but the control scrolls away or Worst moment is buried.",
+        "5": "Synced everywhere, always in view, Worst moment one click, the playhead readable at a glance."
+      }
+    },
+    {
+      "id": "fr4",
+      "name": "A calm 3D panel",
+      "weight": 15,
+      "why": "Today the 3D shares its column with a legend, four run rows and five sliders, so the view itself is a third of the column.",
+      "passCondition": "The 3D view fills its panel at rest; trail, look-ahead, error magnification, marker settings and per-run draw options are folded but one step away.",
+      "anchors": {
+        "1": "Sliders and legends take more space than the view.",
+        "3": "Settings fold, but the panel still carries chrome the view does not need at rest.",
+        "5": "The view fills the panel; every setting is one step away and its state is still legible."
+      }
+    },
+    {
+      "id": "fr5",
+      "name": "Runs toggled and compared from one place",
+      "weight": 10,
+      "why": "Runs are toggled in three places today (3D rows, legend chips, lane tracks); comparing a run's value at the playhead needs the lane.",
+      "passCondition": "One place toggles and solos a run for 3D and every chart, shows its colour and its value at the playhead.",
+      "anchors": {
+        "1": "Toggles scattered, out of sync, or per chart.",
+        "3": "One place, but no solo or no value at the playhead.",
+        "5": "One place: eye, solo, colour key and the value at the playhead, reflected everywhere at once."
+      }
+    },
+    {
+      "id": "fr6",
+      "name": "Fits traj_compare",
+      "weight": 10,
+      "why": "The winner must land in src/traj_compare (vanilla JS, uPlot, three.js, the payload's tabs/sections/channels) without a rewrite.",
+      "passCondition": "The layout is built from the payload as it is and the existing chart / 3D / lane parts, with a bounded change.",
+      "anchors": {
+        "1": "Needs a new data model or a different chart/3D engine.",
+        "3": "Same stack and payload, but most of the page shell is rewritten.",
+        "5": "Same payload and parts; the change is mostly layout and a few new derived numbers."
+      }
+    }
+  ],
+  "hardGates": [
+    {
+      "id": "g1",
+      "name": "3D left, question tabs right",
+      "why": "Zach's stated structure: the redesign happens inside it."
+    },
+    {
+      "id": "g2",
+      "name": "Content kept",
+      "why": "\"I think the content is good\": all six tabs, all 27 channels, eye toggles, deg/rad, Worst moment, transport and Open in Rerun must stay reachable."
+    },
+    {
+      "id": "g3",
+      "name": "Resizable, remembered, foldable",
+      "why": "Standing rule: every panel boundary draggable, its size remembered, the inspector foldable."
+    },
+    {
+      "id": "g4",
+      "name": "Same real fixture, offline, no console errors",
+      "why": "Fair comparison and traj_compare's file:// contract: the one X1.ElbowStop@-60 payload, vendored libraries, 0 console errors."
+    }
+  ]
+}

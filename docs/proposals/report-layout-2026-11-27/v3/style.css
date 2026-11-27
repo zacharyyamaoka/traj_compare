@@ -1,0 +1,49 @@
+.app { display: flex; flex-direction: column; height: 100vh; }
+.top { display: flex; align-items: center; gap: 10px; padding: 7px 14px; border-bottom: 1px solid var(--edge); background: var(--panel); flex: none; }
+.top .ans { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.main { flex: 1; display: flex; min-height: 0; }
+.left { width: 520px; flex: none; display: flex; flex-direction: column; min-width: 0; }
+.stage { position: relative; flex: 1; min-height: 120px; }
+.lane { height: 190px; flex: none; display: flex; flex-direction: column; background: var(--panel); min-height: 0; }
+.transport { display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--edge); }
+.transport b { margin-left: 6px; }
+.btn.worst { border-color: var(--bad); color: var(--bad); }
+.tracks { flex: 1; overflow: auto; display: grid; grid-template-columns: 22px 1fr; grid-auto-rows: 24px; gap: 3px 6px; padding: 6px 10px; align-content: start; }
+.thd { display: flex; align-items: center; justify-content: center; font-size: 11px; }
+.center { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tabs { display: flex; border-bottom: 1px solid var(--edge); overflow-x: auto; flex: none; padding: 0 6px; }
+.tabs button { border: 0; background: transparent; padding: 9px 9px; cursor: pointer; color: var(--muted); white-space: nowrap; border-bottom: 2px solid transparent; font-size: 12.5px; }
+.tabs button.on { color: var(--ink); border-bottom-color: var(--accent); }
+.tabbody { flex: 1; overflow: auto; padding: 8px 10px 16px; }
+.qline { margin: 2px 0 6px; font-size: 13.5px; }
+.seg.sub { margin-bottom: 6px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 6px; }
+.cell { border: 1px solid var(--edge); border-radius: var(--radius); background: var(--panel); }
+.statwrap { grid-column: 1 / -1; overflow-x: auto; border: 1px solid var(--edge); border-radius: var(--radius); background: var(--panel); }
+.insp { width: 320px; flex: none; background: var(--panel); overflow: auto; border-left: 0; }
+.app.noinsp .insp, .app.noinsp .insp + *, .app.noinsp .split.v:last-of-type { display: none; }
+.sec { border-bottom: 1px solid var(--edge); padding: 0 12px; }
+.sec summary { cursor: pointer; padding: 9px 0; font-weight: 600; font-size: 12px; }
+.sec[open] { padding-bottom: 10px; }
+.runs { display: flex; flex-direction: column; gap: 4px; }
+.run { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.run .nm { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.run .val { width: 56px; text-align: right; color: var(--muted); }
+.run .wj { width: 58px; font-size: 11px; border: 0; background: transparent; color: var(--bad); cursor: pointer; text-align: right; padding: 0; }
+.run .eye { width: 18px; height: 18px; }
+.solo { width: 18px; height: 18px; font-size: 10px; border: 1px solid var(--edge2); border-radius: 4px; background: transparent; cursor: pointer; padding: 0; color: var(--faint); }
+.solo.on { background: var(--warn-bg); color: var(--warn); border-color: var(--warn); }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0 8px; }
+.wide { width: 100%; }
+.btn.small { font-size: 11px; padding: 2px 8px; }
+.search { width: 100%; background: var(--bg); color: var(--ink); border: 1px solid var(--edge2); border-radius: var(--radius); padding: 5px 8px; font: inherit; }
+.chlist .fam { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--faint); margin: 8px 0 2px; }
+.ch { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 2px 0; cursor: pointer; }
+.ch .nm { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--edge2); flex: none; }
+.dot.bad { background: var(--bad); } .dot.ch { background: var(--accent); }
+@media (max-width: 900px) {
+  body { overflow: auto; } .app { height: auto; } .main { flex-direction: column; }
+  .left { width: auto !important; } .stage { height: 320px; flex: none; } .split.v { display: none; }
+  .insp { width: auto !important; } .lane { height: auto !important; } .top { flex-wrap: wrap; } .grid { grid-template-columns: 1fr; }
+}

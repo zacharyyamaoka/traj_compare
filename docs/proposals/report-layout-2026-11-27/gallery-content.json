@@ -1,0 +1,141 @@
+{
+  "title": "Five layouts for the run report",
+  "kicker": "traj_compare run report · /babble 5 · 2026-11-27",
+  "brief": "Zach: keep 3D on the left and the question tabs on the right, keep the content, rethink the layout. Five complete redesigns on the same real page (JTC diagnostics, X1.ElbowStop@-60: Target, Command, Measured, MuJoCo truth; shoulder and elbow; 27 Diagnostics channels).",
+  "boundary": "Runnable prototypes on traj_compare's own stack (vanilla JS, uPlot 1.6.30, three.js r160, vendored) and the real payload. Layout, time, charts, 3D, toggles and channel choosing are real; Open in Rerun shows the command instead of starting Rerun, there is no robot mesh (the payload has none), and the other scenario pages are not wired.",
+  "invariants": [
+    "3D view left, the six question tabs right",
+    "Same real X1.ElbowStop@-60 payload, 1600 × 1000, dark scheme",
+    "One time for 3D and every chart: play, step, scrub on any chart, Worst moment",
+    "All 27 channels, eye toggles, deg (default) / rad, Open in Rerun",
+    "Every panel boundary draggable and remembered; settings foldable"
+  ],
+  "axes": [
+    {"name": "Where the time lane lives", "values": ["page footer under both panels", "editor dock with event lanes", "under the 3D", "sticky ruler over the charts", "player bar on the 3D"]},
+    {"name": "How 27 channels are chosen", "values": ["changed-first list, grouped, one open", "a lane per flag that fired + add-lane picker", "searchable inspector list with ticks", "every channel a strip, changed first", "type to find, pin, near-this-moment"]},
+    {"name": "Where runs are toggled", "values": ["3D legend + lane tracks", "dock track headers (eye, solo, value)", "inspector run table", "header pills", "moment card + keys 1–4"]},
+    {"name": "How the 3D's settings fold", "values": ["one View popover", "edge toolbar showing values", "inspector section", "three looks + fine-tune drawer", "hover View HUD"]}
+  ],
+  "defaultId": "v4",
+  "defaultWhy": "Signal strips leads at 88/100 with Answer first one point behind (87): strips put every chart of a tab, and all 27 channels, on one screen under one aligned ruler, with each run's value at the playhead; Answer first is the calmer first read. Co-leaders: the recommendation is fragile.",
+  "decisionHinge": "Whether a tab's first read should be one big chart (V1) or a table of small strips (V4). Moving 5 points from “One time across 3D and every chart” to “One answer first” makes Answer first lead 88 to 87; raising “Fits traj_compare” has the same effect, since V4 adds a new strip renderer. Splice candidate: V1's answer bar and changed-first Diagnostics list, V4's sticky ruler and strips, V2's run track headers with solo.",
+  "variants": [
+    {
+      "id": "v1",
+      "name": "Answer first",
+      "thesis": "Lead the page and every tab with a computed one-line answer and one chart; fold the rest, and put the time lane in a footer under both panels.",
+      "accent": "#2a78d6",
+      "bestWhen": "Zach opens a report to learn the verdict and the one chart that shows it, and only sometimes digs into a second chart or channel.",
+      "losesWhen": "He wants to compare many charts at once: everything but the hero chart is one click away, and the footer lane's x does not line up with the charts.",
+      "decisions": [
+        {"label": "Hierarchy", "value": "A page answer bar (verdict, facts, the flags that fired, Jump to the worst moment) over everything; each tab title carries its own answer badge."},
+        {"label": "Detail", "value": "Each tab opens on its answer line and one hero chart; “N more charts” and the statistics table fold under it."},
+        {"label": "Diagnostics", "value": "Changed channels first, grouped in plain words with first change and peak; click a row to open its charts in place; the 12 flat ones fold into one line."},
+        {"label": "Time", "value": "Today's lane as a resizable page footer under both panels."}
+      ],
+      "keepParts": ["page answer bar", "answer badges on tab titles", "changed-first channel list", "View popover for the 3D sliders"]
+    },
+    {
+      "id": "v2",
+      "name": "Editor timeline",
+      "thesis": "Make a video-editor dock the page's spine: ruler, a track per run, and a lane per diagnostic event that fired, so the story of the run reads left to right.",
+      "accent": "#b7791f",
+      "bestWhen": "The question is when things happened and in what order: collision, contact, blocked, path tolerance and settling are bars on one time axis, and event › steps through them.",
+      "losesWhen": "The dock takes a third of the height, so the charts above are short; continuous channels only show once added as a lane.",
+      "decisions": [
+        {"label": "Time", "value": "A full-width, resizable dock: transport, ‹ event · Worst moment · event ›, ruler, run tracks, event lanes, waveform lanes."},
+        {"label": "Channels", "value": "Every flag that fired is already a lane (bars); “+ Add a lane” adds any of the 27 as a waveform; clicking a lane opens it in Diagnostics."},
+        {"label": "Runs", "value": "Track headers carry eye, solo, colour and the run's error at the playhead."},
+        {"label": "3D settings", "value": "A 58 px edge toolbar whose buttons show their current value; each opens one slider."}
+      ],
+      "keepParts": ["event lanes from fired flags", "previous / next event stepping", "run track headers with solo", "edge toolbar showing values"]
+    },
+    {
+      "id": "v3",
+      "name": "Inspector column",
+      "thesis": "Three panes: the 3D with its time lane under it, the question tab as a dense chart grid, and a foldable inspector that owns every setting and the channel list.",
+      "accent": "#7667c6",
+      "bestWhen": "A power user wants every chart at once and a single place for settings, like a CAD or IDE inspector.",
+      "losesWhen": "The middle pane is narrow: the tab bar scrolls, charts are small, and nothing says what the answer is beyond one bold line.",
+      "decisions": [
+        {"label": "Composition", "value": "3D + lane | tabs | inspector, each boundary draggable; the inspector folds to give charts the width."},
+        {"label": "Channels", "value": "Search box, “only changed” filter and grouped ticks; the ticked channels are what Diagnostics shows."},
+        {"label": "Runs", "value": "Inspector table: eye, solo, colour, error at the playhead, and a ◆ jump to each run's worst moment."},
+        {"label": "Time", "value": "The lane sits under the 3D: time and the picture belong together."}
+      ],
+      "keepParts": ["searchable channel list with ticks", "run table with per-run worst jump", "foldable inspector"]
+    },
+    {
+      "id": "v4",
+      "name": "Signal strips",
+      "thesis": "Start every chart as a 40 px strip (name, sparkline, each run's value at the playhead) under one sticky ruler, and open any strip into a full chart, so a tab reads like a table.",
+      "accent": "#2f9e44",
+      "bestWhen": "Scanning many signals for the one that moved: all 27 channels and all eight raw signals fit one screen, and the playhead runs down every strip.",
+      "losesWhen": "A strip's shape is small and auto-scaled, so magnitudes are read from the numbers; a first-time reader may not know a strip opens.",
+      "decisions": [
+        {"label": "Charts", "value": "Every chart starts folded as a strip; click its name to open it in place on the same x as the ruler."},
+        {"label": "Time", "value": "A sticky ruler + transport over the strips, aligned with every sparkline."},
+        {"label": "Runs", "value": "Run pills in the page header: eye, solo, colour, error at the playhead."},
+        {"label": "3D settings", "value": "Three named looks (Clean · Ghost + comet · Error arrows) and a fine-tune drawer with the sliders."}
+      ],
+      "keepParts": ["sticky aligned ruler", "strips with values at the playhead", "run pills in the header", "3D looks"]
+    },
+    {
+      "id": "v5",
+      "name": "Moment first",
+      "thesis": "Organise the page around “now”: it opens at the worst moment, a moment card says what is happening, events step the time, and channels are found by typing.",
+      "accent": "#c74434",
+      "bestWhen": "Investigating one incident: the card names the event at the playhead, ‹ previous / next event › jumps between them, and “near this moment” suggests the channels that move there.",
+      "losesWhen": "The card and player bar sit on the 3D view, and finding a channel needs its name or a moment; there is no list of what changed over the run.",
+      "decisions": [
+        {"label": "Entry", "value": "Opens at the worst moment; every tab leads with an “At this moment” readout of its signals per run."},
+        {"label": "Navigation", "value": "Question tabs as a vertical rail, each with its answer badge."},
+        {"label": "Channels", "value": "A command palette (press /), pinned channel chips, and suggestions that move within ±0.25 s of the playhead."},
+        {"label": "Time", "value": "A video-player bar on the 3D's bottom edge with event ticks; [ ] step events, 1–4 toggle runs."}
+      ],
+      "keepParts": ["opens at the worst moment", "at-this-moment readout", "channel palette with pins", "near-this-moment suggestions"]
+    }
+  ],
+  "scores": {
+    "v1": {
+      "fr1": {"score": 5, "evidence": "Page answer bar plus an answer line and one hero chart on every tab; the rest folded (step stills 1–2).", "confidence": "high"},
+      "fr2": {"score": 5, "evidence": "Diagnostics lists the 15 changed channels first by family with first change and peak; 12 flat fold into one line; 27/27 rows reachable (check.json).", "confidence": "high"},
+      "fr3": {"score": 4, "evidence": "Footer lane in view on all six tabs, Worst one click, charts and 3D in sync (check.json); the lane's x is not aligned with the charts.", "confidence": "high"},
+      "fr4": {"score": 4, "evidence": "Five sliders and three draw options behind one View popover; a small run legend still overlays the view.", "confidence": "medium"},
+      "fr5": {"score": 3, "evidence": "Eyes in the 3D legend and the lane tracks (kept in sync), value at the playhead in the lane, no solo.", "confidence": "high"},
+      "fr6": {"score": 4, "evidence": "Today's lane moved to a footer, charts and 3D unchanged; new: answer strings and the changed-first list from the channel data.", "confidence": "medium"}
+    },
+    "v2": {
+      "fr1": {"score": 3, "evidence": "Each tab has its answer line, but every chart of the tab is shown stacked and the dock competes for the eye.", "confidence": "medium"},
+      "fr2": {"score": 4, "evidence": "Fired flags are visible as lanes with their timing; any of 27 via “+ Add a lane” (27/27 in the picker); continuous channels that changed are not surfaced first.", "confidence": "high"},
+      "fr3": {"score": 5, "evidence": "Full-width dock in view on every tab, Worst + previous/next event, every lane scrubbable; sync measured (check.json).", "confidence": "high"},
+      "fr4": {"score": 5, "evidence": "No legend or sliders on the view; the edge toolbar shows each setting's value and opens one slider.", "confidence": "medium"},
+      "fr5": {"score": 5, "evidence": "Track headers: eye, solo, colour and error at the playhead in one place; toggling hides the run in every chart and the 3D (check.json).", "confidence": "high"},
+      "fr6": {"score": 4, "evidence": "The lane grows event and waveform lanes from the payload's channels; charts and 3D unchanged.", "confidence": "medium"}
+    },
+    "v3": {
+      "fr1": {"score": 2, "evidence": "One bold answer line above a dense grid of every chart; nothing is folded.", "confidence": "high"},
+      "fr2": {"score": 4, "evidence": "Search + only-changed filter + grouped ticks with first-change times; 27/27 reachable; changed ones are not listed first.", "confidence": "high"},
+      "fr3": {"score": 4, "evidence": "Lane under the 3D is in view on every tab and synced; at 520 px its ruler is compressed and far from the charts.", "confidence": "high"},
+      "fr4": {"score": 4, "evidence": "The view carries no controls (all in the inspector), but the lane takes 190 px of its column.", "confidence": "medium"},
+      "fr5": {"score": 5, "evidence": "Inspector run table: eye, solo, colour, value at the playhead, per-run worst jump.", "confidence": "high"},
+      "fr6": {"score": 3, "evidence": "A new three-pane shell and inspector; charts and 3D reused.", "confidence": "medium"}
+    },
+    "v4": {
+      "fr1": {"score": 4, "evidence": "Answer line, then a tab that reads like a table of strips; detail opens per strip. The answer is numbers, not one picture.", "confidence": "medium"},
+      "fr2": {"score": 5, "evidence": "All changed channels as strips on one screen, changed first by family, flat 12 folded; 27/27 reachable (check.json).", "confidence": "high"},
+      "fr3": {"score": 5, "evidence": "Sticky ruler + transport aligned with every strip, the playhead runs down all of them; Worst one click; sync measured.", "confidence": "high"},
+      "fr4": {"score": 4, "evidence": "Three named looks on the view and the sliders in one drawer; the drawer bar stays on the view.", "confidence": "medium"},
+      "fr5": {"score": 5, "evidence": "Header pills: eye, solo, colour and value at the playhead, applied to every strip and the 3D.", "confidence": "medium"},
+      "fr6": {"score": 3, "evidence": "Needs a new strip renderer (canvas sparklines) beside the uPlot charts; payload unchanged.", "confidence": "medium"}
+    },
+    "v5": {
+      "fr1": {"score": 3, "evidence": "Rail badges and an answer line per tab, then an at-this-moment readout; all charts shown, nothing folded.", "confidence": "medium"},
+      "fr2": {"score": 4, "evidence": "Typing the first 12 letters puts each of 27 channels first (27/27, check.json); near-this-moment suggestions; no over-the-run changed list.", "confidence": "high"},
+      "fr3": {"score": 5, "evidence": "Opens at the worst moment; player bar with event ticks, previous/next event and [ ] keys; sync measured.", "confidence": "medium"},
+      "fr4": {"score": 3, "evidence": "Moment card and player bar overlay the view; settings in a HUD.", "confidence": "high"},
+      "fr5": {"score": 3, "evidence": "Eyes and values on the moment card plus keys 1–4; no solo.", "confidence": "high"},
+      "fr6": {"score": 3, "evidence": "Vertical rail, player bar, palette and readout are a new shell; charts and 3D reused.", "confidence": "medium"}
+    }
+  }
+}

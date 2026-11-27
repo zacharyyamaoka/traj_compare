@@ -1,0 +1,877 @@
+{
+ "schemaVersion": 3,
+ "title": "Five layouts for the run report",
+ "kicker": "traj_compare run report · /babble 5 · 2026-11-27",
+ "brief": "Zach: keep 3D on the left and the question tabs on the right, keep the content, rethink the layout. Five complete redesigns on the same real page (JTC diagnostics, X1.ElbowStop@-60: Target, Command, Measured, MuJoCo truth; shoulder and elbow; 27 Diagnostics channels).",
+ "count": 5,
+ "defaultId": "v4",
+ "defaultWhy": "Signal strips leads at 88/100 with Answer first one point behind (87): strips put every chart of a tab, and all 27 channels, on one screen under one aligned ruler, with each run's value at the playhead; Answer first is the calmer first read. Co-leaders: the recommendation is fragile.",
+ "decisionHinge": "Whether a tab's first read should be one big chart (V1) or a table of small strips (V4). Moving 5 points from “One time across 3D and every chart” to “One answer first” makes Answer first lead 88 to 87; raising “Fits traj_compare” has the same effect, since V4 adds a new strip renderer. Splice candidate: V1's answer bar and changed-first Diagnostics list, V4's sticky ruler and strips, V2's run track headers with solo.",
+ "invariants": [
+  "3D view left, the six question tabs right",
+  "Same real X1.ElbowStop@-60 payload, 1600 × 1000, dark scheme",
+  "One time for 3D and every chart: play, step, scrub on any chart, Worst moment",
+  "All 27 channels, eye toggles, deg (default) / rad, Open in Rerun",
+  "Every panel boundary draggable and remembered; settings foldable"
+ ],
+ "boundary": "Runnable prototypes on traj_compare's own stack (vanilla JS, uPlot 1.6.30, three.js r160, vendored) and the real payload. Layout, time, charts, 3D, toggles and channel choosing are real; Open in Rerun shows the command instead of starting Rerun, there is no robot mesh (the payload has none), and the other scenario pages are not wired.",
+ "axes": [
+  {
+   "name": "Where the time lane lives",
+   "values": [
+    "page footer under both panels",
+    "editor dock with event lanes",
+    "under the 3D",
+    "sticky ruler over the charts",
+    "player bar on the 3D"
+   ]
+  },
+  {
+   "name": "How 27 channels are chosen",
+   "values": [
+    "changed-first list, grouped, one open",
+    "a lane per flag that fired + add-lane picker",
+    "searchable inspector list with ticks",
+    "every channel a strip, changed first",
+    "type to find, pin, near-this-moment"
+   ]
+  },
+  {
+   "name": "Where runs are toggled",
+   "values": [
+    "3D legend + lane tracks",
+    "dock track headers (eye, solo, value)",
+    "inspector run table",
+    "header pills",
+    "moment card + keys 1–4"
+   ]
+  },
+  {
+   "name": "How the 3D's settings fold",
+   "values": [
+    "one View popover",
+    "edge toolbar showing values",
+    "inspector section",
+    "three looks + fine-tune drawer",
+    "hover View HUD"
+   ]
+  }
+ ],
+ "requirements": [
+  {
+   "id": "fr1",
+   "name": "One answer first, detail on demand",
+   "weight": 25,
+   "why": "Zach's standing rule for every dashboard: one calm answer first, detail one step away. Today each tab opens on a wall of charts and the page header is a paragraph.",
+   "passCondition": "On load and on every tab, the first thing read is a one-line answer (what, how big, when) with its single best chart; the rest is one click away.",
+   "anchors": {
+    "1": "Every tab opens on its full chart wall; the answer must be read off the plots.",
+    "3": "A summary exists on some tabs or at the top, but the detail still competes with it.",
+    "5": "Every tab leads with a computed one-line answer and one chart; detail is folded and one click away."
+   }
+  },
+  {
+   "id": "fr2",
+   "name": "Finding the channel that matters among 27",
+   "weight": 20,
+   "why": "The Diagnostics tab is a wall of 27 equal-weight chips; the controller's flags (collision, blocked, at cap) and the continuous signals are mixed, and nothing says which ones moved.",
+   "passCondition": "From the Diagnostics tab, the channels that changed during the run are visible first, grouped in plain words, and any of the 27 is reachable in two actions or a few typed letters.",
+   "anchors": {
+    "1": "A flat wall of equal chips; the user must try them one by one.",
+    "3": "Grouped or searchable, but which channels moved is not shown.",
+    "5": "Changed channels first with their moment; grouping or search reaches any channel in ≤ 2 actions; flat channels folded."
+   }
+  },
+  {
+   "id": "fr3",
+   "name": "One time across 3D and every chart",
+   "weight": 20,
+   "why": "The time lane is today's one time control; Zach's playback rule is that dragging time on any figure syncs all the others, and the worst moment is one click.",
+   "passCondition": "Play, step, scrub on any chart and Worst moment move the 3D, every chart and the lane together; the time control is visible from every tab without scrolling.",
+   "anchors": {
+    "1": "Time controls are per-chart or scroll away; 3D and charts can disagree.",
+    "3": "Synced, but the control scrolls away or Worst moment is buried.",
+    "5": "Synced everywhere, always in view, Worst moment one click, the playhead readable at a glance."
+   }
+  },
+  {
+   "id": "fr4",
+   "name": "A calm 3D panel",
+   "weight": 15,
+   "why": "Today the 3D shares its column with a legend, four run rows and five sliders, so the view itself is a third of the column.",
+   "passCondition": "The 3D view fills its panel at rest; trail, look-ahead, error magnification, marker settings and per-run draw options are folded but one step away.",
+   "anchors": {
+    "1": "Sliders and legends take more space than the view.",
+    "3": "Settings fold, but the panel still carries chrome the view does not need at rest.",
+    "5": "The view fills the panel; every setting is one step away and its state is still legible."
+   }
+  },
+  {
+   "id": "fr5",
+   "name": "Runs toggled and compared from one place",
+   "weight": 10,
+   "why": "Runs are toggled in three places today (3D rows, legend chips, lane tracks); comparing a run's value at the playhead needs the lane.",
+   "passCondition": "One place toggles and solos a run for 3D and every chart, shows its colour and its value at the playhead.",
+   "anchors": {
+    "1": "Toggles scattered, out of sync, or per chart.",
+    "3": "One place, but no solo or no value at the playhead.",
+    "5": "One place: eye, solo, colour key and the value at the playhead, reflected everywhere at once."
+   }
+  },
+  {
+   "id": "fr6",
+   "name": "Fits traj_compare",
+   "weight": 10,
+   "why": "The winner must land in src/traj_compare (vanilla JS, uPlot, three.js, the payload's tabs/sections/channels) without a rewrite.",
+   "passCondition": "The layout is built from the payload as it is and the existing chart / 3D / lane parts, with a bounded change.",
+   "anchors": {
+    "1": "Needs a new data model or a different chart/3D engine.",
+    "3": "Same stack and payload, but most of the page shell is rewritten.",
+    "5": "Same payload and parts; the change is mostly layout and a few new derived numbers."
+   }
+  }
+ ],
+ "hardGates": [
+  {
+   "id": "g1",
+   "name": "3D left, question tabs right",
+   "why": "Zach's stated structure: the redesign happens inside it."
+  },
+  {
+   "id": "g2",
+   "name": "Content kept",
+   "why": "\"I think the content is good\": all six tabs, all 27 channels, eye toggles, deg/rad, Worst moment, transport and Open in Rerun must stay reachable."
+  },
+  {
+   "id": "g3",
+   "name": "Resizable, remembered, foldable",
+   "why": "Standing rule: every panel boundary draggable, its size remembered, the inspector foldable."
+  },
+  {
+   "id": "g4",
+   "name": "Same real fixture, offline, no console errors",
+   "why": "Fair comparison and traj_compare's file:// contract: the one X1.ElbowStop@-60 payload, vendored libraries, 0 console errors."
+  }
+ ],
+ "variants": [
+  {
+   "id": "v1",
+   "name": "Answer first",
+   "thesis": "Lead the page and every tab with a computed one-line answer and one chart; fold the rest, and put the time lane in a footer under both panels.",
+   "accent": "#2a78d6",
+   "bestWhen": "Zach opens a report to learn the verdict and the one chart that shows it, and only sometimes digs into a second chart or channel.",
+   "losesWhen": "He wants to compare many charts at once: everything but the hero chart is one click away, and the footer lane's x does not line up with the charts.",
+   "decisions": [
+    {
+     "label": "Hierarchy",
+     "value": "A page answer bar (verdict, facts, the flags that fired, Jump to the worst moment) over everything; each tab title carries its own answer badge."
+    },
+    {
+     "label": "Detail",
+     "value": "Each tab opens on its answer line and one hero chart; “N more charts” and the statistics table fold under it."
+    },
+    {
+     "label": "Diagnostics",
+     "value": "Changed channels first, grouped in plain words with first change and peak; click a row to open its charts in place; the 12 flat ones fold into one line."
+    },
+    {
+     "label": "Time",
+     "value": "Today's lane as a resizable page footer under both panels."
+    }
+   ],
+   "keepParts": [
+    "page answer bar",
+    "answer badges on tab titles",
+    "changed-first channel list",
+    "View popover for the 3D sliders"
+   ],
+   "scores": {
+    "fr1": {
+     "score": 5,
+     "evidence": "Page answer bar plus an answer line and one hero chart on every tab; the rest folded (step stills 1–2).",
+     "confidence": "high"
+    },
+    "fr2": {
+     "score": 5,
+     "evidence": "Diagnostics lists the 15 changed channels first by family with first change and peak; 12 flat fold into one line; 27/27 rows reachable (check.json).",
+     "confidence": "high"
+    },
+    "fr3": {
+     "score": 4,
+     "evidence": "Footer lane in view on all six tabs, Worst one click, charts and 3D in sync (check.json); the lane's x is not aligned with the charts.",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 4,
+     "evidence": "Five sliders and three draw options behind one View popover; a small run legend still overlays the view.",
+     "confidence": "medium"
+    },
+    "fr5": {
+     "score": 3,
+     "evidence": "Eyes in the 3D legend and the lane tracks (kept in sync), value at the playhead in the lane, no solo.",
+     "confidence": "high"
+    },
+    "fr6": {
+     "score": 4,
+     "evidence": "Today's lane moved to a footer, charts and 3D unchanged; new: answer strings and the changed-first list from the channel data.",
+     "confidence": "medium"
+    }
+   },
+   "gateResults": {
+    "g1": {
+     "pass": true,
+     "evidence": "3D ends at x = 548 px, tabs start at 573 px; 6 question tabs."
+    },
+    "g2": {
+     "pass": true,
+     "evidence": "27/27 channels reachable = 27; worst, deg/rad, eye toggle, Rerun all exercised (check.json)."
+    },
+    "g3": {
+     "pass": true,
+     "evidence": "splitter 560 → 470 px, kept after reload (470); fold = True."
+    },
+    "g4": {
+     "pass": true,
+     "evidence": "file://, vendored uPlot + three.js, extract.py fixture; 0 console errors; phone 390 px."
+    }
+   },
+   "proof": [
+    "Play 0.9 s: time 0.00 → 0.97 s; 3D marker on its sample (error 0.000 mm).",
+    "Drag on a chart: mid-drag t = 2.51 s on 1 chart(s) within 0.000 ms; after release t = 2.51 s, 3D marker error 0.000 mm.",
+    "All six tabs: time control in view on 6/6; charts' playheads within 0.001 ms of the time (track 1, where 1, joints 1, timing 1, signals 1, channels 2 charts).",
+    "Worst moment: 1.10 s (computed 1.10 s). Measured off: 0 of 1 of its lines still drawn, 3D marker visible = false.",
+    "rad: units ['rad'] → deg: ['°']. Channels reachable: 27/27. Open in Rerun (simulated) shows its command.",
+    "Splitter: 560 → 470 px, 470 px after reload; fold control works = true. Phone 390 px: page 390 px wide. Console errors 0."
+   ],
+   "previewLabel": "walkthrough · real prototype captures, 1600 × 1000",
+   "preview": "<style>.wt{position:relative;line-height:0}.wt img.f{width:100%;height:auto;display:none}.wt .chips{position:absolute;left:8px;bottom:8px;display:flex;flex-wrap:wrap;gap:6px;line-height:1.2}.wt .chips button{font:12px system-ui;padding:3px 9px;border-radius:12px;border:1px solid #888;background:rgba(255,255,255,.94);color:#111;cursor:pointer}[data-story-state=\"s1\"] .wt img.f[data-s=\"s1\"]{display:block}[data-story-state=\"s1\"] .wt .chips button[data-story-to=\"s1\"]{background:#222;color:#fff;border-color:#222}[data-story-state=\"s2\"] .wt img.f[data-s=\"s2\"]{display:block}[data-story-state=\"s2\"] .wt .chips button[data-story-to=\"s2\"]{background:#222;color:#fff;border-color:#222}[data-story-state=\"s3\"] .wt img.f[data-s=\"s3\"]{display:block}[data-story-state=\"s3\"] .wt .chips button[data-story-to=\"s3\"]{background:#222;color:#fff;border-color:#222}[data-story-state=\"s4\"] .wt img.f[data-s=\"s4\"]{display:block}[data-story-state=\"s4\"] .wt .chips button[data-story-to=\"s4\"]{background:#222;color:#fff;border-color:#222}[data-story-state=\"s5\"] .wt img.f[data-s=\"s5\"]{display:block}[data-story-state=\"s5\"] .wt .chips button[data-story-to=\"s5\"]{background:#222;color:#fff;border-color:#222}.wt img.f[data-s=\"s1\"]{display:block}[data-story-state] .wt img.f[data-s=\"s1\"]{display:none}[data-story-state=\"s1\"] .wt img.f[data-s=\"s1\"]{display:block}</style><div class=\"wt\"><img class=\"f\" data-s=\"s1\" src=\"shots/v1/step-1.jpg\" alt=\"Answer first\"><img class=\"f\" data-s=\"s2\" src=\"shots/v1/step-2.jpg\" alt=\"One chart, rest folded\"><img class=\"f\" data-s=\"s3\" src=\"shots/v1/step-3.jpg\" alt=\"Diagnostics: changed first\"><img class=\"f\" data-s=\"s4\" src=\"shots/v1/step-4.jpg\" alt=\"Open one channel\"><img class=\"f\" data-s=\"s5\" src=\"shots/v1/step-5.jpg\" alt=\"3D settings in one popover\"><div class=\"chips\"><button data-story-to=\"s1\">1 · Answer first</button><button data-story-to=\"s2\">2 · One chart, rest folded</button><button data-story-to=\"s3\">3 · Diagnostics: changed first</button><button data-story-to=\"s4\">4 · Open one channel</button><button data-story-to=\"s5\">5 · 3D settings in one popover</button></div></div>",
+   "story": {
+    "title": "Walk it",
+    "steps": [
+     {
+      "label": "Answer first",
+      "caption": "The page opens on one verdict line with its facts; each tab names its own answer under its title.",
+      "state": "s1",
+      "target": ".chips button[data-story-to=\"s1\"]"
+     },
+     {
+      "label": "One chart, rest folded",
+      "caption": "Which joint: the answer line and the elbow chart; the shoulder waits behind “1 more chart”.",
+      "state": "s2",
+      "target": ".chips button[data-story-to=\"s2\"]"
+     },
+     {
+      "label": "Diagnostics: changed first",
+      "caption": "15 of 27 channels moved; they come first, grouped in plain words, with when they changed and their peak. The 12 flat ones fold into one line.",
+      "state": "s3",
+      "target": ".chips button[data-story-to=\"s3\"]"
+     },
+     {
+      "label": "Open one channel",
+      "caption": "Click a row to open its charts in place; one open at a time keeps the list short.",
+      "state": "s4",
+      "target": ".chips button[data-story-to=\"s4\"]"
+     },
+     {
+      "label": "3D settings in one popover",
+      "caption": "The five sliders and three draw options live behind “View”; at rest the 3D keeps its panel.",
+      "state": "s5",
+      "target": ".chips button[data-story-to=\"s5\"]"
+     }
+    ]
+   },
+   "media": [
+    {
+     "label": "Hero clip · play, drag a chart, worst moment, walkthrough",
+     "caption": "Recorded from the running prototype (headless Chrome, CDP screencast, 10.7 s, 63 frames): play, drag back across a chart, ◆ worst moment, then walkthrough steps 2–4. Watch the 3D, every chart and the time control move together.",
+     "html": "<video src=\"shots/v1/hero.mp4\" muted loop playsinline controls autoplay></video>"
+    },
+    {
+     "label": "Live prototype · try it",
+     "caption": "The real page, running here at 1600 × 1000 scaled down. Drag a chart, press space, open Diagnostics, drag a panel edge. Full size: v1/index.html.",
+     "html": "<div style=\"width:100%;overflow:hidden;line-height:0\"><iframe src=\"v1/index.html\" title=\"Answer first live\" style=\"width:1600px;height:1000px;border:0;zoom:.62\"></iframe></div>"
+    },
+    {
+     "label": "Phone width · 390 px",
+     "caption": "Below 900 px the panels stack; the page is 390 px wide at 390 (no sideways scroll).",
+     "html": "<img src=\"shots/v1/phone.jpg\" alt=\"Answer first at phone width\" style=\"max-width:390px\">"
+    }
+   ]
+  },
+  {
+   "id": "v2",
+   "name": "Editor timeline",
+   "thesis": "Make a video-editor dock the page's spine: ruler, a track per run, and a lane per diagnostic event that fired, so the story of the run reads left to right.",
+   "accent": "#b7791f",
+   "bestWhen": "The question is when things happened and in what order: collision, contact, blocked, path tolerance and settling are bars on one time axis, and event › steps through them.",
+   "losesWhen": "The dock takes a third of the height, so the charts above are short; continuous channels only show once added as a lane.",
+   "decisions": [
+    {
+     "label": "Time",
+     "value": "A full-width, resizable dock: transport, ‹ event · Worst moment · event ›, ruler, run tracks, event lanes, waveform lanes."
+    },
+    {
+     "label": "Channels",
+     "value": "Every flag that fired is already a lane (bars); “+ Add a lane” adds any of the 27 as a waveform; clicking a lane opens it in Diagnostics."
+    },
+    {
+     "label": "Runs",
+     "value": "Track headers carry eye, solo, colour and the run's error at the playhead."
+    },
+    {
+     "label": "3D settings",
+     "value": "A 58 px edge toolbar whose buttons show their current value; each opens one slider."
+    }
+   ],
+   "keepParts": [
+    "event lanes from fired flags",
+    "previous / next event stepping",
+    "run track headers with solo",
+    "edge toolbar showing values"
+   ],
+   "scores": {
+    "fr1": {
+     "score": 3,
+     "evidence": "Each tab has its answer line, but every chart of the tab is shown stacked and the dock competes for the eye.",
+     "confidence": "medium"
+    },
+    "fr2": {
+     "score": 4,
+     "evidence": "Fired flags are visible as lanes with their timing; any of 27 via “+ Add a lane” (27/27 in the picker); continuous channels that changed are not surfaced first.",
+     "confidence": "high"
+    },
+    "fr3": {
+     "score": 5,
+     "evidence": "Full-width dock in view on every tab, Worst + previous/next event, every lane scrubbable; sync measured (check.json).",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 5,
+     "evidence": "No legend or sliders on the view; the edge toolbar shows each setting's value and opens one slider.",
+     "confidence": "medium"
+    },
+    "fr5": {
+     "score": 5,
+     "evidence": "Track headers: eye, solo, colour and error at the playhead in one place; toggling hides the run in every chart and the 3D (check.json).",
+     "confidence": "high"
+    },
+    "fr6": {
+     "score": 4,
+     "evidence": "The lane grows event and waveform lanes from the payload's channels; charts and 3D unchanged.",
+     "confidence": "medium"
+    }
+   },
+   "gateResults": {
+    "g1": {
+     "pass": true,
+     "evidence": "3D ends at x = 600 px, tabs start at 609 px; 6 question tabs."
+    },
+    "g2": {
+     "pass": true,
+     "evidence": "27/27 channels reachable = 27; worst, deg/rad, eye toggle, Rerun all exercised (check.json)."
+    },
+    "g3": {
+     "pass": true,
+     "evidence": "splitter 600 → 510 px, kept after reload (510); fold = True."
+    },
+    "g4": {
+     "pass": true,
+     "evidence": "file://, vendored uPlot + three.js, extract.py fixture; 0 console errors; phone 390 px."
+    }
+   },
+   "proof": [
+    "Play 0.9 s: time 0.00 → 1.07 s; 3D marker on its sample (error 0.000 mm).",
+    "Drag on a chart: mid-drag t = 2.51 s on 2 chart(s) within 0.000 ms; after release t = 2.51 s, 3D marker error 0.000 mm.",
+    "All six tabs: time control in view on 6/6; charts' playheads within 0.001 ms of the time (track 2, where 5, joints 2, timing 4, signals 2, channels 0 charts).",
+    "Worst moment: 1.10 s (computed 1.10 s). Measured off: 0 of 2 of its lines still drawn, 3D marker visible = false.",
+    "rad: units ['rad'] → deg: ['°']. Channels reachable: 27/27. Open in Rerun (simulated) shows its command.",
+    "Splitter: 600 → 510 px, 510 px after reload; fold control works = true. Phone 390 px: page 390 px wide. Console errors 0."
+   ],
+   "previewLabel": "walkthrough · real prototype captures, 1600 × 1000",
+   "preview": "<style>.wt{position:relative;line-height:0}.wt img.f{width:100%;height:auto;display:none}.wt .chips{position:absolute;left:8px;bottom:8px;display:flex;flex-wrap:wrap;gap:6px;line-height:1.2}.wt .chips button{font:12px system-ui;padding:3px 9px;border-radius:12px;border:1px solid #888;background:rgba(255,255,255,.94);color:#111;cursor:pointer}[data-story-state=\"s1\"] .wt img.f[data-s=\"s1\"]{display:block}[data-story-state=\"s1\"] .wt .chips button[data-story-to=\"s1\"]{background:#222;color:#fff;border-color:#222}[data-story-state=\"s2\"] .wt img.f[data-s=\"s2\"]{display:block}[data-story-state=\"s2\"] .wt .chips button[data-story-to=\"s2\"]{background:#222;color:#fff;border-color:#222}[data-story-state=\"s3\"] .wt img.f[data-s=\"s3\"]{display:block}[data-story-state=\"s3\"] .wt .chips button[data-story-to=\"s3\"]{background:#222;color:#fff;border-color:#222}[data-story-state=\"s4\"] .wt img.f[data-s=\"s4\"]{display:block}[data-story-state=\"s4\"] .wt .chips button[data-story-to=\"s4\"]{background:#222;color:#fff;border-color:#222}[data-story-state=\"s5\"] .wt img.f[data-s=\"s5\"]{display:block}[data-story-state=\"s5\"] .wt .chips button[data-story-to=\"s5\"]{background:#222;color:#fff;border-color:#222}.wt img.f[data-s=\"s1\"]{display:block}[data-story-state] .wt img.f[data-s=\"s1\"]{display:none}[data-story-state=\"s1\"] .wt img.f[data-s=\"s1\"]{display:block}</style><div class=\"wt\"><img class=\"f\" data-s=\"s1\" src=\"shots/v2/step-1.jpg\" alt=\"The dock is the overview\"><img class=\"f\" data-s=\"s2\" src=\"shots/v2/step-2.jpg\" alt=\"Click an event lane\"><img class=\"f\" data-s=\"s3\" src=\"shots/v2/step-3.jpg\" alt=\"Step event to event\"><img class=\"f\" data-s=\"s4\" src=\"shots/v2/step-4.jpg\" alt=\"Add any channel as a lane\"><img class=\"f\" data-s=\"s5\" src=\"shots/v2/step-5.jpg\" alt=\"Edge toolbar shows its values\"><div class=\"chips\"><button data-story-to=\"s1\">1 · The dock is the overview</button><button data-story-to=\"s2\">2 · Click an event lane</button><button data-story-to=\"s3\">3 · Step event to event</button><button data-story-to=\"s4\">4 · Add any channel as a lane</button><button data-story-to=\"s5\">5 · Edge toolbar shows its values</button></div></div>",
+   "story": {
+    "title": "Walk it",
+    "steps": [
+     {
+      "label": "The dock is the overview",
+      "caption": "Ruler, one track per run, and a lane per Diagnostics flag that fired; the playhead crosses all of them.",
+      "state": "s1",
+      "target": ".chips button[data-story-to=\"s1\"]"
+     },
+     {
+      "label": "Click an event lane",
+      "caption": "Collision · elbow: its charts open in Diagnostics, the lane stays highlighted.",
+      "state": "s2",
+      "target": ".chips button[data-story-to=\"s2\"]"
+     },
+     {
+      "label": "Step event to event",
+      "caption": "“event ›” jumps the playhead to the next flag onset; 3D and charts follow.",
+      "state": "s3",
+      "target": ".chips button[data-story-to=\"s3\"]"
+     },
+     {
+      "label": "Add any channel as a lane",
+      "caption": "“+ Add a lane” lists all 27 in plain-word groups; a dot marks the ones that changed.",
+      "state": "s4",
+      "target": ".chips button[data-story-to=\"s4\"]"
+     },
+     {
+      "label": "Edge toolbar shows its values",
+      "caption": "Each 3D setting is a button that shows its value; one click opens just that slider.",
+      "state": "s5",
+      "target": ".chips button[data-story-to=\"s5\"]"
+     }
+    ]
+   },
+   "media": [
+    {
+     "label": "Hero clip · play, drag a chart, worst moment, walkthrough",
+     "caption": "Recorded from the running prototype (headless Chrome, CDP screencast, 13.2 s, 60 frames): play, drag back across a chart, ◆ worst moment, then walkthrough steps 2–4. Watch the 3D, every chart and the time control move together.",
+     "html": "<video src=\"shots/v2/hero.mp4\" muted loop playsinline controls autoplay></video>"
+    },
+    {
+     "label": "Live prototype · try it",
+     "caption": "The real page, running here at 1600 × 1000 scaled down. Drag a chart, press space, open Diagnostics, drag a panel edge. Full size: v2/index.html.",
+     "html": "<div style=\"width:100%;overflow:hidden;line-height:0\"><iframe src=\"v2/index.html\" title=\"Editor timeline live\" style=\"width:1600px;height:1000px;border:0;zoom:.62\"></iframe></div>"
+    },
+    {
+     "label": "Phone width · 390 px",
+     "caption": "Below 900 px the panels stack; the page is 390 px wide at 390 (no sideways scroll).",
+     "html": "<img src=\"shots/v2/phone.jpg\" alt=\"Editor timeline at phone width\" style=\"max-width:390px\">"
+    }
+   ]
+  },
+  {
+   "id": "v3",
+   "name": "Inspector column",
+   "thesis": "Three panes: the 3D with its time lane under it, the question tab as a dense chart grid, and a foldable inspector that owns every setting and the channel list.",
+   "accent": "#7667c6",
+   "bestWhen": "A power user wants every chart at once and a single place for settings, like a CAD or IDE inspector.",
+   "losesWhen": "The middle pane is narrow: the tab bar scrolls, charts are small, and nothing says what the answer is beyond one bold line.",
+   "decisions": [
+    {
+     "label": "Composition",
+     "value": "3D + lane | tabs | inspector, each boundary draggable; the inspector folds to give charts the width."
+    },
+    {
+     "label": "Channels",
+     "value": "Search box, “only changed” filter and grouped ticks; the ticked channels are what Diagnostics shows."
+    },
+    {
+     "label": "Runs",
+     "value": "Inspector table: eye, solo, colour, error at the playhead, and a ◆ jump to each run's worst moment."
+    },
+    {
+     "label": "Time",
+     "value": "The lane sits under the 3D: time and the picture belong together."
+    }
+   ],
+   "keepParts": [
+    "searchable channel list with ticks",
+    "run table with per-run worst jump",
+    "foldable inspector"
+   ],
+   "scores": {
+    "fr1": {
+     "score": 2,
+     "evidence": "One bold answer line above a dense grid of every chart; nothing is folded.",
+     "confidence": "high"
+    },
+    "fr2": {
+     "score": 4,
+     "evidence": "Search + only-changed filter + grouped ticks with first-change times; 27/27 reachable; changed ones are not listed first.",
+     "confidence": "high"
+    },
+    "fr3": {
+     "score": 4,
+     "evidence": "Lane under the 3D is in view on every tab and synced; at 520 px its ruler is compressed and far from the charts.",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 4,
+     "evidence": "The view carries no controls (all in the inspector), but the lane takes 190 px of its column.",
+     "confidence": "medium"
+    },
+    "fr5": {
+     "score": 5,
+     "evidence": "Inspector run table: eye, solo, colour, value at the playhead, per-run worst jump.",
+     "confidence": "high"
+    },
+    "fr6": {
+     "score": 3,
+     "evidence": "A new three-pane shell and inspector; charts and 3D reused.",
+     "confidence": "medium"
+    }
+   },
+   "gateResults": {
+    "g1": {
+     "pass": true,
+     "evidence": "3D ends at x = 520 px, tabs start at 527 px; 6 question tabs."
+    },
+    "g2": {
+     "pass": true,
+     "evidence": "27/27 channels reachable = 27; worst, deg/rad, eye toggle, Rerun all exercised (check.json)."
+    },
+    "g3": {
+     "pass": true,
+     "evidence": "splitter 520 → 430 px, kept after reload (430); fold = True."
+    },
+    "g4": {
+     "pass": true,
+     "evidence": "file://, vendored uPlot + three.js, extract.py fixture; 0 console errors; phone 390 px."
+    }
+   },
+   "proof": [
+    "Play 0.9 s: time 0.00 → 1.07 s; 3D marker on its sample (error 0.000 mm).",
+    "Drag on a chart: mid-drag t = 2.51 s on 2 chart(s) within 0.000 ms; after release t = 2.51 s, 3D marker error 0.000 mm.",
+    "All six tabs: time control in view on 6/6; charts' playheads within 0.000 ms of the time (track 2, where 5, joints 2, timing 4, signals 2, channels 12 charts).",
+    "Worst moment: 1.10 s (computed 1.10 s). Measured off: 0 of 2 of its lines still drawn, 3D marker visible = false.",
+    "rad: units ['rad'] → deg: ['°']. Channels reachable: 27/27. Open in Rerun (simulated) shows its command.",
+    "Splitter: 520 → 430 px, 430 px after reload; fold control works = true. Phone 390 px: page 390 px wide. Console errors 0."
+   ],
+   "previewLabel": "walkthrough · real prototype captures, 1600 × 1000",
+   "preview": "<style>.wt{position:relative;line-height:0}.wt img.f{width:100%;height:auto;display:none}.wt .chips{position:absolute;left:8px;bottom:8px;display:flex;flex-wrap:wrap;gap:6px;line-height:1.2}.wt .chips button{font:12px system-ui;padding:3px 9px;border-radius:12px;border:1px solid #888;background:rgba(255,255,255,.94);color:#111;cursor:pointer}[data-story-state=\"s1\"] .wt img.f[data-s=\"s1\"]{display:block}[data-story-state=\"s1\"] .wt .chips button[data-story-to=\"s1\"]{background:#222;color:#fff;border-color:#222}[data-story-state=\"s2\"] .wt img.f[data-s=\"s2\"]{display:block}[data-story-state=\"s2\"] .wt .chips button[data-story-to=\"s2\"]{background:#222;color:#fff;border-color:#222}[data-story-state=\"s3\"] .wt img.f[data-s=\"s3\"]{display:block}[data-story-state=\"s3\"] .wt .chips button[data-story-to=\"s3\"]{background:#222;color:#fff;border-color:#222}[data-story-state=\"s4\"] .wt img.f[data-s=\"s4\"]{display:block}[data-story-state=\"s4\"] .wt .chips button[data-story-to=\"s4\"]{background:#222;color:#fff;border-color:#222}[data-story-state=\"s5\"] .wt img.f[data-s=\"s5\"]{display:block}[data-story-state=\"s5\"] .wt .chips button[data-story-to=\"s5\"]{background:#222;color:#fff;border-color:#222}.wt img.f[data-s=\"s1\"]{display:block}[data-story-state] .wt img.f[data-s=\"s1\"]{display:none}[data-story-state=\"s1\"] .wt img.f[data-s=\"s1\"]{display:block}</style><div class=\"wt\"><img class=\"f\" data-s=\"s1\" src=\"shots/v3/step-1.jpg\" alt=\"Three panes\"><img class=\"f\" data-s=\"s2\" src=\"shots/v3/step-2.jpg\" alt=\"Search the channel list\"><img class=\"f\" data-s=\"s3\" src=\"shots/v3/step-3.jpg\" alt=\"Tick a channel\"><img class=\"f\" data-s=\"s4\" src=\"shots/v3/step-4.jpg\" alt=\"Solo a run\"><img class=\"f\" data-s=\"s5\" src=\"shots/v3/step-5.jpg\" alt=\"Fold the inspector\"><div class=\"chips\"><button data-story-to=\"s1\">1 · Three panes</button><button data-story-to=\"s2\">2 · Search the channel list</button><button data-story-to=\"s3\">3 · Tick a channel</button><button data-story-to=\"s4\">4 · Solo a run</button><button data-story-to=\"s5\">5 · Fold the inspector</button></div></div>",
+   "story": {
+    "title": "Walk it",
+    "steps": [
+     {
+      "label": "Three panes",
+      "caption": "3D with its time lane under it, the tab as a dense chart grid, the inspector owning every setting.",
+      "state": "s1",
+      "target": ".chips button[data-story-to=\"s1\"]"
+     },
+     {
+      "label": "Search the channel list",
+      "caption": "Type “torque”: the inspector's list narrows; ticks choose what Diagnostics shows.",
+      "state": "s2",
+      "target": ".chips button[data-story-to=\"s2\"]"
+     },
+     {
+      "label": "Tick a channel",
+      "caption": "Ticking “Drive power” adds its charts to the grid at once.",
+      "state": "s3",
+      "target": ".chips button[data-story-to=\"s3\"]"
+     },
+     {
+      "label": "Solo a run",
+      "caption": "S on Measured: every chart, the 3D and the lane show only that run.",
+      "state": "s4",
+      "target": ".chips button[data-story-to=\"s4\"]"
+     },
+     {
+      "label": "Fold the inspector",
+      "caption": "Inspector off: the charts take the width; the button brings it back, width remembered.",
+      "state": "s5",
+      "target": ".chips button[data-story-to=\"s5\"]"
+     }
+    ]
+   },
+   "media": [
+    {
+     "label": "Hero clip · play, drag a chart, worst moment, walkthrough",
+     "caption": "Recorded from the running prototype (headless Chrome, CDP screencast, 11.5 s, 66 frames): play, drag back across a chart, ◆ worst moment, then walkthrough steps 2–4. Watch the 3D, every chart and the time control move together.",
+     "html": "<video src=\"shots/v3/hero.mp4\" muted loop playsinline controls autoplay></video>"
+    },
+    {
+     "label": "Live prototype · try it",
+     "caption": "The real page, running here at 1600 × 1000 scaled down. Drag a chart, press space, open Diagnostics, drag a panel edge. Full size: v3/index.html.",
+     "html": "<div style=\"width:100%;overflow:hidden;line-height:0\"><iframe src=\"v3/index.html\" title=\"Inspector column live\" style=\"width:1600px;height:1000px;border:0;zoom:.62\"></iframe></div>"
+    },
+    {
+     "label": "Phone width · 390 px",
+     "caption": "Below 900 px the panels stack; the page is 390 px wide at 390 (no sideways scroll).",
+     "html": "<img src=\"shots/v3/phone.jpg\" alt=\"Inspector column at phone width\" style=\"max-width:390px\">"
+    }
+   ]
+  },
+  {
+   "id": "v4",
+   "name": "Signal strips",
+   "thesis": "Start every chart as a 40 px strip (name, sparkline, each run's value at the playhead) under one sticky ruler, and open any strip into a full chart, so a tab reads like a table.",
+   "accent": "#2f9e44",
+   "bestWhen": "Scanning many signals for the one that moved: all 27 channels and all eight raw signals fit one screen, and the playhead runs down every strip.",
+   "losesWhen": "A strip's shape is small and auto-scaled, so magnitudes are read from the numbers; a first-time reader may not know a strip opens.",
+   "decisions": [
+    {
+     "label": "Charts",
+     "value": "Every chart starts folded as a strip; click its name to open it in place on the same x as the ruler."
+    },
+    {
+     "label": "Time",
+     "value": "A sticky ruler + transport over the strips, aligned with every sparkline."
+    },
+    {
+     "label": "Runs",
+     "value": "Run pills in the page header: eye, solo, colour, error at the playhead."
+    },
+    {
+     "label": "3D settings",
+     "value": "Three named looks (Clean · Ghost + comet · Error arrows) and a fine-tune drawer with the sliders."
+    }
+   ],
+   "keepParts": [
+    "sticky aligned ruler",
+    "strips with values at the playhead",
+    "run pills in the header",
+    "3D looks"
+   ],
+   "scores": {
+    "fr1": {
+     "score": 4,
+     "evidence": "Answer line, then a tab that reads like a table of strips; detail opens per strip. The answer is numbers, not one picture.",
+     "confidence": "medium"
+    },
+    "fr2": {
+     "score": 5,
+     "evidence": "All changed channels as strips on one screen, changed first by family, flat 12 folded; 27/27 reachable (check.json).",
+     "confidence": "high"
+    },
+    "fr3": {
+     "score": 5,
+     "evidence": "Sticky ruler + transport aligned with every strip, the playhead runs down all of them; Worst one click; sync measured.",
+     "confidence": "high"
+    },
+    "fr4": {
+     "score": 4,
+     "evidence": "Three named looks on the view and the sliders in one drawer; the drawer bar stays on the view.",
+     "confidence": "medium"
+    },
+    "fr5": {
+     "score": 5,
+     "evidence": "Header pills: eye, solo, colour and value at the playhead, applied to every strip and the 3D.",
+     "confidence": "medium"
+    },
+    "fr6": {
+     "score": 3,
+     "evidence": "Needs a new strip renderer (canvas sparklines) beside the uPlot charts; payload unchanged.",
+     "confidence": "medium"
+    }
+   },
+   "gateResults": {
+    "g1": {
+     "pass": true,
+     "evidence": "3D ends at x = 560 px, tabs start at 569 px; 6 question tabs."
+    },
+    "g2": {
+     "pass": true,
+     "evidence": "27/27 channels reachable = 27; worst, deg/rad, eye toggle, Rerun all exercised (check.json)."
+    },
+    "g3": {
+     "pass": true,
+     "evidence": "splitter 560 → 470 px, kept after reload (470); fold = True."
+    },
+    "g4": {
+     "pass": true,
+     "evidence": "file://, vendored uPlot + three.js, extract.py fixture; 0 console errors; phone 390 px."
+    }
+   },
+   "proof": [
+    "Play 0.9 s: time 0.00 → 0.98 s; 3D marker on its sample (error 0.000 mm).",
+    "Drag on a chart: mid-drag t = 2.51 s on 1 chart(s) within 0.000 ms; after release t = 2.51 s, 3D marker error 0.000 mm.",
+    "All six tabs: time control in view on 6/6; charts' playheads within 0.003 ms of the time (track 1, where 0, joints 0, timing 0, signals 0, channels 0 charts).",
+    "Worst moment: 1.10 s (computed 1.10 s). Measured off: 0 of 0 of its lines still drawn, 3D marker visible = false; strip values left 4, of Measured 0.",
+    "rad: units ['rad'] → deg: ['°']. Channels reachable: 27/27. Open in Rerun (simulated) shows its command.",
+    "Splitter: 560 → 470 px, 470 px after reload; fold control works = true. Phone 390 px: page 390 px wide. Console errors 0."
+   ],
+   "previewLabel": "walkthrough · real prototype captures, 1600 × 1000",
+   "preview": "<style>.wt{position:relative;line-height:0}.wt img.f{width:100%;height:auto;display:none}.wt .chips{position:absolute;left:8px;bottom:8px;display:flex;flex-wrap:wrap;gap:6px;line-height:1.2}.wt .chips button{font:12px system-ui;padding:3px 9px;border-radius:12px;border:1px solid #888;background:rgba(255,255,255,.94);color:#111;cursor:pointer}[data-story-state=\"s1\"] .wt img.f[data-s=\"s1\"]{display:block}[data-story-state=\"s1\"] .wt .chips button[data-story-to=\"s1\"]{background:#222;color:#fff;border-color:#222}[data-story-state=\"s2\"] .wt img.f[data-s=\"s2\"]{display:block}[data-story-state=\"s2\"] .wt .chips button[data-story-to=\"s2\"]{background:#222;color:#fff;border-color:#222}[data-story-state=\"s3\"] .wt img.f[data-s=\"s3\"]{display:block}[data-story-state=\"s3\"] .wt .chips button[data-story-to=\"s3\"]{background:#222;color:#fff;border-color:#222}[data-story-state=\"s4\"] .wt img.f[data-s=\"s4\"]{display:block}[data-story-state=\"s4\"] .wt .chips button[data-story-to=\"s4\"]{background:#222;color:#fff;border-color:#222}[data-story-state=\"s5\"] .wt img.f[data-s=\"s5\"]{display:block}[data-story-state=\"s5\"] .wt .chips button[data-story-to=\"s5\"]{background:#222;color:#fff;border-color:#222}.wt img.f[data-s=\"s1\"]{display:block}[data-story-state] .wt img.f[data-s=\"s1\"]{display:none}[data-story-state=\"s1\"] .wt img.f[data-s=\"s1\"]{display:block}</style><div class=\"wt\"><img class=\"f\" data-s=\"s1\" src=\"shots/v4/step-1.jpg\" alt=\"Every chart starts as a strip\"><img class=\"f\" data-s=\"s2\" src=\"shots/v4/step-2.jpg\" alt=\"27 channels on one screen\"><img class=\"f\" data-s=\"s3\" src=\"shots/v4/step-3.jpg\" alt=\"Open a strip\"><img class=\"f\" data-s=\"s4\" src=\"shots/v4/step-4.jpg\" alt=\"Raw signals as a table\"><img class=\"f\" data-s=\"s5\" src=\"shots/v4/step-5.jpg\" alt=\"Three looks + fine-tune\"><div class=\"chips\"><button data-story-to=\"s1\">1 · Every chart starts as a strip</button><button data-story-to=\"s2\">2 · 27 channels on one screen</button><button data-story-to=\"s3\">3 · Open a strip</button><button data-story-to=\"s4\">4 · Raw signals as a table</button><button data-story-to=\"s5\">5 · Three looks + fine-tune</button></div></div>",
+   "story": {
+    "title": "Walk it",
+    "steps": [
+     {
+      "label": "Every chart starts as a strip",
+      "caption": "Track: two strips with each run's value at the playhead; one ruler on top, the playhead runs down all of them.",
+      "state": "s1",
+      "target": ".chips button[data-story-to=\"s1\"]"
+     },
+     {
+      "label": "27 channels on one screen",
+      "caption": "Diagnostics as strips, changed first by family; the flat 12 fold into one line at the end.",
+      "state": "s2",
+      "target": ".chips button[data-story-to=\"s2\"]"
+     },
+     {
+      "label": "Open a strip",
+      "caption": "Click a name: that strip opens into a full chart on the same x as the ruler.",
+      "state": "s3",
+      "target": ".chips button[data-story-to=\"s3\"]"
+     },
+     {
+      "label": "Raw signals as a table",
+      "caption": "All four signals × both joints are eight strips, not eight charts.",
+      "state": "s4",
+      "target": ".chips button[data-story-to=\"s4\"]"
+     },
+     {
+      "label": "Three looks + fine-tune",
+      "caption": "The 3D picks a look (Clean / Ghost + comet / Error arrows); the sliders are in one drawer.",
+      "state": "s5",
+      "target": ".chips button[data-story-to=\"s5\"]"
+     }
+    ]
+   },
+   "media": [
+    {
+     "label": "Hero clip · play, drag a chart, worst moment, walkthrough",
+     "caption": "Recorded from the running prototype (headless Chrome, CDP screencast, 9.5 s, 79 frames): play, drag back across a chart, ◆ worst moment, then walkthrough steps 2–4. Watch the 3D, every chart and the time control move together.",
+     "html": "<video src=\"shots/v4/hero.mp4\" muted loop playsinline controls autoplay></video>"
+    },
+    {
+     "label": "Live prototype · try it",
+     "caption": "The real page, running here at 1600 × 1000 scaled down. Drag a chart, press space, open Diagnostics, drag a panel edge. Full size: v4/index.html.",
+     "html": "<div style=\"width:100%;overflow:hidden;line-height:0\"><iframe src=\"v4/index.html\" title=\"Signal strips live\" style=\"width:1600px;height:1000px;border:0;zoom:.62\"></iframe></div>"
+    },
+    {
+     "label": "Phone width · 390 px",
+     "caption": "Below 900 px the panels stack; the page is 390 px wide at 390 (no sideways scroll).",
+     "html": "<img src=\"shots/v4/phone.jpg\" alt=\"Signal strips at phone width\" style=\"max-width:390px\">"
+    }
+   ]
+  },
+  {
+   "id": "v5",
+   "name": "Moment first",
+   "thesis": "Organise the page around “now”: it opens at the worst moment, a moment card says what is happening, events step the time, and channels are found by typing.",
+   "accent": "#c74434",
+   "bestWhen": "Investigating one incident: the card names the event at the playhead, ‹ previous / next event › jumps between them, and “near this moment” suggests the channels that move there.",
+   "losesWhen": "The card and player bar sit on the 3D view, and finding a channel needs its name or a moment; there is no list of what changed over the run.",
+   "decisions": [
+    {
+     "label": "Entry",
+     "value": "Opens at the worst moment; every tab leads with an “At this moment” readout of its signals per run."
+    },
+    {
+     "label": "Navigation",
+     "value": "Question tabs as a vertical rail, each with its answer badge."
+    },
+    {
+     "label": "Channels",
+     "value": "A command palette (press /), pinned channel chips, and suggestions that move within ±0.25 s of the playhead."
+    },
+    {
+     "label": "Time",
+     "value": "A video-player bar on the 3D's bottom edge with event ticks; [ ] step events, 1–4 toggle runs."
+    }
+   ],
+   "keepParts": [
+    "opens at the worst moment",
+    "at-this-moment readout",
+    "channel palette with pins",
+    "near-this-moment suggestions"
+   ],
+   "scores": {
+    "fr1": {
+     "score": 3,
+     "evidence": "Rail badges and an answer line per tab, then an at-this-moment readout; all charts shown, nothing folded.",
+     "confidence": "medium"
+    },
+    "fr2": {
+     "score": 4,
+     "evidence": "Typing the first 12 letters puts each of 27 channels first (27/27, check.json); near-this-moment suggestions; no over-the-run changed list.",
+     "confidence": "high"
+    },
+    "fr3": {
+     "score": 5,
+     "evidence": "Opens at the worst moment; player bar with event ticks, previous/next event and [ ] keys; sync measured.",
+     "confidence": "medium"
+    },
+    "fr4": {
+     "score": 3,
+     "evidence": "Moment card and player bar overlay the view; settings in a HUD.",
+     "confidence": "high"
+    },
+    "fr5": {
+     "score": 3,
+     "evidence": "Eyes and values on the moment card plus keys 1–4; no solo.",
+     "confidence": "high"
+    },
+    "fr6": {
+     "score": 3,
+     "evidence": "Vertical rail, player bar, palette and readout are a new shell; charts and 3D reused.",
+     "confidence": "medium"
+    }
+   },
+   "gateResults": {
+    "g1": {
+     "pass": true,
+     "evidence": "3D ends at x = 640 px, tabs start at 647 px; 6 question tabs."
+    },
+    "g2": {
+     "pass": true,
+     "evidence": "27/27 channels reachable = 27; worst, deg/rad, eye toggle, Rerun all exercised (check.json)."
+    },
+    "g3": {
+     "pass": true,
+     "evidence": "splitter 640 → 550 px, kept after reload (550); fold = True."
+    },
+    "g4": {
+     "pass": true,
+     "evidence": "file://, vendored uPlot + three.js, extract.py fixture; 0 console errors; phone 390 px."
+    }
+   },
+   "proof": [
+    "Play 0.9 s: time 1.10 → 2.10 s; 3D marker on its sample (error 0.000 mm).",
+    "Drag on a chart: mid-drag t = 2.51 s on 2 chart(s) within 0.000 ms; after release t = 2.51 s, 3D marker error 0.000 mm.",
+    "All six tabs: time control in view on 6/6; charts' playheads within 0.000 ms of the time (track 2, where 5, joints 2, timing 4, signals 2, channels 4 charts).",
+    "Worst moment: 1.10 s (computed 1.10 s). Measured off: 0 of 2 of its lines still drawn, 3D marker visible = false.",
+    "rad: units ['rad'] → deg: ['°']. Channels reachable: 27/27. Open in Rerun (simulated) shows its command.",
+    "Splitter: 640 → 550 px, 550 px after reload; fold control works = true. Phone 390 px: page 390 px wide. Console errors 0."
+   ],
+   "previewLabel": "walkthrough · real prototype captures, 1600 × 1000",
+   "preview": "<style>.wt{position:relative;line-height:0}.wt img.f{width:100%;height:auto;display:none}.wt .chips{position:absolute;left:8px;bottom:8px;display:flex;flex-wrap:wrap;gap:6px;line-height:1.2}.wt .chips button{font:12px system-ui;padding:3px 9px;border-radius:12px;border:1px solid #888;background:rgba(255,255,255,.94);color:#111;cursor:pointer}[data-story-state=\"s1\"] .wt img.f[data-s=\"s1\"]{display:block}[data-story-state=\"s1\"] .wt .chips button[data-story-to=\"s1\"]{background:#222;color:#fff;border-color:#222}[data-story-state=\"s2\"] .wt img.f[data-s=\"s2\"]{display:block}[data-story-state=\"s2\"] .wt .chips button[data-story-to=\"s2\"]{background:#222;color:#fff;border-color:#222}[data-story-state=\"s3\"] .wt img.f[data-s=\"s3\"]{display:block}[data-story-state=\"s3\"] .wt .chips button[data-story-to=\"s3\"]{background:#222;color:#fff;border-color:#222}[data-story-state=\"s4\"] .wt img.f[data-s=\"s4\"]{display:block}[data-story-state=\"s4\"] .wt .chips button[data-story-to=\"s4\"]{background:#222;color:#fff;border-color:#222}[data-story-state=\"s5\"] .wt img.f[data-s=\"s5\"]{display:block}[data-story-state=\"s5\"] .wt .chips button[data-story-to=\"s5\"]{background:#222;color:#fff;border-color:#222}.wt img.f[data-s=\"s1\"]{display:block}[data-story-state] .wt img.f[data-s=\"s1\"]{display:none}[data-story-state=\"s1\"] .wt img.f[data-s=\"s1\"]{display:block}</style><div class=\"wt\"><img class=\"f\" data-s=\"s1\" src=\"shots/v5/step-1.jpg\" alt=\"Opens at the worst moment\"><img class=\"f\" data-s=\"s2\" src=\"shots/v5/step-2.jpg\" alt=\"Next event\"><img class=\"f\" data-s=\"s3\" src=\"shots/v5/step-3.jpg\" alt=\"Find a channel by typing\"><img class=\"f\" data-s=\"s4\" src=\"shots/v5/step-4.jpg\" alt=\"Pin it\"><img class=\"f\" data-s=\"s5\" src=\"shots/v5/step-5.jpg\" alt=\"Near this moment\"><div class=\"chips\"><button data-story-to=\"s1\">1 · Opens at the worst moment</button><button data-story-to=\"s2\">2 · Next event</button><button data-story-to=\"s3\">3 · Find a channel by typing</button><button data-story-to=\"s4\">4 · Pin it</button><button data-story-to=\"s5\">5 · Near this moment</button></div></div>",
+   "story": {
+    "title": "Walk it",
+    "steps": [
+     {
+      "label": "Opens at the worst moment",
+      "caption": "The moment card says when, what happened and each run's error; the tab leads with “At this moment”.",
+      "state": "s1",
+      "target": ".chips button[data-story-to=\"s1\"]"
+     },
+     {
+      "label": "Next event",
+      "caption": "“next event ›” (or ]) jumps to the next flag onset; the card names it.",
+      "state": "s2",
+      "target": ".chips button[data-story-to=\"s2\"]"
+     },
+     {
+      "label": "Find a channel by typing",
+      "caption": "/ or the box: type “torq”, the best match is first, changed ones marked.",
+      "state": "s3",
+      "target": ".chips button[data-story-to=\"s3\"]"
+     },
+     {
+      "label": "Pin it",
+      "caption": "Enter pins the first hit; its charts join the readout and the grid.",
+      "state": "s4",
+      "target": ".chips button[data-story-to=\"s4\"]"
+     },
+     {
+      "label": "Near this moment",
+      "caption": "Suggestions are the channels that move within ±0.25 s of the playhead; they change as you scrub.",
+      "state": "s5",
+      "target": ".chips button[data-story-to=\"s5\"]"
+     }
+    ]
+   },
+   "media": [
+    {
+     "label": "Hero clip · play, drag a chart, worst moment, walkthrough",
+     "caption": "Recorded from the running prototype (headless Chrome, CDP screencast, 9.5 s, 92 frames): play, drag back across a chart, ◆ worst moment, then walkthrough steps 2–4. Watch the 3D, every chart and the time control move together.",
+     "html": "<video src=\"shots/v5/hero.mp4\" muted loop playsinline controls autoplay></video>"
+    },
+    {
+     "label": "Live prototype · try it",
+     "caption": "The real page, running here at 1600 × 1000 scaled down. Drag a chart, press space, open Diagnostics, drag a panel edge. Full size: v5/index.html.",
+     "html": "<div style=\"width:100%;overflow:hidden;line-height:0\"><iframe src=\"v5/index.html\" title=\"Moment first live\" style=\"width:1600px;height:1000px;border:0;zoom:.62\"></iframe></div>"
+    },
+    {
+     "label": "Phone width · 390 px",
+     "caption": "Below 900 px the panels stack; the page is 390 px wide at 390 (no sideways scroll).",
+     "html": "<img src=\"shots/v5/phone.jpg\" alt=\"Moment first at phone width\" style=\"max-width:390px\">"
+    }
+   ]
+  }
+ ]
+}
