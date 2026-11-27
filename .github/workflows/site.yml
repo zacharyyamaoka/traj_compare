@@ -1,0 +1,75 @@
+# The landing page, https://zacharyyamaoka.github.io/trajectory_comparison_viewer/: build on every push and PR, deploy
+# to GitHub Pages on a push to main (and a manual run on main). The same pattern as robot_msg_viz's site.yml.
+#
+# WHY the example reports are built here, not committed: they come from the repo's own synthetic examples
+#   (examples/tracking_errors_demo.py, torque_breakdown_demo.py, overlay_demo.py, dataset_demo.py --static), so the
+#   page always shows what the pushed commit writes, and no private data can reach it. The gallery stills are shot
+#   headlessly from those reports with the runner's preinstalled Google Chrome (playwright channel "chrome"), so no
+#   browser downloads. The UR5e conveyor example needs a robot workspace and is left out (build_site.py --public).
+# WHY --no-sources and robot_msgs from its GitHub commit: pyproject's [tool.uv.sources] points at /home/bam checkouts,
+#   which do not exist on a runner, and the docs page checks its claims against robot_msgs' SOURCE (build_site.py
+#   read_facts / check_claims), so it needs the checkout, not only the wheel. Pinned to a commit so a robot_msgs push
+#   cannot change this run; move the pin when the docs need newer robot_msgs.
+# WHY ffmpeg: the overlay and dataset examples render their stand-in camera clips with it.
+name: site
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  ROBOT_MSGS_COMMIT: 0bbc593
+  SITE_URL: https://zacharyyamaoka.github.io/trajectory_comparison_viewer/
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: sudo apt-get update -q && sudo apt-get install -y -q ffmpeg
+      - name: robot_msgs at the pinned commit
+        run: |
+          git clone -q https://github.com/zacharyyamaoka/robot_msgs "$RUNNER_TEMP/robot_msgs"
+          git -C "$RUNNER_TEMP/robot_msgs" checkout -q "$ROBOT_MSGS_COMMIT"
+      - run: uv venv --python 3.12
+      - run: uv pip install --no-sources -e ".[plot,rerun,export]" "$RUNNER_TEMP/robot_msgs[rerun]"
+      - name: build
+        run: >-
+          .venv/bin/python docs/site/build_site.py --out _site --python .venv/bin/python
+          --examples planar-2r torque-breakdown camera-overlay dataset
+          --example-stills --browser-channel chrome --public "$SITE_URL"
+        env:
+          MPLBACKEND: Agg
+          ROBOT_MSGS_DIR: ${{ runner.temp }}/robot_msgs
+      - name: nothing private in the page
+        run: |
+          leaks=$(grep -rIlE '/home/|zach_brain|\.claude\b|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z0-9.-]*[a-z]{2,}' \
+                  --include='*.html' --include='*.json' --include='*.js' --include='*.css' _site || true)
+          if [ -n "$leaks" ]; then echo "::error::private text in $leaks"; exit 1; fi
+          du -sh _site; du -sh _site/examples/*; ls _site _site/media
+      - uses: actions/configure-pages@v5
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+      - uses: actions/upload-pages-artifact@v3
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        with:
+          path: _site
+  # WHY a second job (GitHub's own static-site template): deploy-pages reads the artifact the build job uploaded
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

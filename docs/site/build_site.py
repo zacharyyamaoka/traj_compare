@@ -39,7 +39,22 @@ import site_content as content
 SITE = Path(__file__).resolve().parent
 TRAJ_COMPARE = SITE.parents[1]
 TRAJ_COMPARE_SRC = TRAJ_COMPARE / "src" / "traj_compare"
-ROBOT_MSGS = (TRAJ_COMPARE / "../../../../../../external/robot_msgs").resolve()
+
+
+def _robot_msgs_checkout() -> Path:
+    """The robot_msgs source checkout whose code the docs are checked against.
+
+    WHY a search, not one path: the site is built from bam_ws (robot_msgs six levels up), from this repo's own
+    checkout beside ~/robot_msgs, and in CI from a clone at a pinned commit named by ``ROBOT_MSGS_DIR``."""
+    candidates = [os.environ.get("ROBOT_MSGS_DIR"), TRAJ_COMPARE / "../../../../../../external/robot_msgs",
+                  TRAJ_COMPARE.parent / "robot_msgs", Path.home() / "robot_msgs"]
+    for candidate in candidates:
+        if candidate and (Path(candidate) / "src" / "robot_msgs" / "compare").is_dir():
+            return Path(candidate).resolve()
+    raise SystemExit("no robot_msgs checkout found: set ROBOT_MSGS_DIR to one")
+
+
+ROBOT_MSGS = _robot_msgs_checkout()
 COMPARE_SRC = ROBOT_MSGS / "src" / "robot_msgs" / "compare"
 INTEGRATION = TRAJ_COMPARE.parent / "traj_integration_tests"
 UR_EXAMPLE = INTEGRATION / "src" / "traj_integration_tests" / "ur_compare" / "sim_to_real.py"
@@ -91,6 +106,53 @@ EXAMPLES = {
         "source": TRAJ_COMPARE / "examples" / "tracking_errors_demo.py",
         "cwd": TRAJ_COMPARE,
         "pythonpath": [],
+    },
+    # WHY these three (2026-11-27, Zach: "there should be examples trajectories that I can load and see in the viewer
+    # online"): every one is generated from the repo's own synthetic examples, so the public site carries no private
+    # data and CI rebuilds it from the pushed commit.
+    "torque-breakdown": {
+        "title": "Torque breakdown on a vertical 2R arm",
+        "blurb": (
+            "Simulated moteus-style control at 1 kHz: commanded = feedforward + feedback, applied through a lagging "
+            "current loop. “ff v1” underestimates gravity by 20 %, so its feedback slopes with the arm’s angle; "
+            "“ff v2” has the true model and its feedback stays small. Each run records a different pair, the report "
+            "derives the third."
+        ),
+        "tags": ["2-DOF", "torque", "feedforward vs feedback", "derived channels", "simulated"],
+        "command": [str(TRAJ_COMPARE / "examples" / "torque_breakdown_demo.py"), "--out"],
+        "python": VENV_PYTHON,
+        "source": TRAJ_COMPARE / "examples" / "torque_breakdown_demo.py",
+        "cwd": TRAJ_COMPARE / "examples",
+        "pythonpath": [],
+    },
+    "camera-overlay": {
+        "title": "Camera overlay + motor current on a 1-DOF rack",
+        "blurb": (
+            "Target, real and a twin on a one-joint rack, each carrying motor current. The Camera section stacks a "
+            "stand-in real camera stream under the selected sim render, synced to the plots’ cursor; the camera "
+            "started half a second into the trajectory and the report lines it up."
+        ),
+        "tags": ["1-DOF", "synced video", "camera overlay", "motor current", "synthetic video"],
+        "command": [str(TRAJ_COMPARE / "examples" / "overlay_demo.py"), "--out"],
+        "python": VENV_PYTHON,
+        "source": TRAJ_COMPARE / "examples" / "overlay_demo.py",
+        "cwd": TRAJ_COMPARE / "examples",
+        "pythonpath": [],
+    },
+    "dataset": {
+        "title": "A dataset of runs: twin iterations on two tapes",
+        "blurb": (
+            "Many runs at a glance: each run is one pass over a tape, recorded sim vs the sim after five twin "
+            "iterations vs the real arm. Filter by tape, speed and gain set, read the ISO 9283 cards per tape and "
+            "the sim-to-real summary, then drill into any run’s full report."
+        ),
+        "tags": ["dataset", "runs table", "drill-down", "ISO 9283 per tape", "sim → real summary"],
+        "command": [str(TRAJ_COMPARE / "examples" / "dataset_demo.py"), "--static", "--runs", "4", "--out"],
+        "python": VENV_PYTHON,
+        "source": TRAJ_COMPARE / "examples" / "dataset_demo.py",
+        "cwd": TRAJ_COMPARE / "examples",
+        "pythonpath": [],
+        "entry": "index.html",
     },
 }
 
@@ -305,6 +367,30 @@ def build_examples(out: Path, extra_paths: list[str], only: list[str]) -> None:
             raise SystemExit(f"example {slug} failed:\n{result.stdout[-2000:]}\n{result.stderr[-4000:]}")
 
 
+def publicize(out: Path, base_url: str) -> list[str]:
+    """Rewrite the build folder's absolute path in the example pages to the URL they are served from.
+
+    WHY: a report names its .rrd files by absolute path in its copy-able Rerun commands (``rerun /abs/x.rrd``); on a
+    public host that path would name the build machine's folder and open nothing. ``rerun <url>`` opens the same file
+    from the site, so the command still works when pasted. Returns the files changed."""
+    changed = []
+    roots = sorted({str(out), str(out.resolve())}, key=len, reverse=True)
+    for path in sorted((out / "examples").rglob("*")):
+        if path.suffix not in (".html", ".json", ".js", ".md", ".txt", ".csv") or not path.is_file():
+            continue
+        text = path.read_text("utf-8")
+        new = text
+        for root in roots:
+            new = new.replace(root + "/", base_url)
+            new = new.replace(root, base_url.rstrip("/"))
+        # a dataset's manifest names the examples' import root: say it relative to the repo
+        new = new.replace(str(TRAJ_COMPARE) + "/", "")
+        if new != text:
+            path.write_text(new, "utf-8")
+            changed.append(str(path.relative_to(out)))
+    return changed
+
+
 def report_payload(report: Path) -> dict | None:
     match = re.search(r'<script type="application/json" id="traj-compare-data">(.*?)</script>',
                       report.read_text("utf-8"), re.S)
@@ -317,11 +403,11 @@ def discover_examples(out: Path) -> list[dict]:
     found = []
     for slug, example in EXAMPLES.items():
         folder = out / "examples" / slug
-        report = folder / "report.html"
+        report = folder / example.get("entry", "report.html")
         entry = {"slug": slug, **{k: v for k, v in example.items() if k in ("title", "blurb", "tags")},
                  "report": None, "pages": [], "rrds": [], "shot": None, "subtitle": ""}
         if report.is_file():
-            entry["report"] = f"examples/{slug}/report.html"
+            entry["report"] = f"examples/{slug}/{report.name}"
             payload = report_payload(report) or {}
             header = re.search(r"<header class='tc'>\s*<h1>(.*?)</h1>\s*<p>(.*?)</p>", report.read_text("utf-8"), re.S)
             entry["subtitle"] = html.unescape(header.group(2)) if header else ""
@@ -370,6 +456,17 @@ def record_media(out: Path, sdk: str) -> None:
         raise SystemExit(f"record_hero.py failed:\n{result.stderr[-4000:]}")
 
 
+def record_example_stills(out: Path, channel: str | None) -> None:
+    """``media/<slug>.png`` for every built example, with ``record_hero.py --example-stills`` (headless)."""
+    command = ["uv", "run", "--no-project", "--with", "playwright==1.64.1", "python", str(SITE / "record_hero.py"),
+               "--site", str(out), "--example-stills", *(["--channel", channel] if channel else [])]
+    print(f"  example stills: {' '.join(command)}")
+    result = subprocess.run(command, cwd=SITE, capture_output=True, text=True, timeout=1800)
+    print(result.stdout[-3000:])
+    if result.returncode != 0:
+        raise SystemExit(f"record_hero.py --example-stills failed:\n{result.stderr[-4000:]}")
+
+
 # ── the Open in Rerun control: the report's own code, extracted ────────────
 
 
@@ -407,10 +504,12 @@ def rerun_script() -> str:
 })();""")
 
 
-def rerun_command(sdk: str, rrd: Path) -> str:
-    # the same spelling as traj_compare.rerun_export.viewer_command (shlex.join of the argv)
+def rerun_command(sdk: str, rrd: Path, out: Path | None = None, base_url: str = "") -> str:
+    # the same spelling as traj_compare.rerun_export.viewer_command (shlex.join of the argv); on a public site the
+    # file's URL (Rerun opens http(s) URLs), never the build machine's path
     import shlex
-    return shlex.join(["uvx", "--from", f"rerun-sdk=={sdk}", "rerun", str(rrd.resolve())])
+    target = base_url + rrd.resolve().relative_to(out.resolve()).as_posix() if base_url and out else str(rrd.resolve())
+    return shlex.join(["uvx", "--from", f"rerun-sdk=={sdk}", "rerun", target])
 
 
 # ── sources and citations ───────────────────────────────────────────────────
@@ -522,7 +621,16 @@ def main() -> None:
                         help="interpreter with traj_compare + robot_msgs (default: traj_compare/.venv)")
     parser.add_argument("--extra-path", action="append", default=[],
                         help="prepend to PYTHONPATH for snippets and examples (repeatable)")
+    parser.add_argument("--example-stills", action="store_true",
+                        help="screenshot every built example (media/<slug>.png) for the gallery, headless")
+    parser.add_argument("--browser-channel", default=None,
+                        help="with --example-stills: a browser channel, e.g. chrome (an installed Chrome)")
+    parser.add_argument("--public", metavar="URL", default="",
+                        help="build for a public host served at URL (e.g. the GitHub Pages site): unbuilt examples are "
+                             "left out, and paths of the build folder in pages and commands become URLs")
     args = parser.parse_args()
+    if args.public and not args.public.endswith("/"):
+        args.public += "/"
     out = args.out.resolve()
     args.python = Path(os.path.abspath(args.python))  # absolute, not resolved: a venv python is a symlink
     out.mkdir(parents=True, exist_ok=True)
@@ -535,11 +643,18 @@ def main() -> None:
 
     if args.examples is not None:
         build_examples(out, args.extra_path, args.examples)
+    if args.public:  # before any still is shot, so the stills show the public commands too
+        changed = publicize(out, args.public)
+        print(f"  public: rewrote the build folder's path to {args.public} in {len(changed)} example files")
     if args.record:
         record_media(out, facts["sdk"])
+    if args.example_stills:
+        record_example_stills(out, args.browser_channel)
     outputs = {} if args.no_run else run_snippets(args.python, args.extra_path)
 
     examples = discover_examples(out)
+    if args.public:  # WHY: a public page shows only what it can open
+        examples = [example for example in examples if example["report"]]
     media = media_state(out)
     ur_code, ur_source, ur_file = ur_example_code()
     citations = Citations(content.SOURCES)
@@ -553,14 +668,16 @@ def main() -> None:
         "site_js": content.SITE_JS,
         "run_note": ("The output under each snippet is what it printed when this page was built."
                      if outputs else "(Snippets were not executed for this build.)"),
-        "serve_command": f"uv run --directory {content.display_path(TRAJ_COMPARE)} python -m traj_compare.serve "
-                         f"{content.display_path(out)} --port 8767",
+        "serve_command": (f"uv run --directory {content.display_path(TRAJ_COMPARE)} python -m traj_compare.serve "
+                          f"{content.display_path(out)} --port 8767") if not args.public else
+                         "python -m traj_compare.serve <folder holding this site> --port 8767",
     }
     context = {
         "facts": facts, "examples": examples, "media": media, "outputs": outputs, "out": out,
         "ur_code": ur_code, "ur_source": ur_source, "ur_file": ur_file,
         "ur_subtitle": next((e["subtitle"] for e in examples if e["slug"] == "ur5e-conveyor"), ""), "code_block": code_block, "snippet_block": snippet_block,
-        "rerun_command": rerun_command, "diagrams": diagrams, "shared": shared,
+        "rerun_command": lambda sdk, rrd: rerun_command(sdk, rrd, out, args.public), "diagrams": diagrams,
+        "shared": shared, "public": args.public,
     }
     pages = {
         "index.html": content.index_values(context),

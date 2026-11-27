@@ -1,4 +1,11 @@
-# traj_compare
+**[▶ Live landing page](https://zacharyyamaoka.github.io/trajectory_comparison_viewer/)**
+
+# traj_compare — the trajectory comparison viewer
+
+The repo is [`zacharyyamaoka/trajectory_comparison_viewer`](https://github.com/zacharyyamaoka/trajectory_comparison_viewer)
+since 2026-11-27 (renamed from `traj_compare`; the old URL redirects). The Python package, its import name
+(`import traj_compare`) and the PyPI name (`traj-compare`) are unchanged. The landing page carries example
+trajectories you can open in the viewer online, built from `examples/` by `.github/workflows/site.yml` on every push.
 
 Turn-key A/B trajectory comparison viewer. Feed it a **target** and any
 number of **situations** — sim A vs sim B, sim vs real, yesterday vs today —

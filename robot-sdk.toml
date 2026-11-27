@@ -10,7 +10,8 @@ use_when = "Comparing runs (target vs sim vs real, before vs after), benchmark r
 
 # Where to read more. github and pypi are required; the rest are what this package has.
 [links]
-github = "https://github.com/zacharyyamaoka/traj_compare"
+github = "https://github.com/zacharyyamaoka/trajectory_comparison_viewer"
+site = "https://zacharyyamaoka.github.io/trajectory_comparison_viewer/"
 pypi = "https://pypi.org/project/traj-compare/"
 grasp_viewer = "https://grasp-viewer.zach-yamaoka.workers.dev"
 

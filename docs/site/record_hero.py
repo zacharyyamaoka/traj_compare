@@ -61,9 +61,9 @@ def _serve(root: Path) -> tuple[ThreadingHTTPServer, str]:
     return server, f"http://127.0.0.1:{server.server_address[1]}"
 
 
-async def _launch(playwright):
+async def _launch(playwright, channel: str | None = None):
     try:
-        return await playwright.chromium.launch(headless=True, args=CHROMIUM_ARGS)
+        return await playwright.chromium.launch(headless=True, args=CHROMIUM_ARGS, channel=channel)
     except Exception as error:  # the bundled build for this playwright version is not installed
         cache = Path.home() / ".cache" / "ms-playwright"
         pattern = "chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell"
@@ -300,6 +300,30 @@ async def stills(browser, base: str, media: Path) -> None:
         await context.close()
 
 
+async def example_stills(browser, base: str, site: Path) -> None:
+    """One still per built example, the top of its page: ``media/<slug>.png`` for every ``examples/<slug>/``.
+
+    WHY its own pass (2026-11-27): the public landing page's gallery shows the repo's own examples, built in CI where
+    the UR5e example (and so ``stills``) cannot run."""
+    media = site / "media"
+    for folder in sorted(path for path in (site / "examples").iterdir() if path.is_dir()):
+        page_file = next((folder / name for name in ("report.html", "index.html") if (folder / name).is_file()), None)
+        if page_file is None:
+            continue
+        context = await browser.new_context(viewport={"width": 1440, "height": 900}, color_scheme="light")
+        page = await context.new_page()
+        page.set_default_timeout(180_000)
+        await page.goto(f"{base}/{page_file.relative_to(site).as_posix()}", wait_until="load", timeout=180_000)
+        try:  # a comparison report draws canvases; the dataset index is tables and cards
+            await page.wait_for_function("document.querySelectorAll('canvas').length > 0", timeout=20_000)
+        except Exception:
+            pass
+        await page.wait_for_timeout(2500)  # first WebGL frames and uPlot layout
+        await page.screenshot(path=str(media / f"{folder.name}.png"))
+        print(f"  wrote media/{folder.name}.png")
+        await context.close()
+
+
 async def rerun_still(playwright, base: str, media: Path, rerun_bin: list[str], rrd: str) -> None:
     """The example's .rrd in the real Rerun web viewer, headless: ``media/rerun-viewer.png``.
 
@@ -340,13 +364,20 @@ async def rerun_still(playwright, base: str, media: Path, rerun_bin: list[str], 
             os.killpg(process.pid, signal.SIGKILL)
 
 
-async def run(site: Path, video: bool, still: bool, rerun_bin: list[str] | None = None) -> None:
+async def run(site: Path, video: bool, still: bool, rerun_bin: list[str] | None = None,
+              examples_only: bool = False, channel: str | None = None) -> None:
     media = site / "media"
     media.mkdir(exist_ok=True)
     server, base = _serve(site)
     try:
         async with async_playwright() as playwright:
-            browser = await _launch(playwright)
+            browser = await _launch(playwright, channel)
+            if examples_only:
+                try:
+                    await example_stills(browser, base, site)
+                finally:
+                    await browser.close()
+                return
             try:
                 if still:
                     await stills(browser, base, media)
@@ -372,11 +403,19 @@ def main() -> None:
     parser.add_argument("--rerun-bin", nargs="+", metavar="ARG",
                         help="command that runs the pinned Rerun (e.g. uvx --from rerun-sdk==0.40.0 rerun); "
                              "with it, also screenshot the .rrd in the Rerun web viewer")
+    parser.add_argument("--example-stills", action="store_true",
+                        help="only one still per built example (media/<slug>.png); no UR5e example needed")
+    parser.add_argument("--channel", default=None,
+                        help="browser channel, e.g. chrome (an installed Google Chrome: nothing downloads)")
     args = parser.parse_args()
     site = args.site.resolve()
+    if args.example_stills:
+        asyncio.run(run(site, video=False, still=False, examples_only=True, channel=args.channel))
+        return
     if not (site / UR_REPORT).is_file():
         raise SystemExit(f"{site / UR_REPORT} is missing: build the examples first (build_site.py --examples)")
-    asyncio.run(run(site, video=not args.no_video, still=not args.no_stills, rerun_bin=args.rerun_bin))
+    asyncio.run(run(site, video=not args.no_video, still=not args.no_stills, rerun_bin=args.rerun_bin,
+                    channel=args.channel))
 
 
 if __name__ == "__main__":

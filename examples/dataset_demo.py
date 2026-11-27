@@ -179,10 +179,15 @@ def summary_page(runs: list[Run]) -> ReportPage:
     )
 
 
-def build(out: Path, eager: bool = False) -> Path:
+def build(out: Path, eager: bool = False, runs_count: int = RUNS, static: bool = False) -> Path:
+    """``static``: for a host with no server (the landing page on GitHub Pages): every drill-down built now, no
+    .rrd and no Rerun actions, commands name the folder relatively, no data-ui tables.
+
+    WHY (2026-11-27, the public landing page): a static host cannot build a drill-down on first open, and twelve eager
+    runs with their .rrd files and data-ui tables weigh ~200 MB; four static runs are ~20 MB."""
     rng = np.random.default_rng(2026)
     media_dir = make_clips(out / "_clips")
-    runs = [make_run(index, rng, media_dir) for index in range(RUNS)]
+    runs = [make_run(index, rng, media_dir) for index in range(runs_count)]
     tolerances = Tolerances(
         path=tuple(JointTolerance(name=joint, position=0.034) for joint in JOINTS),
         goal=tuple(JointTolerance(name=joint, position=0.012) for joint in JOINTS),
@@ -198,8 +203,9 @@ def build(out: Path, eager: bool = False) -> Path:
         robot="dataset_demo:planar_robot",
         summary=summary_page(runs),
         primary={"sim": "sim_it5"},
-        drill_down="eager" if eager else "lazy",
-        data_ui=True,
+        drill_down="eager" if eager or static else "lazy",
+        data_ui=not static,
+        **({"rerun_server": False, "rerun": False, "command_root": "dataset"} if static else {}),
     )
     if media_dir is not None:
         shutil.rmtree(media_dir)  # write_dataset_report copied the clips into runs/<slug>/media/
@@ -210,5 +216,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, default=Path("/tmp/dataset_demo"))
     parser.add_argument("--eager", action="store_true", help="build every run's drill-down now (default: on first open)")
+    parser.add_argument("--runs", type=int, default=RUNS, help=f"how many runs (default {RUNS})")
+    parser.add_argument("--static", action="store_true",
+                        help="for a static host: eager drill-downs, no .rrd, no data-ui tables, relative commands")
     args = parser.parse_args()
-    print(build(args.out, eager=args.eager))
+    print(build(args.out, eager=args.eager, runs_count=args.runs, static=args.static))

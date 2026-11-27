@@ -22,6 +22,24 @@ python3 ~/bam_ws/src/core/mdp/agent/actor/trajectory_generation/traj_compare/doc
 | `--no-run` | do not execute `snippets/` (pages then show code without output) |
 | `--python PATH` | interpreter with traj_compare + robot_msgs for the snippets (default: `traj_compare/.venv`) |
 | `--extra-path P` | prepend to PYTHONPATH for snippets and examples (repeatable) |
+| `--example-stills` | screenshot every built example into `media/<slug>.png` for the gallery (`record_hero.py --example-stills`, headless) |
+| `--browser-channel chrome` | with `--example-stills`: drive an installed Google Chrome, so nothing downloads |
+| `--public URL` | build for a public host served at URL: unbuilt examples and pending stills are left out, and the build folder's path in pages and Rerun commands becomes URL (`rerun <url>.rrd` opens from the site) |
+
+The examples are `planar-2r`, `torque-breakdown`, `camera-overlay` and `dataset` (all from this repo's synthetic
+`examples/`), plus `ur5e-conveyor` when bam_ws' `traj_integration_tests` is beside it. `robot_msgs` (whose source the
+docs are checked against) is found at `$ROBOT_MSGS_DIR`, bam_ws' `src/external/robot_msgs`, or `~/robot_msgs`.
+
+## The public site
+
+https://zacharyyamaoka.github.io/trajectory_comparison_viewer/ is built and deployed by `.github/workflows/site.yml`
+on every push to main (Pages source: GitHub Actions), the same as robot_msg_viz:
+
+```bash
+cd ~/traj_compare && MPLBACKEND=Agg .venv/bin/python docs/site/build_site.py --out _site --examples planar-2r torque-breakdown camera-overlay dataset --example-stills --browser-channel chrome --public https://zacharyyamaoka.github.io/trajectory_comparison_viewer/
+```
+
+Then the workflow greps the folder for local paths and e-mail addresses and fails on any.
 
 Then serve it, so every Open in Rerun button launches the pinned viewer:
 

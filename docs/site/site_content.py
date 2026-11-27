@@ -42,7 +42,7 @@ CLAIMED_SOURCE_STRINGS = {
     "src/robot_msgs/compare/difference.py": [
         'TIME_BASE_CHANNELS = ("speed_scaling", "segment_index")',
         'TIME_BASE_PREFIX = "time_base/"',
-        "quat_multiply(reference_at.orientations, quat_conjugate(measured.orientations))",
+        "quat_multiply(reference_orientations, quat_conjugate(measured_orientations))",
     ],
     "src/robot_msgs/compare/_dispatch.py": ["contour_window_s: float = 0.25"],
     "src/robot_msgs/compare/tolerances.py": ["stopped_velocity_tolerance: float = 0.01", "goal_time_tolerance: float = 0.0"],
@@ -360,7 +360,7 @@ def prior_art_html() -> str:
 # ── page fragments ───────────────────────────────────────────────────────────
 
 
-def media_block(media: dict, name: str, caption: str, alt: str, pending_hint: str = "") -> str:
+def _media_block(media: dict, name: str, caption: str, alt: str, pending_hint: str = "") -> str:
     path = media.get(name)
     if path:
         return (f'<figure class="media-frame"><a class="zoom" href="{path}" title="open full size">'
@@ -372,7 +372,16 @@ def media_block(media: dict, name: str, caption: str, alt: str, pending_hint: st
             f'<figcaption class="media-caption">{caption}</figcaption></figure>')
 
 
-def hero_media(media: dict) -> str:
+def hero_media(media: dict, examples: list[dict] | None = None) -> str:
+    if not media.get("hero.mp4") and not media.get("hero.gif"):
+        # WHY: the hero video is recorded from the UR5e example, which only a robot workspace can build; without it
+        # the first example that has a still leads, linked to its report, instead of a "media pending" box
+        first = next((example for example in examples or [] if example["shot"] and example["report"]), None)
+        if first:
+            return (f'<figure class="media-frame"><a class="zoom" href="{first["report"]}" title="open the report">'
+                    f'<img src="{first["shot"]}" alt="{html.escape(first["title"])} report"/></a>'
+                    f'<figcaption class="media-caption">{html.escape(first["title"])}: the real report, built from '
+                    'the repo’s examples. Click to open it.</figcaption></figure>')
     if media.get("hero.mp4"):
         poster = f' poster="{media["hero-poster.png"]}"' if media.get("hero-poster.png") else ""
         fallback = (f'<img src="{media["hero.gif"]}" alt="The UR5e example report: playing the synced transport, '
@@ -382,7 +391,7 @@ def hero_media(media: dict) -> str:
                 f'{poster}>{fallback}</video><figcaption class="media-caption">The real UR5e example report, recorded '
                 'headlessly: synced playback, the 3D view, TCP error along the belt, verdicts and ISO 9283, then the '
                 'sim → real page.</figcaption></figure>')
-    return media_block(media, "hero.gif", "The UR5e example report.", "Hero video of the UR5e example report")
+    return _media_block(media, "hero.gif", "The UR5e example report.", "Hero video of the UR5e example report")
 
 
 def rerun_bar(info: dict) -> str:
@@ -515,7 +524,7 @@ SITE_JS = r"""
 def index_values(context: dict) -> dict[str, str]:
     diagrams = context["diagrams"]
     return {
-        "hero_media": hero_media(context["media"]),
+        "hero_media": hero_media(context["media"], context["examples"]),
         "pairings_svg": diagrams.pairings(),
         "quickstart": context["snippet_block"]("quickstart", context["outputs"]),
         "gallery": gallery(context),
@@ -525,6 +534,11 @@ def index_values(context: dict) -> dict[str, str]:
 
 def ur_code_block(context: dict) -> str:
     code, source, whole = context["ur_code"], context["ur_source"], context["ur_file"]
+    if not code and context.get("public"):
+        return ('<div class="note">The UR5e conveyor example needs a robot workspace that is not public, so this '
+                'site does not show it. The planar 2R, torque breakdown, camera overlay and dataset examples on the '
+                '<a href="index.html#examples">landing page</a> are built from this repo’s own <code>examples/</code> '
+                'on every push.</div>')
     if not code:
         return ('<div class="note warn">The UR5e example (<code>traj_integration_tests/…/ur_compare/sim_to_real.py</code>) '
                 "is not in the tree yet. The snippets above are written against the API and run; "
@@ -547,6 +561,13 @@ def docs_values(context: dict) -> dict[str, str]:
     block = context["snippet_block"]
     facts = context["facts"]
     codes = facts["codes"]
+
+    def media_block(media: dict, name: str, *args, **kwargs) -> str:
+        # WHY: a public build has no UR5e example to shoot, so a missing still is left out, not shown as pending
+        if context.get("public") and not media.get(name):
+            return ""
+        return _media_block(media, name, *args, **kwargs)
+
     return {
         "svg_flow": diagrams.flow(facts["sdk"]),
         "svg_pairings": diagrams.pairings(),
