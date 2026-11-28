@@ -609,6 +609,10 @@ class Comparison:
     joint_limits: JointLimits | None = None
     signal_limits: Mapping[str, tuple[Any, Any]] = field(default_factory=dict)
     joint_units: Mapping[str, str] = field(default_factory=dict)  # joint position units: default rad, or m for a slide
+    # What the run view shows besides curves, at the playhead (``traj_compare.panels``): ``StepTrack`` rows above the
+    # stage (the recipe as written, the primitives it expands to), ``PlayheadTable`` and ``TimeTable`` tabs ahead of
+    # the question tabs (what each joint is told now, the command log). Empty (the default): the page is unchanged.
+    panels: Sequence[Any] = ()
 
     def __post_init__(self) -> None:
         if self.stats_mask is not None:

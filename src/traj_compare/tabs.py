@@ -205,7 +205,8 @@ def tabs_for(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
     (``CHANNELS_TAB``) follows ``signals`` when any situation, the target included, has a channel
     (``payload["channels"]``), one ``channel-<slug>`` section each (NAVIGATION.md C1).
     ``subtabs`` (``[{"id", "title", "words", "sections"}]``, ``_subtabs``) are the HTML view's sub-tabs; empty for a
-    tab of fewer than two sections.
+    tab of fewer than two sections. The tabs of ``payload["panels"]`` (``traj_compare.panels``) come first, each
+    ``{"id": "panel-<id>", "title", "heading", "sections": [], "subtabs": [], "panel": <index>}``.
     """
 
     available = _available_sections(payload)
@@ -230,7 +231,27 @@ def tabs_for(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
         shown.insert(after, {"id": tab.id, "title": payload.get("channels_title") or tab.title,
                              "heading": tab.heading, "sections": channel_sections,
                              "subtabs": _subtabs(tab, channel_sections, titles)})
-    return shown
+    # the caller's panel tabs (``Comparison.panels``: a table at the playhead, a log) lead, in the caller's order.
+    # WHY first: a comparison that has them is a recorded procedure, and "what is each joint told now" is its first
+    # question (Zach 2026-11-27, the JointCommandSequence viewer). ``panel`` indexes ``payload["panels"]["tabs"]``.
+    panel_tabs = (payload.get("panels") or {}).get("tabs") or ()
+    taken = {entry["id"] for entry in shown}
+    lead = []
+    for index, panel in enumerate(panel_tabs):
+        tab_id = panel_tab_id(panel["id"])
+        if tab_id in taken:
+            raise ValueError(f"two tabs share the id {tab_id!r}")
+        taken.add(tab_id)
+        lead.append({"id": tab_id, "title": panel["title"], "heading": panel["heading"], "sections": [], "subtabs": [],
+                     "panel": index})
+    return lead + shown
+
+
+def panel_tab_id(panel_id: str) -> str:
+    """The tab id of a ``Comparison.panels`` tab (``#tab=panel-now``): ``panel-`` + the panel's id, so it can never
+    collide with a question tab."""
+
+    return f"panel-{panel_id}"
 
 
 def channel_slug(name: str) -> str:

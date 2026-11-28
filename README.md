@@ -233,6 +233,41 @@ write_comparison_report([comparison], out_dir, insights=insights)
 - `summary=` and `insights=` accept `ReportPage` objects. A page may contain
   `MetricCard`, `BarChart`, `ReportTable`, and `Insight` blocks.
 
+## Panels at the playhead: a recorded procedure
+
+A run that executes a sequence (a homing recipe, a pick, a recovery) has three more things to show than curves. They
+are `Comparison.panels` (`traj_compare.panels`, 2026-11-27, grown for the JointCommandSequence viewer of the Joint
+Command Controller box); a comparison without them is unchanged.
+
+```python
+from traj_compare import Changes, PlayheadColumn, PlayheadTable, StepSpan, StepTrack, TimeRow, TimeTable
+
+Comparison(..., panels=[
+    StepTrack("Recipe", [StepSpan(0.0, 2.0, 'find_hardstop("elbow", -1, 0.3, 3.0, 1.2)', "expands to Command → Condition → Command",
+                                  kind="Recipe line")], words="as written", mono=True),
+    StepTrack("Primitive", [StepSpan(0.0, 2.0, "#2 Condition", "until InCollision(elbow)", kind="Condition")]),
+    PlayheadTable("Now", ["shoulder", "elbow"], [
+        PlayheadColumn("Servo", ["CAN 11", "CAN 12"]),                                   # a constant per row
+        PlayheadColumn("Mode", [Changes([(0.0, "holding")]), Changes([(0.0, "moving"), (2.0, "holding", "positive")])]),
+        PlayheadColumn("position", [sent_deg[:, 0], sent_deg[:, 1]], group="Command being sent", unit="°", signed=True),
+    ], t=t),
+    TimeTable("Command log", ["Step", "Values"], [TimeRow(0.0, ["home", "seek elbow"], kind="command")],
+              kinds={"command": "commands"}),
+])
+```
+
+| Panel | Where | What it does |
+| --- | --- | --- |
+| `StepTrack` (of `StepSpan`s) | the **step band** above the stage and the tabs `[data-tc-step-band]` | one row per track, one block per span on the run's clock (a zero-length span is a tick); the block at the playhead is marked and written out whole under the band, with its `detail`; a click on a block goes to its start, press and drag scrubs; blocks of one `kind` share a colour |
+| `PlayheadTable` | a tab, ahead of the question tabs `[data-tc-playhead-table]` | one table read at the playhead: a cell is a constant, a sampled series (`PlayheadTable.t`; the newest sample at or before the playhead, "—" for NaN) or `Changes` (the value in force since its last change, with an optional tone); `group` puts columns under one heading |
+| `TimeTable` (of `TimeRow`s) | a tab `[data-tc-time-table]` | time-stamped rows: the newest at or before the playhead is marked (per `level`), later rows are dim, a click goes to the row's time; `level` > 0 folds under the row above (`open_level`), `kind` gets a filter chip, `t=math.inf` is a row the run never reached |
+
+All three follow the page's one transport (the time lane, a hovered plot, Space). `report.html#tab=panel-now&t=1.25`
+opens a panel tab at an instant (`#t=` works on any report). Text is shown as given: a long cell wraps, it is never
+cut; convert angles to degrees before handing numbers over. `write_comparison_report(..., host_header="<nav>…</nav>")`
+writes a host site's navigation bar first in `<body>`, so a report inside a site reads as one of its pages. The Rerun
+layouts leave panel tabs out for now (a procedure's recording is its own exporter's).
+
 ## Open in Rerun
 
 With the `rerun` extra installed, this opens a saved report's recording or builds it from the selected comparison:

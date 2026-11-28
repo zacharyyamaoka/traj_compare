@@ -21,6 +21,7 @@ from .model import (
     Situation,
     TableRow,
 )
+from .panels import Changes, PlayheadColumn, PlayheadTable, StepSpan, StepTrack, TimeRow, TimeTable
 from .report import write_comparison_report
 
 # WHY lazy: ``python -m traj_compare.dataset`` runs dataset.py as __main__; importing it here eagerly
@@ -45,10 +46,13 @@ __all__ = [
     "BarChart",
     "BarSeries",
     "CameraOverlay",
+    "Changes",
     "Comparison",
     "Insight",
     "Metric",
     "MetricCard",
+    "PlayheadColumn",
+    "PlayheadTable",
     "Run",
     "ReportImage",
     "ReportPage",
@@ -56,9 +60,13 @@ __all__ = [
     "RobotDisplay",
     "Signal",
     "Situation",
+    "StepSpan",
+    "StepTrack",
     "Sweep",
     "SweepObservation",
     "TableRow",
+    "TimeRow",
+    "TimeTable",
     "analyze_comparison",
     "build_drill_down",
     "build_run_folder",

@@ -1273,6 +1273,10 @@ def _layout_questions(payload: dict[str, Any], videos: dict[str, Path], overlays
     full, payload = payload, _without_checks(payload, checks)
     tabs, shown, titles = [], [], []
     for entry in full.get("tabs") or tabs_for(full):
+        if "panel" in entry:
+            # WHY skipped, not drawn: Comparison.panels (the step band, the playhead table, the log) are HTML-only for
+            # now; a recorded procedure's Rerun recording is its own exporter's (the Joint Command Controller box)
+            continue
         container = _QUESTION_TABS[entry["id"]](payload, entry["title"])
         if container is not None:
             tabs.append(container)

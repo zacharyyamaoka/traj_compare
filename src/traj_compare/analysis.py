@@ -71,6 +71,7 @@ from .rotations import (
     successive_rotation_angles,
     unwrap_rpy,
 )
+from .panels import panels_payload
 from .tabs import channel_slug, normalize_parts, tabs_for
 
 MAX_PLOT_POINTS = 5000
@@ -1247,6 +1248,8 @@ def analyze_comparison(comparison: Comparison) -> dict[str, Any]:
         payload["plot_limits"] = limits
     if comparison.joint_units:
         payload["joint_units"] = [comparison.joint_units.get(name, "rad") for name in comparison.joint_names]
+    if panels := panels_payload(comparison.panels):
+        payload["panels"] = panels  # read by tabs_for: its tabs lead the question tabs
     payload["tabs"] = tabs_for(payload)
     if comparison.stats_mask is not None:  # what every error statistic above is taken over (the curves keep every sample)
         mask = np.asarray(comparison.stats_mask, dtype=bool)

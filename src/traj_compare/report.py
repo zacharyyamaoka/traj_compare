@@ -44,6 +44,7 @@ VIEWER_ASSETS = (
     ("script", "viewhelper.js"),
     ("script", "viewer3d.js"),
     ("script", "timeline.js"),  # the time lane under the question tabs (docs/NAVIGATION.md Part B, 2026-11-25)
+    ("script", "panels.js"),  # Comparison.panels: the step band, the table at the playhead, the time table (2026-11-27)
     ("script", "plots.js"),
 )
 
@@ -167,6 +168,7 @@ def write_comparison_report(
     exports: bool = False,
     breadcrumb: Sequence[tuple[str, str]] = (),
     assets: Path | str | None = None,
+    host_header: str = "",
 ) -> Path:
     """Analyze the comparison(s) and write one self-contained ``report.html``.
 
@@ -191,6 +193,9 @@ def write_comparison_report(
     shared viewer files (uPlot, three.js, the viewer's JS and CSS; ``VIEWER_ASSETS``), referenced from there instead of
     inlined. A directory (a ``Path``, or a ``str`` that is not a URL) gets the files written into it and is referenced
     relative to the report, so many reports (and their host) share one copy; a URL is referenced as given.
+    ``host_header`` (default empty): raw HTML written first in ``<body>``, as given: the navigation bar of the site
+    that hosts the report (a ``<bb-site-nav>`` element and its script), so a report inside a site reads as one of its
+    pages. It is the caller's markup, never escaped; never pass text that is not yours.
     """
 
     if isinstance(comparisons, Comparison):
@@ -316,7 +321,7 @@ def write_comparison_report(
 {tags["style.css"]}
 </head>
 <body>
-<header class='tc'>
+{host_header}<header class='tc'>
   {breadcrumb_html}<h1>{html.escape(report_title)}</h1>
   <p>{html.escape(subtitle)}</p>
 </header>
@@ -330,6 +335,7 @@ def write_comparison_report(
 {tags["viewhelper.js"]}
 {tags["viewer3d.js"]}
 {tags["timeline.js"]}
+{tags["panels.js"]}
 {tags["plots.js"]}
 <script>TrajCompare.boot();</script>
 </body>

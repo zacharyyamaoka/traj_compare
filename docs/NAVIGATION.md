@@ -179,6 +179,22 @@ no longer sit side by side. Tests: `tests/test_time_lane_browser.py`.
   new title, or a pre-2026-11-19 title ("Is it good?", "Where?", "Which joint?", "Timing or shape?",
   "Feedforward or feedback?", "Signals"). The `evo` layout is unchanged.
 
+### Panels at the playhead (amendment 2026-11-27, `traj_compare.panels`)
+
+Additive: a comparison without `Comparison.panels` draws the page above, unchanged. With them (a recorded procedure:
+the JointCommandSequence viewer asked for it, Zach 2026-11-27, "grow it out of Trajectory Comparison"):
+
+- `StepTrack`s draw the **step band** `[data-tc-step-band]` between the page's description and the stage: a row
+  `[data-tc-step-track="<title>"]` per track, a block `[data-tc-step="<label>"]` per span, the line `[data-tc-step-line]`
+  at the committed time, and under the rows each track's current block written out whole `[data-tc-step-now="<title>"]`
+  (one line `[data-tc-step-idle]` when no track has one). It always shows the whole run; the lane's zoom does not move it.
+- `PlayheadTable` and `TimeTable` are tabs `panel-<id>` that **lead** the question tabs, in the caller's order
+  (`payload["tabs"]` entries carry `"panel": <index into payload["panels"]["tabs"]>`), so a procedure opens on its first
+  panel tab. `[data-tc-playhead-table="<id>"]` rows `[data-tc-row]`, cells `[data-tc-cell="<column>"]`;
+  `[data-tc-time-table="<id>"]` rows `[data-tc-time-row]` with class `now` / `later`, chips `[data-tc-kind]`.
+- `#t=<seconds>` (alone or with `#tab=`) opens any report at that instant.
+- Rerun: the layouts skip panel tabs (no container yet); nothing else about a recording changes.
+
 ### Scaling with joint count: parts
 
 - `Comparison.parts: Mapping[str, Sequence[str] | Mapping[str, Sequence[str]]] | None = None`, ordered.

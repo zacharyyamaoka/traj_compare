@@ -2303,6 +2303,12 @@ var TrajCompare = (function () {
     try { return decodeURIComponent(match[1]); } catch (error) { return match[1]; }
   }
 
+  function timeFromHash() {
+    var match = /(?:^#|&)t=([-+0-9.eE]+)/.exec(location.hash || '');
+    var value = match ? parseFloat(match[1]) : NaN;
+    return isFinite(value) ? value : null;
+  }
+
   function writeHash(id) {
     var run = /(?:^#|&)(run=[^&]+)/.exec(location.hash || '');  // a #run= deep link stays in the address
     try { history.replaceState(null, '', '#tab=' + encodeURIComponent(id) + (run ? '&' + run[1] : '')); } catch (error) {}
@@ -2782,6 +2788,12 @@ var TrajCompare = (function () {
   function buildPanel(page, tab) {
     tab.built = true;
     var panel = tab.panel;
+    if (tab.panelIndex !== undefined && tab.panelIndex !== null) {
+      var definition = ((page.data.panels || {}).tabs || [])[tab.panelIndex];
+      if (definition && window.TrajComparePanels) TrajComparePanels.tab(page, tab, panel, definition);
+      else el('p', 'tc-empty', panel, 'This tab needs panels.js, which this page did not load.');
+      return;
+    }
     if (tab.id === 'track') buildTrackPanel(page, panel);
     var ids = tab.sections.map(function (section) { return section.def.id; });
     var notes = [];
@@ -2815,6 +2827,7 @@ var TrajCompare = (function () {
     if (page.transport) page.transport.setHover(null);
     if (!tab.built) buildPanel(page, tab);
     if (tab.paintLegend) tab.paintLegend();
+    if (tab.paintPanel) tab.paintPanel();  // a panels.js tab is read at the playhead: bring it up to the current time
     page.partViews.forEach(function (view) { syncPartView(page, view); });
     // WHY (measured 2026-11-19): a chart drawn or last sized while its panel was hidden keeps that width; size every
     // chart of the shown panel to it, and put the shared time cursor on the newly drawn ones
@@ -3080,7 +3093,8 @@ var TrajCompare = (function () {
     strip.setAttribute('role', 'tablist');
     strip.setAttribute('aria-label', 'Questions about this run');
     page.tabs = tabs.map(function (tab) {
-      var record = { id: tab.id, title: tab.title, heading: tab.heading, built: false, sections: [] };
+      // ``panel`` (a Comparison.panels tab): the index of its definition in data.panels.tabs, drawn by panels.js
+      var record = { id: tab.id, title: tab.title, heading: tab.heading, built: false, sections: [], panelIndex: tab.panel };
       record.button = el('button', 'tc-qtab', strip, tab.title);
       record.button.setAttribute('data-tc-tab', tab.id);
       record.button.setAttribute('role', 'tab');
@@ -3145,6 +3159,8 @@ var TrajCompare = (function () {
     if (data.description) el('p', 'tc-desc', root, data.description);
     if (data.rerun) buildRerunBar(root, data.rerun, data.exports);
     else if (data.exports) buildExportsBar(root, data.exports);
+    // Comparison.panels (panels.js): the step band sits above the stage and the tabs, on the page's one transport
+    if (data.panels && window.TrajComparePanels) page.stepBand = TrajComparePanels.band(page, root);
 
     page.sections = sectionDefs(data).map(function (def) {
       return { def: def, on: false, defaultOn: def.on, toggle: false, tab: null, built: false, chip: null, el: null, body: null };
@@ -3324,6 +3340,9 @@ var TrajCompare = (function () {
     // the stage is drawn after the chips, so the 3D view and the videos start with the runs they left on
     stageSections.forEach(function (section) { paintSection(page, section); });
     activateTab(page, tabFromHash() || state.prefs.get('tab', null), false);
+    // ``report.html#t=1.25`` (with ``#tab=<id>&t=1.25`` too) opens the page at that time: a link to one instant
+    var linked = timeFromHash();
+    if (linked !== null && page.transport) page.transport.setScrub(linked);
 
     page.paintSections = function () {
       page.sections.forEach(function (section) { paintSection(page, section); });
