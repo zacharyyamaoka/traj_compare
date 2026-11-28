@@ -1471,12 +1471,17 @@ code.tc-pn-read-label { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, m
 .tc-pn-mark.sent { width: 4px; height: 14px; margin-left: -2px; border-radius: 2px; background: var(--pn-accent); }
 .tc-pn-mark.measured { width: 10px; height: 10px; margin-left: -5px; top: 0; border-radius: 50%; border: 2px solid var(--pn-ink);
   background: var(--pn-paper); box-sizing: border-box; }
-.tc-pn-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.tc-pn-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 10px; }
 .tc-pn-card { background: var(--pn-paper); border: 1px solid var(--pn-line); border-radius: 8px; padding: 8px 10px; }
 .tc-pn-card header { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; margin-bottom: 6px; font-size: 12.5px; }
 .tc-pn-fact { color: var(--pn-ink); font-size: 12px; }
 .tc-pn-fact .label { color: var(--pn-muted); font-size: 11px; }
 .tc-pn-card .tc-pn-table th.num { text-align: right; }
+/* WHY not sticky and free to wrap inside a card: a long quantity name pushed the three numbers out of the card and the
+   sticky heading covered them (seen on the first six-joint page) */
+.tc-pn-card .tc-pn-table th.row-title { position: static; white-space: normal; }
+.tc-pn-card .tc-pn-table { table-layout: auto; }
+.tc-pn-card .tc-pn-table td.num { width: 1%; }
 .tc-variant-pick { position: fixed; right: 12px; bottom: 48px; z-index: 61; display: flex; align-items: center; gap: 6px;
   padding: 4px 8px; border: 1px solid #dddcd6; border-radius: 8px; background: #fcfcfb; color: #6b6a66; font-size: 12px;
   box-shadow: 0 1px 6px rgba(0, 0, 0, 0.12); }
