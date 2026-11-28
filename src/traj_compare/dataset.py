@@ -207,7 +207,8 @@ class Sweep:
     WHY a view inside the Dataset level (Zach, Daily Note 2026-11-23): "I want to be able to see the pareto graph that
     shows the accuracy vs time scaling ... drill down into any of the actual trajectories", and "I don't want to keep on
     making a new viewer". ``x_label`` / ``y_label`` default to the tag names; ``unit`` follows every ``y`` value;
-    ``log_y`` draws the chart's y axis on a log scale.
+    ``log_y`` draws the chart's y axis on a log scale. ``gate`` names a run tag (may hold ``{series}``) that is >= 1 when a
+    run passes every gate: the league then ranks keys that pass on every target first and marks the others (E2).
 
     The outer view's league table (NAVIGATION.md Part E) ranks configs by ``y`` and ``metrics`` (more ``Metric`` KPIs).
     ``facet_by`` may be a tuple of tags (a facet is their values joined by " · ", e.g. dataset and split); ``y`` and a
@@ -231,8 +232,11 @@ class Sweep:
     x_domain: tuple[float, float] | None = None
     x_step: float | None = None
     observations: Sequence[SweepObservation] | None = None
+    gate: str | None = None
 
     def __post_init__(self) -> None:
+        if self.gate is not None and not isinstance(self.gate, str):
+            raise TypeError("Sweep.gate is a run tag name (may hold {series}), or None")
         if self.x_label is None:
             object.__setattr__(self, "x_label", self.x)
         if self.y_label is None:
@@ -1283,7 +1287,7 @@ def _sweep_payload(
     payload = {
         "x": sweep.x, "y": sweep.y, "facet_by": facet_by, "x_label": sweep.x_label, "y_label": sweep.y_label,
         "unit": sweep.unit, "log_y": bool(sweep.log_y), "skipped": skipped, "facets": facets_out,
-        "metrics": [metric.to_payload() for metric in sweep.metrics], "split_series": split,
+        "metrics": [metric.to_payload() for metric in sweep.metrics], "gate": sweep.gate, "split_series": split,
     }
     if sweep.x_domain is not None:
         payload.update(x_domain=sweep.x_domain, x_buckets=grid)

@@ -508,6 +508,11 @@ UR5e landing page was 206,472 px tall at 1440 px wide (229 screens). Acceptance:
   the value, its ratio to the best (`best` on rank 1), n, one sparkline per KPI over x (`data-metric`), and how many
   (facet, x) cells it is lowest in. Facet chips `[data-tc-league-facet]` (`all` first). A verdict line
   `[data-tc-league-verdict]` names the best key and the others' ratios.
+- **Gate** (amendment 2026-11-27, opt-in): `Sweep(gate=<tag>)` names a run tag (may hold `{series}`) that is >= 1 when
+  the run passes every gate. A unit passes when its repeats' median >= 1. Rows that pass on every unit of the facet at
+  the fastest x rank first, failing rows after them (each by the primary KPI); each row carries `data-gate` = `pass` |
+  `fail` and `[data-tc-league-gate]` ("fails a gate on k of n targets"); rank 1, `best` and the verdict are the best
+  passing key. Acceptance: `tests/test_dataset_league_gate.py`. Without `gate` nothing changes.
 - Without a sweep the league has one KPI: each config's median over targets of its median RMS joint error (the levels'
   numbers, real lines when it has any).
 

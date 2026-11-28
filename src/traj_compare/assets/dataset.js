@@ -2026,6 +2026,12 @@
           unit = unit || addUnit(line.target, x, facet);
           push(k, key, unit, value, line.report);
         });
+        // Sweep.gate (E2): the run's pass/fail tag, kept apart from the KPIs (never a column, never a median)
+        if (SW.gate && unit) {
+          var gateTag = SW.gate.indexOf(SERIES_FIELD) !== -1 ? SW.gate.split(SERIES_FIELD).join(line.series) : SW.gate;
+          var passed = numberTag(tags[gateTag]);
+          if (passed !== null) push('gate', key, unit, passed, line.report);
+        }
       });
       // keys in the sweep's order (levels.configs, then series), the rest after
       var order = [];
@@ -2083,6 +2089,19 @@
     return (model.agg[id] = values.length ? { median: median(values), n: values.length } : null);
   }
   function betterOf(kpi) { return kpi.better === 'higher' ? -1 : 1; }
+  // E2 gate: on how many of the facet's units at x a key's runs pass (a unit passes when its repeats' median >= 1)
+  function gateOf(model, facet, key, x) {
+    if (!SW || !SW.gate) return null;
+    var n = 0, failed = 0;
+    model.unitList.forEach(function (unit) {
+      if (!inFacet(unit, facet) || (x !== null && unit.x !== x)) return;
+      var value = unitValue(model, 'gate', key, unit);
+      if (!value) return;
+      n += 1;
+      if (value.v < 1 - 1e-9) failed += 1;
+    });
+    return n ? { n: n, failed: failed, pass: failed === 0 } : null;
+  }
 
   // ── a tiny SVG sparkline (log or linear y) ──
   function sparkline(values, options) {
@@ -2131,10 +2150,14 @@
     V.leagueFacet = facet;
     var top = model.top, primary = model.kpis[0], dir = betterOf(primary);
     var rows = model.keys.map(function (key) {
-      var row = { key: key, cells: model.kpis.map(function (kpi, k) { return aggregate(model, k, facet, key.key, top); }) };
+      var row = { key: key, cells: model.kpis.map(function (kpi, k) { return aggregate(model, k, facet, key.key, top); }),
+                  gate: gateOf(model, facet, key.key, top) };
       return row;
     }).filter(function (row) { return row.cells[0]; });
-    rows.sort(function (a, b) { return dir * (a.cells[0].median - b.cells[0].median) || model.keys.indexOf(a.key) - model.keys.indexOf(b.key); });
+    // WHY gate first (Sweep.gate): a ruler ranks admissible solutions only; a lighter config that fails a gate on some
+    // target must not head the league (the gravity-comp box, 2026-11-27: S001 led on median effort with 74° falls)
+    var failing = function (row) { return row.gate && !row.gate.pass ? 1 : 0; };
+    rows.sort(function (a, b) { return failing(a) - failing(b) || dir * (a.cells[0].median - b.cells[0].median) || model.keys.indexOf(a.key) - model.keys.indexOf(b.key); });
     var best = rows[0];
 
     // how many (facet, x) cells each key is best in: every facet but "all" when there are several, at every x
@@ -2161,7 +2184,7 @@
     var others = rows.slice(1).map(function (row) { return '<b>' + esc(row.key.key) + '</b> ' + times(row.cells[0].median / best.cells[0].median); });
     html += '<p class="ds-lverdict" data-tc-league-verdict>' + (top !== null ? 'At <b>' + esc(xText(model, top)) + '</b>' : 'Across every target') +
       (facet !== 'all' ? ' on <b>' + esc(facet) + '</b>' : '') + ', ' + swatch(best.key.color, simKey(best.key)) + '<b>' + esc(best.key.key) + '</b> ' +
-      (dir > 0 ? 'has the lowest ' : 'has the highest ') + esc(primary.label) + ': <b>' + num3(best.cells[0].median) + esc(unit) + '</b>' +
+      (dir > 0 ? 'has the lowest ' : 'has the highest ') + esc(primary.label) + (best.gate && best.gate.pass ? ' of the configs that pass every gate' : '') + ': <b>'  + num3(best.cells[0].median) + esc(unit) + '</b>' +
       (others.length ? '; the others are at ' + others.join(', ') + ' of it' : '') + '. <span class="ds-mut">Median over ' + best.cells[0].n +
       ' targets of each target’s median over its repeats' + (model.kind === 'sweep' ? ', run tag ' + esc(primary.tag) : ', robot_msgs.compare') + '.</span></p>';
     if (model.facets.length > 1) {
@@ -2203,9 +2226,11 @@
         return sparkline(values, { color: key.color, lo: scale[k].lo, hi: scale[k].hi, log: kpi.log, dash: dash, metric: kpi.tag,
           title: key.key + ': ' + kpi.label + ' vs ' + model.xLabel + ' (' + model.xs.map(function (x, i) { return x + ' → ' + num3(values[i]); }).join(', ') + ')' });
       };
-      html += '<tr data-tc-league-row data-key="' + esc(key.key) + '" data-rank="' + (at + 1) + '">' +
+      var gateNote = row.gate ? '<span class="ds-lgate' + (row.gate.pass ? '' : ' fail') + '" data-tc-league-gate>' +
+        (row.gate.pass ? 'passes every gate' : 'fails a gate on ' + row.gate.failed + ' of ' + row.gate.n + ' targets') + '</span>' : '';
+      html += '<tr data-tc-league-row data-key="' + esc(key.key) + '" data-rank="' + (at + 1) + '"' + (row.gate ? ' data-gate="' + (row.gate.pass ? 'pass' : 'fail') + '"' : '') + '>' +
         '<td class="ds-text ds-lrank">' + (at + 1) + '</td>' +
-        '<td class="ds-text">' + swatch(key.color, dash) + keyLabel(key) + '</td>' +
+        '<td class="ds-text">' + swatch(key.color, dash) + keyLabel(key) + gateNote + '</td>' +
         '<td data-tc-league-n>' + cell.n + '</td>' +
         '<td class="ds-text ds-lprimary"><span class="ds-lbig" data-tc-league-value>' + num3(cell.median) + '</span>' +
         '<span class="ds-lx' + (at === 0 ? ' best' : '') + '" data-tc-league-ratio>' + (at === 0 ? 'best' : times(cell.median / best.cells[0].median)) + '</span>' +
