@@ -181,7 +181,7 @@ class _TargetRun:
 
     def __init__(self, run: JointTrajectory, target: JointTrajectory, robot: str | Path, tool: PoseTrajectory | None,
                  target_tool: PoseTrajectory | None, *, label: str, tool_error_mm: Any, tool_error_rms_mm: float | None,
-                 tool_error_name: str) -> None:  # fmt: skip
+                 tool_error_name: str, extras: dict[str, Any] | None = None) -> None:  # fmt: skip
         if (tool is None) != (target_tool is None):
             raise ValueError("pass tool= and target_tool= together (or neither): the magnifier compares the two")
         joints = [str(joint) for joint in run.joint_names]
@@ -190,7 +190,10 @@ class _TargetRun:
                 raise ValueError(f"the target's joints {list(target.joint_names)} are not the run's {joints}")
             target = target.select(joints)
         self.run, self.label = run, label
-        self.s = viz._RobotPlan(run, RUN, robot, tool)
+        # WHY only when given (2026-11-27): robot_msgs' wrenches / events / plots are opt-in on V1's plan, and an older
+        # robot_msgs (CI's PyPI install) takes none of them
+        given = {key: value for key, value in (extras or {}).items() if value}
+        self.s = viz._RobotPlan(run, RUN, robot, tool, **given)
         self.t = viz._RobotPlan(target, REFERENCE, robot, target_tool)
         s, tt = self.s, self.t
         if s.tool_frame != tt.tool_frame:
@@ -380,6 +383,8 @@ class _TargetRun:
                 head += " · bold = run, pale = target"
             tcp.append(viz._Strip(head + tail, contents, y_range, False))
         tabs["TCP"] = tcp
+        for name, strips in s.tabs.items():  # V1's opt-in tabs (Wrench, each of plots=, Events), after V2's own
+            tabs.setdefault(name, strips)
         return tabs
 
     def _error_strips(self) -> tuple[Any, Any, str]:
@@ -671,22 +676,23 @@ def _label_places(view: _TargetRun, picked: np.ndarray, texts: list[str], start:
 
 def _view(run: JointTrajectory, target: JointTrajectory, robot: str | Path, tool: PoseTrajectory | None,
           target_tool: PoseTrajectory | None, label: str | None, tool_error_mm: Any, tool_error_rms_mm: float | None,
-          tool_error_name: str) -> _TargetRun:  # fmt: skip
+          tool_error_name: str, extras: dict[str, Any] | None = None) -> _TargetRun:  # fmt: skip
     _require()
     if not isinstance(run, JointTrajectory) or not isinstance(target, JointTrajectory):
         raise TypeError("run and target are JointTrajectory messages")
     run, target = _with_rates(run), _with_rates(target)
     return _TargetRun(run, target, robot, tool, target_tool, label=label or RUN, tool_error_mm=tool_error_mm,
-                      tool_error_rms_mm=tool_error_rms_mm, tool_error_name=tool_error_name)
+                      tool_error_rms_mm=tool_error_rms_mm, tool_error_name=tool_error_name, extras=extras)
 
 
 def target_vs_run_blueprint(run: JointTrajectory, *, target: JointTrajectory, robot: str | Path,
                             tool: PoseTrajectory | None = None, target_tool: PoseTrajectory | None = None,
                             label: str | None = None, tool_error_mm: Any = None, tool_error_rms_mm: float | None = None,
-                            tool_error_name: str = "ruler") -> Any:  # fmt: skip
+                            tool_error_name: str = "ruler", wrenches: Any = None, events: Any = None,
+                            plots: Any = None) -> Any:  # fmt: skip
     """The dashboard ``write_target_vs_run_rrd`` embeds (same arguments), for a recording you make yourself."""
-    return _view(run, target, robot, tool, target_tool, label, tool_error_mm, tool_error_rms_mm,
-                 tool_error_name).blueprint()
+    return _view(run, target, robot, tool, target_tool, label, tool_error_mm, tool_error_rms_mm, tool_error_name,
+                 {"wrenches": wrenches, "events": events, "plots": plots}).blueprint()
 
 
 def write_target_vs_run_rrd(
@@ -701,6 +707,9 @@ def write_target_vs_run_rrd(
     tool_error_mm: Sequence[float] | np.ndarray | None = None,
     tool_error_rms_mm: float | None = None,
     tool_error_name: str = "ruler",
+    wrenches: Any = None,
+    events: Sequence[tuple[float, str]] | None = None,
+    plots: Any = None,
     application_id: str | None = None,
     recording_id: str | None = None,
     recording_name: str | None = None,
@@ -715,10 +724,15 @@ def write_target_vs_run_rrd(
     - ``tool_error_mm``: the run's own tool error, one value per run sample (a ruler that judges it); the Error tab's
       bold line, named ``tool_error_name``, with ``tool_error_rms_mm`` (its score) in the title. Without it the TCP
       offset (the tool points' distance) is the bold line.
+    - ``wrenches`` / ``events`` / ``plots`` (opt-in, robot_msgs.viz.rerun's, on the run's arm): ``{"hand":
+      WrenchTrajectory}`` drawn as a force arrow at the run's tool point (a Wrench tab), ``[(t, "release"), ...]`` on the
+      timeline (an Events tab), ``{tab: {plot title: {series: values on the run's samples}}}`` (more tabs); their tabs
+      follow V2's own.
     - ``application_id`` (default traj_compare's), ``recording_id``, ``recording_name``: the recording's identity in the
       viewer (one id per run, so re-opening it replaces it).
     """
-    view = _view(run, target, robot, tool, target_tool, label, tool_error_mm, tool_error_rms_mm, tool_error_name)
+    view = _view(run, target, robot, tool, target_tool, label, tool_error_mm, tool_error_rms_mm, tool_error_name,
+                 {"wrenches": wrenches, "events": events, "plots": plots})
     blueprint = view.blueprint()
     if application_id is None:
         from .rerun_export import APPLICATION_ID as application_id
