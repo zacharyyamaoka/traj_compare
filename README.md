@@ -262,6 +262,15 @@ Comparison(..., panels=[
 | `PlayheadTable` | a tab, ahead of the question tabs `[data-tc-playhead-table]` | one table read at the playhead: a cell is a constant, a sampled series (`PlayheadTable.t`; the newest sample at or before the playhead, "—" for NaN) or `Changes` (the value in force since its last change, with an optional tone); `group` puts columns under one heading |
 | `TimeTable` (of `TimeRow`s) | a tab `[data-tc-time-table]` | time-stamped rows: the newest at or before the playhead is marked (per `level`), later rows are dim, a click goes to the row's time; `level` > 0 folds under the row above (`open_level`), `kind` gets a filter chip, `t=math.inf` is a row the run never reached |
 
+Two more since 2026-11-28. `PanelTab("Recipe", [StepTrack(...), StepTrack(...), TimeTable(...)], heading=...)` is one
+tab holding several panels top to bottom; `StepTrack`s inside it draw their band in the tab, not above the stage (the
+recipe across the screen over the same recipe down it). And `PlayheadColumn(..., quantity="position", role="sent")` /
+`role="measured"` tells a `PlayheadTable` which columns are the sent and the measured value of one quantity: the page then
+puts them beside each other with their error (sent − measured), under three remembered switches (`[data-tc-toggle]`:
+columns side by side or split by source, show measured, show error), and offers five ways to draw the table from a
+bottom-right drop-down `[data-tc-variant-pick]` (numbers side by side, stacked cells, bars, a card per row, rows across;
+temporary, until one is picked).
+
 All three follow the page's one transport (the time lane, a hovered plot, Space). `report.html#tab=panel-now&t=1.25`
 opens a panel tab at an instant (`#t=` works on any report). Text is shown as given: a long cell wraps, it is never
 cut; convert angles to degrees before handing numbers over. `write_comparison_report(..., host_header="<nav>…</nav>")`

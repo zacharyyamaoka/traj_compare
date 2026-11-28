@@ -60,12 +60,13 @@ var TrajComparePanels = (function () {
 
   /* ---------------- the step band ---------------- */
 
-  function band(page, root) {
-    var tracks = (page.data.panels && page.data.panels.tracks) || [];
+  // ``given`` (a PanelTab's tracks) draws the band inside a tab; without it, the comparison's own tracks above the stage
+  function band(page, root, given) {
+    var tracks = given || (page.data.panels && page.data.panels.tracks) || [];
     if (!tracks.length || !page.transport) return null;
     var transport = page.transport;
     var t0 = transport.tMin, t1 = transport.tMax, length = Math.max(t1 - t0, 1e-9);
-    var host = el('section', 'tc-pn-band', root);
+    var host = el('section', 'tc-pn-band' + (given ? ' in-tab' : ''), root);
     host.setAttribute('data-tc-step-band', '');
     host.setAttribute('aria-label', 'Steps over time');
 
@@ -210,7 +211,8 @@ var TrajComparePanels = (function () {
     paint();
     // the rows have no width until the page is laid out
     if (window.requestAnimationFrame) requestAnimationFrame(function () { paintRuler(); paint(); });
-    return { paint: paint };
+    // in a tab the rows get their width only when the tab is shown: lay the ruler and the line out again then
+    return { paint: function () { paintRuler(); paint(); } };
   }
 
   /* ---------------- a table read at the playhead ---------------- */
@@ -296,7 +298,7 @@ var TrajComparePanels = (function () {
       });
     }
     if (page.transport) page.transport.onChange(paint);
-    record.paintPanel = paint;
+    record.paints.push(paint);
     paint();
   }
 
@@ -357,7 +359,9 @@ var TrajComparePanels = (function () {
             if (row.level >= panel.open_level) { folded[index] = true; twist.textContent = '▸'; }
           }
         }
-        td.appendChild(document.createTextNode(text));
+        // in the tree column the text is a block beside its twist, so a wrapped line stays under its own first line
+        if (column === 0 && deepest > 0) el('span', 'tc-pn-treetext', td, text);
+        else td.appendChild(document.createTextNode(text));
       });
       tr.addEventListener('click', function () { if (row.t !== null) goTo(page, row.t); });
       return { row: row, tr: tr, state: '' };
@@ -396,16 +400,384 @@ var TrajComparePanels = (function () {
       });
     }
     if (page.transport) page.transport.onChange(paint);
-    record.paintPanel = paint;
+    record.paints.push(paint);
     show();
     paint();
   }
 
-  function tab(page, record, host, panel) {
-    if (panel.kind === 'playhead') playheadTable(page, record, host, panel);
-    else if (panel.kind === 'times') timeTable(page, record, host, panel);
+  /* ---------------- a playhead table whose columns pair up as sent / measured ----------------
+   *
+   * PlayheadColumn(quantity=, role=): the table knows which column is the sent and which the measured value of one
+   * quantity, so it can put them beside each other and take their difference. Three switches (Zach, 2026-11-28:
+   * "Columns split or side by side / Show measured / Show Error. Those toggles should be enough") and five ways to draw
+   * it, picked from the bottom-right drop-down `[data-tc-variant-pick]` (remembered; his standard for variants he has
+   * not picked between yet). Variant 1 with the switches as they start is the recommendation. */
+
+  var VARIANTS = [
+    { id: 'table', name: 'Numbers side by side' },
+    { id: 'stacked', name: 'Stacked cells' },
+    { id: 'bars', name: 'Bars' },
+    { id: 'cards', name: 'A card per row' },
+    { id: 'across', name: 'Rows across' },
+  ];
+  var pairedTables = [];
+  var variant = recall('variant', 'table');
+  if (!VARIANTS.some(function (entry) { return entry.id === variant; })) variant = 'table';
+
+  function ensureVariantPicker() {
+    if (document.querySelector('[data-tc-variant-pick]')) return;
+    var box = el('label', 'tc-variant-pick', document.body);
+    box.setAttribute('data-tc-variant-pick', '');
+    box.title = 'The sent / measured table: five proposals to compare (temporary)';
+    box.appendChild(document.createTextNode('Sent table'));
+    var select = el('select', '', box);
+    VARIANTS.forEach(function (entry, index) {
+      var option = el('option', '', select, (index + 1) + ' · ' + entry.name);
+      option.value = entry.id;
+    });
+    select.value = variant;
+    select.addEventListener('change', function () {
+      variant = select.value;
+      store('variant', variant);
+      pairedTables.forEach(function (table) { table.render(); });
+    });
+  }
+
+  function cellReader(cell, panel) {
+    if ('c' in cell) {
+      var constant = cell.c === '' ? null : cell.c;
+      return function () { return { value: constant, tone: '' }; };
+    }
+    if ('s' in cell) {
+      return function (time) {
+        var index = panel.t ? lastAtOrBefore(panel.t, time, function (value) { return value; }) : -1;
+        return { value: index < 0 ? null : cell.s[index], tone: '' };
+      };
+    }
+    return function (time) {
+      var index = lastAtOrBefore(cell.k, time, function (change) { return change[0]; });
+      return index < 0 ? { value: null, tone: '' } : { value: cell.k[index][1], tone: cell.k[index][2] };
+    };
+  }
+  // the smallest and largest number a cell ever holds (the bars' scale)
+  function cellRange(cell, range) {
+    var values = 'c' in cell ? [cell.c] : 's' in cell ? cell.s : cell.k.map(function (change) { return change[1]; });
+    values.forEach(function (value) {
+      if (typeof value !== 'number') return;
+      if (value < range[0]) range[0] = value;
+      if (value > range[1]) range[1] = value;
+    });
+    return range;
+  }
+
+  function pairedTable(page, record, host, panel) {
+    ensureVariantPicker();
+    var block = el('div', 'tc-pn-table-wrap tc-pn-paired', host);
+    block.setAttribute('data-tc-playhead-table', panel.id);
+    var state = {
+      layout: recall('paired:layout', 'quantity'),   // 'quantity' = side by side, 'source' = all sent, then all measured
+      measured: recall('paired:measured', true),
+      error: recall('paired:error', true),
+    };
+    var quantities = {};
+    panel.columns.forEach(function (column) {
+      if (!column.role) return;
+      if (!quantities[column.quantity]) quantities[column.quantity] = { name: column.quantity };
+      quantities[column.quantity][column.role] = column;
+    });
+
+    var bar = el('div', 'tc-pn-chips', block);
+    var clock = el('span', 'tc-pn-clock', bar);
+    function toggle(key, label, title, flip) {
+      var chip = el('button', 'tc-pn-chip', bar, label);
+      chip.type = 'button';
+      chip.title = title;
+      chip.setAttribute('data-tc-toggle', key);
+      chip.onclick = function () { flip(); store('paired:' + key, state[key]); render(); };
+      return chip;
+    }
+    var layoutChip = toggle('layout', '', 'columns: each quantity\'s sent, measured and error side by side, or every sent ' +
+      'column together and then every measured one', function () { state.layout = state.layout === 'quantity' ? 'source' : 'quantity'; });
+    var measuredChip = toggle('measured', 'Show measured', 'the measured value beside the sent one',
+      function () { state.measured = !state.measured; });
+    var errorChip = toggle('error', 'Show error', 'error = sent − measured, where both are numbers',
+      function () { state.error = !state.error; });
+    var body = el('div', 'tc-pn-paired-body', block);
+    if (panel.description) el('p', 'tc-pn-note', block, panel.description);
+    var live = [];
+
+    function valueNode(node, read, column) {
+      live.push(function (time) {
+        var got = read(time);
+        var text = numberText(got.value, column);
+        if (node.textContent !== text) node.textContent = text;
+        if ((node.getAttribute('data-tone') || '') !== (got.tone || '')) node.setAttribute('data-tone', got.tone || '');
+      });
+    }
+    function errorOf(quantity, row) {
+      var sent = cellReader(quantity.sent.cells[row], panel), measured = cellReader(quantity.measured.cells[row], panel);
+      return function (time) {
+        var a = sent(time).value, b = measured(time).value;
+        return { value: typeof a === 'number' && typeof b === 'number' ? a - b : null, tone: '' };
+      };
+    }
+    function errorFormat(quantity) { return { decimals: quantity.sent.decimals, signed: true }; }
+    function unitText(column) { return column.unit ? ' [' + column.unit + ']' : ''; }
+
+    // One spec per value the table can show, in reading order: the columns of variant 1, the rows of variant 5.
+    function specs() {
+      var list = [];
+      function plain(column) {
+        list.push({ key: column.title, group: column.group, title: column.title, unit: column.unit, column: column, kind: 'plain',
+          read: function (row) { return cellReader(column.cells[row], panel); } });
+      }
+      function value(quantity, role, bySource) {
+        var column = quantity[role];
+        list.push({ key: quantity.name + ':' + role, group: bySource ? column.group : quantity.name + unitText(column),
+          title: bySource ? column.title : role, unit: bySource ? column.unit : '', column: column, kind: role,
+          words: column.title + (column.words ? ': ' + column.words : ''), start: !bySource && role === 'sent',
+          read: function (row) { return cellReader(column.cells[row], panel); } });
+      }
+      function error(quantity, bySource) {
+        list.push({ key: quantity.name + ':error', group: bySource ? 'Error (sent − measured)' : quantity.name + unitText(quantity.sent),
+          title: bySource ? quantity.name : 'Δ', unit: bySource ? quantity.sent.unit : '', column: errorFormat(quantity), kind: 'error',
+          words: quantity.name + ': sent − measured',
+          read: function (row) { return errorOf(quantity, row); } });
+      }
+      var bySource = state.layout === 'source';
+      panel.columns.forEach(function (column) {
+        var quantity = quantities[column.quantity];
+        if (!column.role) plain(column);
+        else if (column.role === 'sent') {
+          value(quantity, 'sent', bySource);
+          if (!bySource && state.measured && quantity.measured) value(quantity, 'measured', false);
+          if (!bySource && state.error && quantity.measured) error(quantity, false);
+        } else if (bySource && state.measured) value(quantity, 'measured', true);
+      });
+      if (bySource && state.error) {
+        panel.columns.forEach(function (column) {
+          if (column.role === 'sent' && quantities[column.quantity].measured) error(quantities[column.quantity], true);
+        });
+      }
+      return list;
+    }
+
+    function headerRows(table, first, list) {
+      var head = el('thead', '', table);
+      var groups = el('tr', 'tc-pn-groups', head);
+      el('th', '', groups);
+      var last = null;
+      list.forEach(function (spec) {
+        if (last && last.group === spec.group) { last.cell.colSpan += 1; return; }
+        last = { group: spec.group, cell: el('th', spec.group ? 'group' : '', groups, spec.group) };
+      });
+      var titles = el('tr', '', head);
+      el('th', 'row-title', titles, first);
+      list.forEach(function (spec, index) {
+        var th = el('th', (index && list[index - 1].group !== spec.group) ? 'group-start' : '', titles, spec.title);
+        if (spec.unit) el('span', 'unit', th, ' [' + spec.unit + ']');
+        if (spec.words || (spec.column && spec.column.words)) th.title = spec.words || spec.column.words;
+      });
+    }
+    function valueCell(tr, spec, row, start) {
+      var numeric = spec.kind !== 'plain' || !spec.column.cells || spec.column.cells.some(function (cell) {
+        return 's' in cell || typeof cell.c === 'number' ||
+          ('k' in cell && cell.k.some(function (change) { return typeof change[1] === 'number'; }));
+      });
+      var td = el('td', (numeric ? 'num' : 'text') + ' kind-' + spec.kind + (spec.column.mono ? ' mono' : '') + (start ? ' group-start' : ''), tr);
+      td.setAttribute('data-tc-cell', spec.key);
+      valueNode(td, spec.read(row), spec.column);
+      return td;
+    }
+
+    // 1 · the table: one row per joint, the specs as columns
+    function drawTable() {
+      var list = specs();
+      var scroll = el('div', 'tc-pn-scroll', body);
+      var table = el('table', 'tc-pn-table tc-pn-playhead', scroll);
+      headerRows(table, panel.row_title, list);
+      var tbody = el('tbody', '', table);
+      panel.rows.forEach(function (title, row) {
+        var tr = el('tr', '', tbody);
+        tr.setAttribute('data-tc-row', title);
+        el('th', 'row-title', tr, title);
+        list.forEach(function (spec, index) { valueCell(tr, spec, row, index && list[index - 1].group !== spec.group); });
+      });
+    }
+
+    // 5 · rows across: one column per joint, the specs as rows
+    function drawAcross() {
+      var list = specs();
+      var scroll = el('div', 'tc-pn-scroll', body);
+      var table = el('table', 'tc-pn-table tc-pn-playhead tc-pn-across', scroll);
+      var titles = el('tr', '', el('thead', '', table));
+      el('th', 'row-title', titles, '');
+      panel.rows.forEach(function (title) { el('th', 'num', titles, title); });
+      var tbody = el('tbody', '', table);
+      list.forEach(function (spec, index) {
+        var tr = el('tr', (index && list[index - 1].group !== spec.group) ? 'block-start' : '', tbody);
+        var th = el('th', 'row-title', tr, (spec.group && spec.group !== spec.title ? spec.group + ' · ' : '') + spec.title);
+        if (spec.unit) el('span', 'unit', th, ' [' + spec.unit + ']');
+        panel.rows.forEach(function (title, row) { valueCell(tr, spec, row, false).setAttribute('data-tc-row', title); });
+      });
+    }
+
+    // 2 / 3 · one column per quantity; the cell holds sent over measured (stacked) or both on one scale (bars)
+    function drawQuantityCells(bars) {
+      var scroll = el('div', 'tc-pn-scroll', body);
+      var table = el('table', 'tc-pn-table tc-pn-playhead tc-pn-' + (bars ? 'bars' : 'stacked'), scroll);
+      var titles = el('tr', '', el('thead', '', table));
+      el('th', 'row-title', titles, panel.row_title);
+      var shown = panel.columns.filter(function (column) { return column.role !== 'measured'; });
+      shown.forEach(function (column) {
+        var th = el('th', '', titles, column.role ? column.quantity : column.title);
+        if (column.unit) el('span', 'unit', th, ' [' + column.unit + ']');
+        if (column.role) el('span', 'unit', th, state.measured && quantities[column.quantity].measured ? ' · sent over measured' : ' · sent');
+      });
+      var tbody = el('tbody', '', table);
+      panel.rows.forEach(function (title, row) {
+        var tr = el('tr', '', tbody);
+        tr.setAttribute('data-tc-row', title);
+        el('th', 'row-title', tr, title);
+        shown.forEach(function (column) {
+          if (!column.role) {
+            valueCell(tr, { key: column.title, kind: 'plain', column: column, read: function (r) { return cellReader(column.cells[r], panel); } }, row, false);
+            return;
+          }
+          var quantity = quantities[column.quantity];
+          var td = el('td', 'pair', tr);
+          td.setAttribute('data-tc-cell', quantity.name);
+          var sentRead = cellReader(quantity.sent.cells[row], panel);
+          var measuredRead = quantity.measured ? cellReader(quantity.measured.cells[row], panel) : null;
+          var showMeasured = state.measured && measuredRead, showError = state.error && measuredRead;
+          if (bars) {
+            var range = cellRange(quantity.sent.cells[row], [Infinity, -Infinity]);
+            if (measuredRead) cellRange(quantity.measured.cells[row], range);
+            if (!isFinite(range[0])) range = [0, 1];
+            if (range[1] - range[0] < 1e-9) range = [range[0] - 1, range[1] + 1];
+            var track = el('div', 'tc-pn-bar', td);
+            track.title = 'scale: ' + numberText(range[0], quantity.sent) + ' … ' + numberText(range[1], quantity.sent) +
+              (quantity.sent.unit ? ' ' + quantity.sent.unit : '') + ' (this row\'s range over the run)';
+            var sentMark = el('span', 'tc-pn-mark sent', track);
+            var measuredMark = showMeasured ? el('span', 'tc-pn-mark measured', track) : null;
+            live.push(function (time) {
+              var a = sentRead(time).value, b = measuredRead ? measuredRead(time).value : null;
+              sentMark.hidden = typeof a !== 'number';
+              if (typeof a === 'number') sentMark.style.left = ((a - range[0]) / (range[1] - range[0]) * 100) + '%';
+              if (measuredMark) {
+                measuredMark.hidden = typeof b !== 'number';
+                if (typeof b === 'number') measuredMark.style.left = ((b - range[0]) / (range[1] - range[0]) * 100) + '%';
+              }
+            });
+          }
+          var numbers = el('div', 'tc-pn-pair' + (bars ? ' inline' : ''), td);
+          var sentNode = el('span', 'sent', numbers);
+          sentNode.setAttribute('data-tc-part', 'sent');
+          valueNode(sentNode, sentRead, quantity.sent);
+          if (showMeasured) {
+            var measuredNode = el('span', 'measured', numbers);
+            measuredNode.setAttribute('data-tc-part', 'measured');
+            valueNode(measuredNode, measuredRead, quantity.measured);
+          }
+          if (showError) {
+            var errorNode = el('span', 'error', numbers);
+            errorNode.setAttribute('data-tc-part', 'error');
+            el('span', 'delta', errorNode, 'Δ ');
+            valueNode(el('span', '', errorNode), errorOf(quantity, row), errorFormat(quantity));
+          }
+        });
+      });
+    }
+
+    // 4 · a card per joint: its quantities down, sent / measured / error across
+    function drawCards() {
+      var grid = el('div', 'tc-pn-cards', body);
+      var paired = panel.columns.filter(function (column) { return column.role === 'sent'; });
+      var others = panel.columns.filter(function (column) { return !column.role; });
+      panel.rows.forEach(function (title, row) {
+        var card = el('section', 'tc-pn-card', grid);
+        card.setAttribute('data-tc-row', title);
+        var head = el('header', '', card);
+        el('strong', '', head, title);
+        others.forEach(function (column) {
+          var chip = el('span', 'tc-pn-fact', head);
+          el('span', 'label', chip, column.title + ' ');
+          var node = el('span', column.mono ? 'mono' : '', chip);
+          node.setAttribute('data-tc-cell', column.title);
+          valueNode(node, cellReader(column.cells[row], panel), column);
+        });
+        var table = el('table', 'tc-pn-table tc-pn-playhead', card);
+        var titles = el('tr', '', el('thead', '', table));
+        el('th', 'row-title', titles, '');
+        el('th', 'num', titles, 'sent');
+        if (state.measured) el('th', 'num', titles, 'measured');
+        if (state.error) el('th', 'num', titles, 'Δ');
+        var tbody = el('tbody', '', table);
+        paired.forEach(function (column) {
+          var quantity = quantities[column.quantity];
+          var tr = el('tr', '', tbody);
+          var th = el('th', 'row-title', tr, quantity.name);
+          if (column.unit) el('span', 'unit', th, ' [' + column.unit + ']');
+          function cell(kind, read, format) {
+            var td = el('td', 'num kind-' + kind, tr);
+            td.setAttribute('data-tc-cell', quantity.name + ':' + kind);
+            if (read) valueNode(td, read, format); else td.textContent = '';
+          }
+          cell('sent', cellReader(quantity.sent.cells[row], panel), quantity.sent);
+          if (state.measured) cell('measured', quantity.measured ? cellReader(quantity.measured.cells[row], panel) : null, quantity.measured);
+          if (state.error) cell('error', quantity.measured ? errorOf(quantity, row) : null, errorFormat(quantity));
+        });
+      });
+    }
+
+    function paint() {
+      if (record.panel.hidden) return;
+      var time = now(page);
+      clock.textContent = 'at t = ' + time.toFixed(2) + ' s' +
+        (page.transport && page.transport.hoverT !== null && page.transport.hoverT !== undefined ? ' (hovered)' : '');
+      live.forEach(function (update) { update(time); });
+    }
+    function render() {
+      body.textContent = '';
+      live = [];
+      block.setAttribute('data-tc-variant', variant);
+      var free = variant === 'table' || variant === 'across';   // the other three are side by side by nature
+      layoutChip.textContent = 'Columns: ' + (state.layout === 'quantity' || !free ? 'side by side' : 'split by source');
+      layoutChip.setAttribute('aria-pressed', state.layout === 'quantity' || !free ? 'true' : 'false');
+      layoutChip.disabled = !free;
+      measuredChip.setAttribute('aria-pressed', state.measured ? 'true' : 'false');
+      errorChip.setAttribute('aria-pressed', state.error ? 'true' : 'false');
+      if (variant === 'stacked') drawQuantityCells(false);
+      else if (variant === 'bars') drawQuantityCells(true);
+      else if (variant === 'cards') drawCards();
+      else if (variant === 'across') drawAcross();
+      else drawTable();
+      paint();
+    }
+    if (page.transport) page.transport.onChange(paint);
+    record.paints.push(paint);
+    pairedTables.push({ render: render });
+    render();
+  }
+
+  function part(page, record, host, panel, grouped) {
+    if (grouped && panel.heading) el('h4', 'tc-pn-subheading', host, panel.heading);
+    if (panel.kind === 'band') {
+      var drawn = band(page, host, panel.tracks);
+      if (drawn) record.paints.push(drawn.paint);
+    } else if (panel.kind === 'playhead') {
+      if (panel.columns.some(function (column) { return column.role; })) pairedTable(page, record, host, panel);
+      else playheadTable(page, record, host, panel);
+    } else if (panel.kind === 'times') timeTable(page, record, host, panel);
     else el('p', 'tc-empty', host, 'This report was written by a newer traj_compare: no view for a "' + panel.kind + '" panel.');
   }
 
-  return { band: band, tab: tab };
+  function tab(page, record, host, panel) {
+    record.paints = [];
+    record.paintPanel = function () { record.paints.forEach(function (paint) { paint(); }); };
+    if (panel.kind === 'group') panel.parts.forEach(function (inner) { part(page, record, host, inner, true); });
+    else part(page, record, host, panel, false);
+  }
+
+  return { band: band, tab: tab, variants: VARIANTS };
 })();

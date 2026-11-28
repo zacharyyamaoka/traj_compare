@@ -19,6 +19,7 @@ import pytest
 from traj_compare import (
     Changes,
     Comparison,
+    PanelTab,
     PlayheadColumn,
     PlayheadTable,
     Situation,
@@ -244,4 +245,138 @@ def test_the_panels_follow_the_transport_in_the_real_page(tmp_path):
     driver = tmp_path / "driver.cjs"
     driver.write_text(DRIVER)
     result = subprocess.run(["node", driver, PLAYWRIGHT, report, CHROME], capture_output=True, text=True, timeout=90)
+    assert result.returncode == 0, result.stderr
+
+
+# ── round 3 (2026-11-28): a tab of several panels, and the paired sent / measured table with its variants ────────────
+
+
+def _paired():
+    sent = np.stack([np.zeros(len(T)), np.where(T < 2.0, T * 10.0, np.nan)], axis=1)
+    measured = sent - np.array([0.0, 1.5])
+    return PlayheadTable("Sent to servos", ["shoulder", "elbow"], [
+        PlayheadColumn("Servo", ["CAN 11", "CAN 12"]),
+        PlayheadColumn("position", [sent[:, 0], sent[:, 1]], group="Sent", unit="°", signed=True, quantity="position", role="sent"),
+        PlayheadColumn("effort cap", [12.0, Changes([(0.0, 3.0), (2.0, 8.0)])], group="Sent", unit="N·m", decimals=1),
+        PlayheadColumn("q", [measured[:, 0], measured[:, 1]], group="Measured", unit="°", signed=True, quantity="position",
+                       role="measured"),
+    ], t=T, id="sent")  # fmt: skip
+
+
+def test_a_panel_tab_holds_a_band_and_tables_and_columns_carry_their_quantity():
+    recipe, primitives, now, log, outline = _panels()
+    tab = PanelTab("Recipe", [recipe, primitives, outline], heading="Across, then down")
+    payload = analyze_comparison(_comparison(panels=[_paired(), tab, log]))
+    assert "tracks" in payload["panels"] and payload["panels"]["tracks"] == []  # no band above the stage any more
+    assert [(entry["id"], entry.get("panel")) for entry in payload["tabs"]][:3] == [
+        ("panel-sent", 0), ("panel-recipe", 1), ("panel-command-log", 2)]
+    group = payload["panels"]["tabs"][1]
+    assert group["kind"] == "group" and group["heading"] == "Across, then down"
+    assert [part["kind"] for part in group["parts"]] == ["band", "times"]
+    assert [track["title"] for track in group["parts"][0]["tracks"]] == ["Recipe", "Primitive"]  # neighbours share a band
+    columns = payload["panels"]["tabs"][0]["columns"]
+    assert [(column["quantity"], column["role"]) for column in columns] == [
+        ("", ""), ("position", "sent"), ("", ""), ("position", "measured")]
+    with pytest.raises(ValueError, match="quantity and role go together"):
+        PlayheadColumn("q", [1.0], role="measured")
+    with pytest.raises(ValueError, match="measured without a sent"):
+        PlayheadTable("x", ["a"], [PlayheadColumn("q", [1.0], quantity="position", role="measured")]).to_payload()
+    with pytest.raises(ValueError, match="holds no panel"):
+        PanelTab("Recipe", [])
+    with pytest.raises(TypeError, match="holds StepTracks"):
+        PanelTab("Recipe", [tab])
+
+
+PAIRED_DRIVER = r"""
+const assert = require('node:assert/strict');
+const { chromium } = require(process.argv[2]);
+(async () => {
+  const browser = await chromium.launch({ executablePath: process.argv[4], headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
+    const errors = [];
+    page.on('pageerror', error => errors.push(String(error)));
+    await page.goto('file://' + process.argv[3] + '#t=1.0');
+    const go = t => page.evaluate(t => TrajCompare.state.pages[0].transport.setScrub(t), t);
+    const table = page.locator('[data-tc-playhead-table="sent"]');
+    const cell = (row, key) => table.locator(`[data-tc-row="${row}"] [data-tc-cell="${key}"]`).innerText();
+    const heads = () => table.locator('thead tr').last().locator('th').allInnerTexts();
+    const press = key => table.locator(`[data-tc-toggle="${key}"]`).click();
+
+    // no band above the stage: it is inside the Recipe tab
+    assert.equal(await page.locator('[data-tc-step-band]').count(), 0);
+
+    // variant 1 as it starts: each quantity's sent, measured and error side by side
+    assert.equal(await table.getAttribute('data-tc-variant'), 'table');
+    assert.deepEqual(await heads(), ['Joint', 'Servo', 'sent', 'measured', 'Δ', 'effort cap [N·m]']);
+    assert.equal(await cell('elbow', 'position:sent'), '+10.00');
+    assert.equal(await cell('elbow', 'position:measured'), '+8.50');
+    assert.equal(await cell('elbow', 'position:error'), '+1.50');
+    await go(2.5);
+    assert.equal(await cell('elbow', 'position:sent'), '—');
+    assert.equal(await cell('elbow', 'position:error'), '—');     // nothing sent: no error, never 0
+    assert.equal(await cell('elbow', 'effort cap'), '8.0');
+    await go(1.0);
+
+    // the three switches
+    await press('error');
+    assert.deepEqual(await heads(), ['Joint', 'Servo', 'sent', 'measured', 'effort cap [N·m]']);
+    await press('measured');
+    assert.deepEqual(await heads(), ['Joint', 'Servo', 'sent', 'effort cap [N·m]']);
+    await press('measured'); await press('error');
+    await press('layout');   // split by source: every sent column, then every measured one, then the errors
+    assert.deepEqual(await heads(), ['Joint', 'Servo', 'position [°]', 'effort cap [N·m]', 'q [°]', 'position [°]']);
+    assert.equal(await cell('elbow', 'position:error'), '+1.50');
+    await press('layout');
+
+    // the drop-down: five variants, each showing the same three numbers; the pick is remembered
+    const pick = page.locator('[data-tc-variant-pick] select');
+    assert.equal(await pick.locator('option').count(), 5);
+    for (const id of ['stacked', 'bars']) {
+      await pick.selectOption(id);
+      assert.equal(await table.getAttribute('data-tc-variant'), id);
+      const pair = table.locator('[data-tc-row="elbow"] [data-tc-cell="position"]');
+      assert.equal(await pair.locator('[data-tc-part="sent"]').innerText(), '+10.00');
+      assert.equal(await pair.locator('[data-tc-part="measured"]').innerText(), '+8.50');
+      assert.match(await pair.locator('[data-tc-part="error"]').innerText(), /Δ\s*\+1\.50/);
+      assert.equal(await table.locator('[data-tc-toggle="layout"]').isDisabled(), true);
+    }
+    // bars: the sent mark sits at 10 of this row's 0 … 19 range (measured reaches -1.5 … 17.5)
+    const track = await table.locator('[data-tc-row="elbow"] .tc-pn-bar').boundingBox();
+    const mark = await table.locator('[data-tc-row="elbow"] .tc-pn-mark.sent').boundingBox();
+    assert.ok(Math.abs((mark.x + mark.width / 2 - track.x) / track.width - (10 + 1.5) / (19 + 1.5)) < 0.02);
+    await pick.selectOption('cards');
+    assert.equal(await table.locator('.tc-pn-card').count(), 2);
+    assert.equal(await cell('elbow', 'position:error'), '+1.50');
+    assert.equal(await cell('elbow', 'Servo'), 'CAN 12');
+    await pick.selectOption('across');
+    assert.deepEqual(await table.locator('thead th').allInnerTexts(), ['', 'shoulder', 'elbow']);
+    assert.equal(await table.locator('tbody tr').count(), 5);
+    assert.equal(await table.locator('tbody tr').nth(3).locator('[data-tc-row="elbow"]').innerText(), '+1.50');
+    await page.reload();
+    assert.equal(await page.locator('[data-tc-playhead-table="sent"]').getAttribute('data-tc-variant'), 'across');
+
+    // the Recipe tab holds the band (laid out when the tab opens) over the outline
+    await page.getByRole('tab', { name: 'Recipe' }).click();
+    const band = page.locator('[data-tc-panel="panel-recipe"] [data-tc-step-band]');
+    assert.equal(await band.locator('[data-tc-step-track]').count(), 2);
+    const lane = await band.locator('[data-tc-step-track="Recipe"] .tc-pn-lane').boundingBox();
+    const line = await band.locator('[data-tc-step-line]').boundingBox();
+    assert.ok(lane.width > 300 && Math.abs((line.x + line.width / 2) - (lane.x + lane.width * 0.25)) < 2);
+    assert.equal(await page.locator('[data-tc-panel="panel-recipe"] [data-tc-time-table="recipe"] tbody tr').count(), 7);
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+
+
+@pytest.mark.skipif(not (PLAYWRIGHT.is_dir() and CHROME.is_file() and shutil.which("node")),
+                    reason="needs Node Playwright and Chrome")
+def test_the_paired_table_its_switches_and_variants_in_the_real_page(tmp_path):
+    recipe, primitives, now, log, outline = _panels()
+    report = write_comparison_report(
+        _comparison(panels=[_paired(), PanelTab("Recipe", [recipe, primitives, outline]), log]), tmp_path)
+    driver = tmp_path / "driver.cjs"
+    driver.write_text(PAIRED_DRIVER)
+    result = subprocess.run(["node", driver, PLAYWRIGHT, report, CHROME], capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr

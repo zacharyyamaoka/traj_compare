@@ -192,6 +192,11 @@ the JointCommandSequence viewer asked for it, Zach 2026-11-27, "grow it out of T
   (`payload["tabs"]` entries carry `"panel": <index into payload["panels"]["tabs"]>`), so a procedure opens on its first
   panel tab. `[data-tc-playhead-table="<id>"]` rows `[data-tc-row]`, cells `[data-tc-cell="<column>"]`;
   `[data-tc-time-table="<id>"]` rows `[data-tc-time-row]` with class `now` / `later`, chips `[data-tc-kind]`.
+- `PanelTab` (2026-11-28) is one tab of several panels, top to bottom; its `StepTrack`s draw their band inside the tab
+  (`payload["panels"]["tabs"]` entry `{"kind": "group", "parts": [{"kind": "band", "tracks": [...]}, ...]}`).
+- A `PlayheadTable` whose columns carry `quantity` and `role` (`sent` / `measured`) is drawn as the paired table: switches
+  `[data-tc-toggle="layout" | "measured" | "error"]`, cells `[data-tc-cell="<quantity>:sent|measured|error"]`, and the
+  variant drop-down `[data-tc-variant-pick]` (the table carries `data-tc-variant`). Error = sent − measured.
 - `#t=<seconds>` (alone or with `#tab=`) opens any report at that instant.
 - Rerun: the layouts skip panel tabs (no container yet); nothing else about a recording changes.
 

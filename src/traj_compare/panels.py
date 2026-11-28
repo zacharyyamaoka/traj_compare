@@ -21,6 +21,18 @@ Comparison ... Ideally we reduce as much code duplication as possible"): the fir
 plots and the time control to add these three; here they are the only new part, and the next recorded procedure (a
 recovery's controller steps were a numbered ``Signal`` until now) gets them for free.
 
+Two more things since 2026-11-28 (Zach's third review of the JointCommandSequence viewer):
+
+- ``PanelTab``: one tab holding several panels, top to bottom (the recipe as a timeline across the screen over the same
+  recipe as a tree down it; the controller's goals over its joints). ``StepTrack``s inside one draw their band IN the
+  tab instead of above the stage. WHY: "I don't like how this is outside of the tabs ... it would naturally fit in the
+  recipe, as that basically shows us the timeline across the screen instead of down".
+- ``PlayheadColumn(quantity=..., role="sent" | "measured")``: columns that say they are the sent and the measured
+  value of one quantity get three switches on the page (columns by source or side by side per quantity, show measured,
+  show the error = sent − measured) and five ways to draw the table, picked from the bottom-right drop-down
+  (``[data-tc-variant-pick]``, remembered). WHY: "have the measured values ... close to the command being sent so the
+  eye doesn't need to do as much work"; the drop-down is his standard for variants he has not picked between yet.
+
 Text is the caller's, shown as given (truthful rendering): a long cell wraps, it is never cut. Times are seconds on the
 comparison's clock; numbers are shown in the unit the caller names, so convert angles to degrees before handing them over.
 """
@@ -36,6 +48,7 @@ from typing import Any
 import numpy as np
 
 TONES = ("", "positive", "warning", "danger", "muted", "accent")
+ROLES = ("", "sent", "measured")
 
 
 def _slug(text: str) -> str:
@@ -152,7 +165,12 @@ class PlayheadColumn:
     ``Changes``.
 
     ``group`` puts neighbouring columns under one heading (``"Command being sent"``). ``unit`` is shown in the column
-    heading; numbers are written with ``decimals`` places and a sign when ``signed``. ``mono`` is for code."""
+    heading; numbers are written with ``decimals`` places and a sign when ``signed``. ``mono`` is for code.
+
+    ``quantity`` + ``role``: this column is the ``"sent"`` or the ``"measured"`` value of that quantity
+    (``"position"``). A table with such pairs gets the page's switches (by source / side by side, show measured, show
+    error) and its variants; the error is sent − measured wherever both are numbers. One sent and at most one measured
+    column per quantity."""
 
     title: str
     cells: Sequence[Any]
@@ -162,6 +180,14 @@ class PlayheadColumn:
     signed: bool = False
     mono: bool = False
     words: str = ""
+    quantity: str = ""
+    role: str = ""
+
+    def __post_init__(self) -> None:
+        if self.role not in ROLES:
+            raise ValueError(f"column {self.title!r}: role is 'sent' or 'measured', got {self.role!r}")
+        if bool(self.role) != bool(self.quantity):
+            raise ValueError(f"column {self.title!r}: quantity and role go together (the sent or measured value of what)")
 
     def to_payload(self, samples: int | None, rows: int, table: str) -> dict[str, Any]:
         cells = list(self.cells)
@@ -183,7 +209,8 @@ class PlayheadColumn:
                 digits = max(int(self.decimals), 0) + 2
                 out.append({"s": [None if not math.isfinite(v) else round(float(v), digits) for v in values]})
         return {"title": str(self.title), "group": str(self.group), "unit": str(self.unit), "decimals": int(self.decimals),
-                "signed": bool(self.signed), "mono": bool(self.mono), "words": str(self.words), "cells": out}
+                "signed": bool(self.signed), "mono": bool(self.mono), "words": str(self.words), "cells": out,
+                "quantity": str(self.quantity), "role": self.role}
 
 
 @dataclass
@@ -214,6 +241,12 @@ class PlayheadTable:
             raise ValueError(f"playhead table {self.title!r}: t must be finite and not go backwards")
         samples = None if t is None else len(t)
         what = f"playhead table {self.title!r}"
+        pairs = [(column.quantity, column.role) for column in self.columns if column.role]
+        if len(pairs) != len(set(pairs)):
+            raise ValueError(f"{what}: one sent and one measured column per quantity, got {pairs}")
+        lonely = {quantity for quantity, role in pairs if role == "measured"} - {q for q, role in pairs if role == "sent"}
+        if lonely:
+            raise ValueError(f"{what}: measured without a sent column for {sorted(lonely)}")
         return {"kind": "playhead", "id": self.id, "title": str(self.title), "heading": str(self.heading or self.title),
                 "description": str(self.description), "row_title": str(self.row_title), "rows": list(self.rows),
                 "t": None if t is None else [float(v) for v in t],
@@ -294,7 +327,42 @@ class TimeTable:
                           "kind": str(row.kind), "tone": row.tone} for row in self.rows]}
 
 
-Panel = StepTrack | PlayheadTable | TimeTable
+@dataclass
+class PanelTab:
+    """One tab holding several panels, drawn top to bottom in the order given: ``StepTrack``s (neighbours share one
+    band, drawn in the tab), ``PlayheadTable``s and ``TimeTable``s (each under its own ``heading``). ``title`` is the
+    tab's title, ``heading`` the line inside it."""
+
+    title: str
+    panels: Sequence[Any]
+    heading: str = ""
+    id: str = ""
+
+    def __post_init__(self) -> None:
+        self.panels = list(self.panels)
+        if not self.panels:
+            raise ValueError(f"panel tab {self.title!r} holds no panel")
+        for panel in self.panels:
+            if not isinstance(panel, (StepTrack, PlayheadTable, TimeTable)):
+                raise TypeError(f"panel tab {self.title!r} holds StepTracks, PlayheadTables and TimeTables, "
+                                f"got {type(panel).__name__}")
+        self.id = self.id or _slug(self.title)
+
+    def to_payload(self) -> dict[str, Any]:
+        parts: list[dict[str, Any]] = []
+        for panel in self.panels:
+            if isinstance(panel, StepTrack):
+                if parts and parts[-1]["kind"] == "band":
+                    parts[-1]["tracks"].append(panel.to_payload())
+                else:
+                    parts.append({"kind": "band", "tracks": [panel.to_payload()]})
+            else:
+                parts.append(panel.to_payload())
+        return {"kind": "group", "id": self.id, "title": str(self.title), "heading": str(self.heading or self.title),
+                "parts": parts}
+
+
+Panel = StepTrack | PlayheadTable | TimeTable | PanelTab
 
 
 def panels_payload(panels: Sequence[Any]) -> dict[str, Any] | None:
@@ -309,10 +377,11 @@ def panels_payload(panels: Sequence[Any]) -> dict[str, Any] | None:
     for panel in panels:
         if isinstance(panel, StepTrack):
             tracks.append(panel.to_payload())
-        elif isinstance(panel, (PlayheadTable, TimeTable)):
+        elif isinstance(panel, (PlayheadTable, TimeTable, PanelTab)):
             tabs.append(panel.to_payload())
         else:
-            raise TypeError(f"a panel is a StepTrack, a PlayheadTable or a TimeTable, got {type(panel).__name__}")
+            raise TypeError(f"a panel is a StepTrack, a PlayheadTable, a TimeTable or a PanelTab, "
+                            f"got {type(panel).__name__}")
     ids = [tab["id"] for tab in tabs]
     if len(ids) != len(set(ids)):
         raise ValueError(f"panel tabs need distinct ids (or titles), got {ids}")
